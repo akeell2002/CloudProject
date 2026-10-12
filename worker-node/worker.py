@@ -2,6 +2,7 @@ import boto3
 import redis
 import json
 import time
+import psycopg2
 
 sqs = boto3.client('sqs', endpoint_url='http://127.0.0.1:4566', region_name='us-east-1', aws_access_key_id='test', aws_secret_access_key='test')
 s3 = boto3.client('s3', endpoint_url='http://127.0.0.1:4566', region_name='us-east-1', aws_access_key_id='test', aws_secret_access_key='test')
@@ -9,11 +10,32 @@ cache = redis.Redis(host='127.0.0.1', port =6379, decode_responses=True)
 
 queue_url = "http://127.0.0.1:4566/000000000000/task-queue"
 
-def clean_traffic_data(file_content):
-    print("Cleaning data...")
-    return "clean_data"
+DB_PARAMS = {
+    "host": "127.0.0.1", 
+    "port": "5432",
+    "user": "admin",
+    "password": "admin",
+    "database": "dataclean_db"
+}
 
-print("Worker Node started. polling SQS for tasks...")
+def clean_traffic_data(file_content):
+    print("Parsing and cleaning data...")
+    try:
+        data = json.loads(file_content)
+        lat = data.get("latitude", 0)
+        lon = data.get("longitude", 0)
+
+        # Drop corrupted simulated outliers
+        if lat > 90 or lat < -90 or lon > 180 or lon < -180:
+            print(f"Invalid GPS coordinates ({lat}, {lon}). Dropping record.")
+            return None
+
+        return data
+    except (json.JSONDecodeError, TypeError) as err:
+        print(f"Payload parse failure: {err}")
+        return None
+
+print("Worker Node started. Polling SQS for tasks...")
 
 while True:
     # Poll SQS for messages
@@ -31,30 +53,64 @@ while True:
         file_key = s3_url.split('/')[3] # Extract the file key from the S3 URL
 
         try:
-            print(f"Simulating download of {file_key} from S3 bucket {bucket}...")
+            print(f"Downloading {file_key} from S3 bucket {bucket}...")
+            s3_response = s3.get_object(Bucket=bucket, Key=file_key)
+            file_content = s3_response['Body'].read().decode('utf-8')
 
-            clean_traffic_data("dummy_content") # Simulate cleaning the data
+            cleaned_record = clean_traffic_data(file_content)
 
-            print("Attempting to acquire Redis lock...") 
-            lock_acquired = cache.set("db_write_lock", "locked", nx=True, ex=10) # Try to acquire a lock with a 10-second expiration
-            
-            if lock_acquired:
-                print("Lock acquired! Writing clean data to PostgreSQL database...")
-                time.sleep(1) # Simulating the time it takes to write to the database
-                
-                # Release the lock for the next worker
-                cache.delete("db_write_lock")
-                print("Lock released.")
-                
-                # Delete the message from SQS
-                sqs.delete_message(QueueUrl=queue_url, ReceiptHandle=receipt_handle) # Delete the message from SQS
-                print("Task complete. Message deleted from SQS queue.")
+            # Try to acquire a lock with a 10-second expiration
+            if cleaned_record:
+                print("Attempting to acquire Redis lock...")
+                lock_acquired = cache.set("db_write_lock", "locked", nx=True, ex=10)
+
+                if lock_acquired:
+                    print("Lock acquired! Writing clean data to PostgreSQL database...")
+
+                    try:
+                        #Open Connection
+                        conn = psycopg2.connect(**DB_PARAMS)
+                        cur = conn.cursor()
+
+                        insert_query = """
+                            INSERT INTO cleansed_traffic 
+                            (vehicle_id, recorded_timestamp, latitude, longitude, speed_kmh)
+                            VALUES (%s, %s, %s, %s, %s)
+                        """
+                        cur.execute(insert_query, (
+                            cleaned_record['vehicle_id'], 
+                            cleaned_record['timestamp'], 
+                            cleaned_record['latitude'], 
+                            cleaned_record['longitude'], 
+                            cleaned_record['speed_kmh']
+                        ))
+
+                        #commit transaction
+                        conn.commit()
+                        print(f"Successfully saved vehicle {cleaned_record['vehicle_id']} to database!")
+
+                    except Exception as db_err:
+                        print(f"Database error: {db_err}")
+                        if conn:
+                            conn.rollback()
+                    finally:
+                        if cur: cur.close()
+                        if conn: conn.close()
+
+                    cache.delete("db_write_lock")
+                    print("Lock released.")
+                    sqs.delete_message(QueueUrl=queue_url, ReceiptHandle=receipt_handle) #Delete the message from SQS
+
+                else:
+                    print("Another worker is writing the database. Try again later.")
+
             else:
-                print("Another worker is writing to the database. Will retry later.")
+                print("Data was corrupted. Discarding and remvoing from the queue")
+                sqs.delete_message(QueueUrl=queue_url, ReceiptHandle=receipt_handle) #Delete the message from SQS
 
         except Exception as e:
             print(f"Error processing file: {e}")
+
     else:
         print("No new tasks. Waiting...")
-        
-    time.sleep(2) # Pause before asking the queue again
+        time.sleep(2) #Pause again before asking the queue again
