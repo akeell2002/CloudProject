@@ -128,6 +128,7 @@ while True:
 
         except Exception as e:
             print(f"Error processing file: {e}")
+            sqs.delete_message(QueueUrl=queue_url, ReceiptHandle=receipt_handle)
 
     else:
         print("No new tasks. Waiting...")

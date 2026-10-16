@@ -32,20 +32,15 @@ Here is how our project is organized. Every team member has a specific folder to
     *   *What it does:* The core cleansing application.
     *   *Why we need it:* These are the pods that do the actual heavy lifting. They poll the SQS queue, download the heavy JSON from S3, parse and clean the data, secure a Redis mutex lock, and write the clean records to PostgreSQL.
 
-    **`requirements.txt/` (Grocery List)**
-    * *What it does:* Packages the code, dependencies including all the libraries
-    * *Why we need it:* runs completely isolated from the environment it is hosted on
+    **`test-case/` (Validation)**
+    * *Fault Tolerance & Reliability:*
 
-    **`Dockerfile/` ()**
-    * *what it does:* Packages up code and all its dependencies, which includes programming language runtimes, executables, binary code, libraries, and configuration files.
-    * *why we need it:* Standardised unit for development, deployment, and distribution, so the application runs consistently across any environment
-    * *how it works:*
-        *   `FROM python:3.11-slim`: Use the slim version of Python 3.11 as our base image. This provides the necessary language runtime while keeping the image lightweight and minimizing security vulnerabilities.
-        *   `WORKDIR /app`: Sets `/app` as the internal directory where all subsequent commands are run.
-        *   `COPY requirements.txt .`: Copies our dependency list into the container.
-        *   `RUN pip install --no-cache-dir -r requirements.txt`: Installs the required Python libraries (`boto3`, `psycopg2`, etc.) without storing the cache, keeping the image size small.
-        *   `COPY worker.py .`: Copies our actual application logic into the container.
-        *   `CMD ["python", "worker.py"]`: The default command that executes when the container spins up.       
+    In distributed message-driven systems, network timeouts and worker node crashes can lead to duplicate task deliveries[cite: 12]. To guarantee data integrity and optimize compute costs, this architecture implements a two-layered idempotency defense:
+
+    * *At-Most-Once (Dynamic Filtering via Redis):* The worker maintains a history of successfully processed S3 object keys[cite: 11]. Re-delivered messages are intercepted at the top of the execution loop and discarded, preventing redundant S3 bandwidth and compute overhead.
+    * *At-Least-Once (Database Idempotency via PostgreSQL):* If the Redis cache is lost or a worker crashes mid-execution, tasks must be re-processed safely[cite: 11, 14]. Using `UNIQUE` schema constraints and `ON CONFLICT DO UPDATE` operations, PostgreSQL handles re-ingested data cleanly without throwing constraint errors or creating duplicate rows.
+
+    > **Note on Testing:** The automated Jupyter Notebook test suite verifying these distributed consensus mechanisms can be found in the [`/test-cases`](./test-cases) directory.        
 
 
 ### 📄 Root Files
