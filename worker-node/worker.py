@@ -3,6 +3,7 @@ import redis
 import json
 import time
 import psycopg2
+import psycopg2.extras
 
 sqs = boto3.client('sqs', endpoint_url='http://127.0.0.1:4566', region_name='us-east-1', aws_access_key_id='test', aws_secret_access_key='test')
 s3 = boto3.client('s3', endpoint_url='http://127.0.0.1:4566', region_name='us-east-1', aws_access_key_id='test', aws_secret_access_key='test')
@@ -47,6 +48,14 @@ while True:
         body = json.loads(message['Body']) # The message body is a JSON string, so we parse it
 
         s3_url = body['file_url']
+
+        # Duplicate Filtering (At-most once)
+        # Check the Redis history to see if we already processed this task
+        if cache.exists(s3_url):
+            print(f"Duplicate task detected: {s3_url}. Discarding to prevent redundant compute.")
+            sqs.delete_message(QueueUrl=queue_url, ReceiptHandle=receipt_handle)
+            continue # Instantly skip the rest of the loop and go back to waiting
+
         print(f"\nRecieved task! Claim-Check points to : {s3_url}")
 
         bucket = s3_url.split('/')[2] # Extract the bucket name from the S3 URL
@@ -76,7 +85,14 @@ while True:
                             INSERT INTO cleansed_traffic 
                             (vehicle_id, recorded_timestamp, latitude, longitude, speed_kmh)
                             VALUES (%s, %s, %s, %s, %s)
+                            ON CONFLICT (vehicle_id) 
+                            DO UPDATE SET 
+                                recorded_timestamp = EXCLUDED.recorded_timestamp,
+                                latitude = EXCLUDED.latitude,
+                                longitude = EXCLUDED.longitude,
+                                speed_kmh = EXCLUDED.speed_kmh;
                         """
+
                         cur.execute(insert_query, (
                             cleaned_record['vehicle_id'], 
                             cleaned_record['timestamp'], 
@@ -99,6 +115,8 @@ while True:
 
                     cache.delete("db_write_lock")
                     print("Lock released.")
+                    cache.set(s3_url, "completed", ex=86400) # Clears the history
+
                     sqs.delete_message(QueueUrl=queue_url, ReceiptHandle=receipt_handle) #Delete the message from SQS
 
                 else:
