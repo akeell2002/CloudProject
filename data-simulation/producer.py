@@ -1,9 +1,10 @@
 import boto3
 import json
 import uuid
-import random
 import time
+import random
 from datetime import datetime
+import requests
 
 s3 = boto3.client('s3', endpoint_url='http://127.0.0.1:4566', region_name='us-east-1', aws_access_key_id='test', aws_secret_access_key='test')
 sqs = boto3.client('sqs', endpoint_url='http://127.0.0.1:4566', region_name='us-east-1', aws_access_key_id='test', aws_secret_access_key='test')
@@ -11,28 +12,55 @@ sqs = boto3.client('sqs', endpoint_url='http://127.0.0.1:4566', region_name='us-
 bucket_name = 'lta-traffic-raw'
 queue_url = "http://127.0.0.1:4566/000000000000/task-queue"
 
-print("LTA Traffic Producer started. Generating data...")
+LTA_API_URL = "https://datamall2.mytransport.sg/ltaodataservice/Traffic-Imagesv2"
+HEADERS = {
+    "AccountKey": "lEcQ8QS7Qym7wXyoOAbnJA==",
+    "accept": "application/json"
+}
+
+def fetch_live_lta_traffic():
+    """Fetches real-time traffic snapshot data from LTA DataMall."""
+    response = requests.get(LTA_API_URL, headers=HEADERS, timeout=10)
+    if response.status_code == 200:
+        return response.json()
+    else:
+        print(f"Failed to fetch data from LTA API. Status code: {response.status_code}")
+        return None
+
+print("🚗 Live LTA DataMall Producer started. Fetching real telemetry...")
 
 while True:
-    data={
-        "vehicle_id": f"SG-{random.randint(1000, 9999)}",
-        "timestamp": str(datetime.now()),
-        "latitude": random.choice([1.3521, 999.99]), 
-        "longitude": random.choice([103.8198, -999.99]),
-        "speed_kmh": random.randint(0, 120)
-    }
+    try:
+        live_payload = fetch_live_lta_traffic()
 
-    fake_data_payload = json.dumps(data)
+        if live_payload and "value" in live_payload and len(live_payload["value"]) > 0:
+            # Extract one real camera record from the live array
+            camera = random.choice(live_payload["value"])
+            
+            # Format it to perfectly match your PostgreSQL schema
+            data = {
+                "vehicle_id": f"CAM-{camera['CameraID']}",
+                "timestamp": str(datetime.now()),
+                "latitude": camera["Latitude"], 
+                "longitude": camera["Longitude"],
+                "speed_kmh": 0  # Cameras don't track speed natively, defaulting to 0
+            }
 
-    file_name = f"traffic_data_{uuid.uuid4()}.json"
+            json_data = json.dumps(data)
+            file_name = f"lta_traffic_{uuid.uuid4()}.json"
 
-    s3.put_object(Bucket=bucket_name, Key=file_name, Body=fake_data_payload)
-    print(f"Uploaded heavy file to S3: {file_name}")
+            # Upload to S3 and trigger Claim-Check SQS
+            s3.put_object(Bucket=bucket_name, Key=file_name, Body=json_data)
+            print(f"\nStored live LTA record in S3: {file_name} (Camera {camera['CameraID']})")
 
-    s3_url = f"s3://{bucket_name}/{file_name}"
+            s3_url = f"s3://{bucket_name}/{file_name}"
+            message_body = json.dumps({"file_url": s3_url})
+            sqs.send_message(QueueUrl=queue_url, MessageBody=message_body)
+            print(f" Enqueued Claim-Check pointer to SQS: {s3_url}")
+        else:
+            print("No data retrieved in this iteration.")
 
-    message_body = json.dumps({"file_url": s3_url})
-    sqs.send_message(QueueUrl=queue_url, MessageBody=message_body)
-    print(f"Sent message to SQS with Claim-Check: {s3_url}")
+    except Exception as e:
+        print(f"Error occurred: {e}")
 
-    time.sleep(3)  # Simulate a delay between data generation
+    time.sleep(10)

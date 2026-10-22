@@ -17,5 +17,5 @@ queue_url = queue['QueueUrl']
 print(f"✅ SQS Queue created at: {queue_url}")
 
 # 4. Send a test "Claim-Check" message into the queue
-sqs.send_message(QueueUrl=queue_url, MessageBody='{"file_url": "s3://lta-traffic-raw/test_data.json"}')
-print("✅ Test message successfully sent to the queue!")
+#sqs.send_message(QueueUrl=queue_url, MessageBody='{"file_url": "s3://lta-traffic-raw/test_data.json"}')
+#print("✅ Test message successfully sent to the queue!")
