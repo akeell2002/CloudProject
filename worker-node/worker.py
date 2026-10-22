@@ -1,134 +1,371 @@
-import boto3
-import redis
+# LIVE QUEUE WORKER + DASHBOARD REPORTING
+# Flow: receive SQS reference -> download S3 JSON -> validate -> commit to
+# PostgreSQL -> acknowledge/delete SQS message. Failed tasks stay for retry.
+# Changes from the prototype: Docker service configuration, stricter validation,
+# safe nested S3 keys, transaction-based writes without a global Redis lock,
+# and worker heartbeats/events for the dashboard. No autoscaling is performed.
+# PostgreSQL correctness and Redis monitoring are separate responsibilities.
+
 import json
+import logging
+import math
+import os
 import time
+import socket
+import threading
+from datetime import datetime, timezone
+from urllib.parse import urlsplit
+
+import boto3
 import psycopg2
+import redis
+from botocore.config import Config
 
-sqs = boto3.client('sqs', endpoint_url='http://127.0.0.1:4566', region_name='us-east-1', aws_access_key_id='test', aws_secret_access_key='test')
-s3 = boto3.client('s3', endpoint_url='http://127.0.0.1:4566', region_name='us-east-1', aws_access_key_id='test', aws_secret_access_key='test')
-cache = redis.Redis(host='127.0.0.1', port =6379, decode_responses=True)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+)
 
-queue_url = "http://127.0.0.1:4566/000000000000/task-queue"
+# Each container gets its own hostname; this identifies the reporting instance.
+# Recreating a container may change it. This is not a Kubernetes replica count.
+WORKER_ID = socket.gethostname()
 
-DB_PARAMS = {
-    "host": "127.0.0.1", 
-    "port": "5432",
-    "user": "admin",
-    "password": "admin",
-    "database": "dataclean_db"
+ENDPOINT = os.getenv("AWS_ENDPOINT", "http://localstack:4566")
+
+# The socket read timeout exceeds the 20-second SQS long-poll wait below.
+# AWS credentials/region are supplied through Compose environment variables.
+sqs = boto3.client(
+    "sqs",
+    endpoint_url=ENDPOINT,
+    config=Config(
+        connect_timeout=5,
+        read_timeout=25,
+        retries={"max_attempts": 2},
+    ),
+)
+
+s3 = boto3.client(
+    "s3",
+    endpoint_url=ENDPOINT,
+    config=Config(
+        connect_timeout=5,
+        read_timeout=10,
+        retries={"max_attempts": 2},
+    ),
+)
+
+# Redis is used only for best-effort UI reporting here, not a database mutex
+# or an authoritative processed-task ledger. Short timeouts limit its impact.
+monitor = redis.Redis(
+    host=os.getenv("REDIS_HOST", "redis"),
+    port=int(os.getenv("REDIS_PORT", "6379")),
+    decode_responses=True,
+    socket_connect_timeout=0.5,
+    socket_timeout=0.5,
+)
+
+worker_state = {
+    "id": WORKER_ID,
+    "status": "idle",
+    "task": None,
 }
 
-def clean_traffic_data(file_content):
-    print("Parsing and cleaning data...")
+# Inside Docker use postgres:5432; Windows pgAdmin uses the published host
+# port (currently 5433). Query/lock timeouts bound common database stalls.
+DB_PARAMS = {
+    "host": os.getenv("POSTGRES_HOST", "postgres"),
+    "port": int(os.getenv("POSTGRES_PORT", "5432")),
+    "dbname": os.getenv("POSTGRES_DB", "dataclean_db"),
+    "user": os.getenv("POSTGRES_USER", "admin"),
+    "password": os.environ["POSTGRES_PASSWORD"],
+    "connect_timeout": 5,
+    "options": "-c statement_timeout=15000 -c lock_timeout=5000",
+}
+
+queue_url = sqs.get_queue_url(QueueName="task-queue")["QueueUrl"]
+
+# This lock protects shared state within THIS Python process only.
+# It does not serialize database writes across workers like the old Redis lock.
+state_lock = threading.Lock()
+
+# Reject booleans (Python otherwise treats them as integers), numeric strings,
+# NaN and infinity so malformed values cannot silently enter the database.
+def numeric(value, name):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be a number")
+
+    if not math.isfinite(value):
+        raise ValueError(f"{name} must be finite")
+
+    return float(value)
+
+
+# Validate required fields and normalize types. This does not repair missing
+# GPS data or infer real speeds. Invalid records raise and follow retry/DLQ flow.
+# Return values are in the exact order used by the INSERT placeholders below.
+def clean_record(content):
+    data = json.loads(content)
+
+    if not isinstance(data, dict):
+        raise ValueError("Record must be a JSON object")
+
+    vehicle_id = data.get("vehicle_id")
+    if (
+        not isinstance(vehicle_id, str)
+        or not vehicle_id.strip()
+        or len(vehicle_id.strip()) > 50
+    ):
+        raise ValueError("Invalid camera identifier")
+
+    latitude = numeric(data.get("latitude"), "latitude")
+    longitude = numeric(data.get("longitude"), "longitude")
+    speed = numeric(data.get("speed_kmh"), "speed_kmh")
+
+    if not -90 <= latitude <= 90:
+        raise ValueError("Latitude outside valid range")
+
+    if not -180 <= longitude <= 180:
+        raise ValueError("Longitude outside valid range")
+
+    if not 0 <= speed <= 300 or not speed.is_integer():
+        raise ValueError("Invalid speed placeholder/value")
+
+    timestamp = data.get("timestamp")
+    if not isinstance(timestamp, str):
+        raise ValueError("Missing timestamp")
+
+    observed_at = datetime.fromisoformat(
+        timestamp.replace("Z", "+00:00")
+    )
+
+    # A timezone-aware input is normalized to UTC. A naive input is preserved;
+    # our current producer emits naive UTC, so other producers must do likewise.
+    if observed_at.tzinfo is not None:
+        observed_at = (
+            observed_at.astimezone(timezone.utc)
+            .replace(tzinfo=None)
+        )
+
+    return (
+        vehicle_id.strip(),
+        observed_at,
+        latitude,
+        longitude,
+        int(speed),
+    )
+
+
+# One latest row per camera, not a historical row for every message.
+# The UNIQUE(vehicle_id) constraint and atomic UPSERT make repeat delivery safe.
+# Older/equal timestamps leave the current row untouched, avoiding stale retries
+# overwriting newer data. rowcount=0 therefore means a successful no-op.
+def store_record(record):
+    connection = psycopg2.connect(**DB_PARAMS)
+
     try:
-        data = json.loads(file_content)
-        lat = data.get("latitude", 0)
-        lon = data.get("longitude", 0)
+        # Commit on success; rollback if an exception escapes.
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO cleansed_traffic
+                        (
+                            vehicle_id,
+                            recorded_timestamp,
+                            latitude,
+                            longitude,
+                            speed_kmh
+                        )
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (vehicle_id)
+                    DO UPDATE SET
+                        recorded_timestamp = EXCLUDED.recorded_timestamp,
+                        latitude = EXCLUDED.latitude,
+                        longitude = EXCLUDED.longitude,
+                        speed_kmh = EXCLUDED.speed_kmh,
+                        processed_at = CURRENT_TIMESTAMP
+                    WHERE EXCLUDED.recorded_timestamp
+                          > cleansed_traffic.recorded_timestamp
+                    """,
+                    record,
+                )
+                changed = cursor.rowcount
 
-        # Drop corrupted simulated outliers
-        if lat > 90 or lat < -90 or lon > 180 or lon < -180:
-            print(f"Invalid GPS coordinates ({lat}, {lon}). Dropping record.")
-            return None
+        return changed
+    finally:
+        connection.close()
 
-        return data
-    except (json.JSONDecodeError, TypeError) as err:
-        print(f"Payload parse failure: {err}")
-        return None
 
-print("Worker Node started. Polling SQS for tasks...")
+# A heartbeat proves this process is reporting, not that all dependencies work.
+# Hold the local lock through publication so an older snapshot cannot overwrite
+# a newer processing state. The API marks reports older than 15s unavailable;
+# Redis expires the entry after 120s. Neither timeout proves Kubernetes deletion.
+def publish_heartbeat():
+    try:
+        with state_lock:
+            snapshot = dict(worker_state)
+            snapshot["last_seen"] = time.time()
+            # Keep an expired worker visible briefly as "unavailable".
+            # After 120 seconds without a report, remove it from discovery.
+            monitor.set(
+                f"dataclean:worker:{WORKER_ID}",
+                json.dumps(snapshot),
+                ex=120,
+            )
+    except redis.RedisError:
+        # Monitoring failure must not discard processing tasks.
+        pass
 
+
+# Publish transitions immediately; the background loop also refreshes them
+# while this thread waits on SQS/S3/PostgreSQL. task is the SQS message ID.
+def report_status(status, task=None):
+    with state_lock:
+        worker_state["status"] = status
+        worker_state["task"] = task
+
+    publish_heartbeat()
+
+
+# Redis Streams retain recent event IDs so browser polls can deduplicate them.
+# Approximate trimming keeps roughly 1,000 entries; this is not an audit log.
+# Events may be missing during Redis outages. Processing must continue anyway.
+def report_event(kind, task, detail=""):
+    try:
+        monitor.xadd(
+            "dataclean:events",
+            {
+                "worker_id": WORKER_ID,
+                "kind": kind,
+                "task": task or "",
+                "detail": str(detail)[:200],
+                "timestamp": str(time.time()),
+            },
+            maxlen=1000,
+            approximate=True,
+        )
+    except redis.RedisError:
+        pass
+
+
+def heartbeat_loop():
+    # Separate thread: stays alive during SQS long polling.
+    while True:
+        publish_heartbeat()
+        time.sleep(3)
+
+
+# Define all helpers and start reporting BEFORE entering the infinite loop.
+# The daemon thread exits with the worker process; it does not create new workers.
+threading.Thread(
+    target=heartbeat_loop,
+    name="worker-heartbeat",
+    daemon=True,
+).start()
+
+logging.info("Worker %s started; waiting for tasks", WORKER_ID)
+
+# Each instance claims one message at a time; multiple instances compete on SQS.
+# Visibility is a temporary lease, not an exactly-once guarantee. This version
+# does not extend the lease for tasks taking longer than 120s, so duplicate
+# processing remains possible and database idempotency is still necessary.
 while True:
-    # Poll SQS for messages
-    response = sqs.receive_message(QueueUrl=queue_url, MaxNumberOfMessages=1, WaitTimeSeconds=5)
+    try:
+        response = sqs.receive_message(
+            QueueUrl=queue_url,
+            MaxNumberOfMessages=1,
+            WaitTimeSeconds=20,
+            VisibilityTimeout=120,
+        )
+    except Exception as exc:
+        report_status("queue unavailable")
+        logging.error("Queue polling failed: %s", exc)
+        time.sleep(5)
+        continue
 
-    if 'Messages' in response:
-        message = response['Messages'][0] # Get the first message
-        receipt_handle = message['ReceiptHandle'] #The ID needed to delete the message later
-        body = json.loads(message['Body']) # The message body is a JSON string, so we parse it
+    if not response.get("Messages"):
+        report_status("idle")
 
-        s3_url = body['file_url']
+    for message in response.get("Messages", []):
 
-        # Duplicate Filtering (At-most once)
-        # Check the Redis history to see if we already processed this task
-        if cache.exists(s3_url):
-            print(f"Duplicate task detected: {s3_url}. Discarding to prevent redundant compute.")
-            sqs.delete_message(QueueUrl=queue_url, ReceiptHandle=receipt_handle)
-            continue # Instantly skip the rest of the loop and go back to waiting
-
-        print(f"\nRecieved task! Claim-Check points to : {s3_url}")
-
-        bucket = s3_url.split('/')[2] # Extract the bucket name from the S3 URL
-        file_key = s3_url.split('/')[3] # Extract the file key from the S3 URL
+        task_id = message["MessageId"]
+        report_status("processing", task_id)
+        report_event("claimed", task_id)
 
         try:
-            print(f"Downloading {file_key} from S3 bucket {bucket}...")
-            s3_response = s3.get_object(Bucket=bucket, Key=file_key)
-            file_content = s3_response['Body'].read().decode('utf-8')
+            body = json.loads(message["Body"])
 
-            cleaned_record = clean_traffic_data(file_content)
+            if not isinstance(body, dict):
+                raise ValueError("Task must be a JSON object")
 
-            # Try to acquire a lock with a 10-second expiration
-            if cleaned_record:
-                print("Attempting to acquire Redis lock...")
-                lock_acquired = cache.set("db_write_lock", "locked", nx=True, ex=10)
+            file_url = body.get("file_url")
+            if not isinstance(file_url, str):
+                raise ValueError("Task is missing file_url")
 
-                if lock_acquired:
-                    print("Lock acquired! Writing clean data to PostgreSQL database...")
+            # Preserve the full key: live/abc.json must not become just "live".
+            # Accept only the configured raw bucket and a plain S3 object URI.
+            location = urlsplit(file_url)
+            key = location.path.lstrip("/")
 
-                    try:
-                        #Open Connection
-                        conn = psycopg2.connect(**DB_PARAMS)
-                        cur = conn.cursor()
+            if (
+                location.scheme != "s3"
+                or location.netloc != "lta-traffic-raw"
+                or not key
+                or location.query
+                or location.fragment
+            ):
+                raise ValueError("Invalid S3 file reference")
 
-                        insert_query = """
-                            INSERT INTO cleansed_traffic 
-                            (vehicle_id, recorded_timestamp, latitude, longitude, speed_kmh)
-                            VALUES (%s, %s, %s, %s, %s)
-                            ON CONFLICT (vehicle_id) 
-                            DO UPDATE SET 
-                                recorded_timestamp = EXCLUDED.recorded_timestamp,
-                                latitude = EXCLUDED.latitude,
-                                longitude = EXCLUDED.longitude,
-                                speed_kmh = EXCLUDED.speed_kmh;
-                        """
+            logging.info("Processing %s", key)
 
-                        cur.execute(insert_query, (
-                            cleaned_record['vehicle_id'], 
-                            cleaned_record['timestamp'], 
-                            cleaned_record['latitude'], 
-                            cleaned_record['longitude'], 
-                            cleaned_record['speed_kmh']
-                        ))
+            result = s3.get_object(
+                Bucket=location.netloc,
+                Key=key,
+            )
 
-                        #commit transaction
-                        conn.commit()
-                        print(f"Successfully saved vehicle {cleaned_record['vehicle_id']} to database!")
+            stream = result["Body"]
+            try:
+                content = stream.read().decode("utf-8")
+            finally:
+                stream.close()
 
-                    except Exception as db_err:
-                        print(f"Database error: {db_err}")
-                        if conn:
-                            conn.rollback()
-                    finally:
-                        if cur: cur.close()
-                        if conn: conn.close()
+            report_event("downloaded", task_id)
+            record = clean_record(content)
+            changed = store_record(record)
 
-                    cache.delete("db_write_lock")
-                    print("Lock released.")
-                    cache.set(s3_url, "completed", ex=86400) # Clears the history
+            # This event follows a completed DB transaction, before queue ack.
+            # If acknowledgment fails, a later retry safely becomes a no-op.
+            report_event(
+                "stored" if changed else "unchanged",
+                task_id,
+                record[0],
+            )
 
-                    sqs.delete_message(QueueUrl=queue_url, ReceiptHandle=receipt_handle) #Delete the message from SQS
+            # Crucially, acknowledge only after the transaction succeeds.
+            sqs.delete_message(
+                QueueUrl=queue_url,
+                ReceiptHandle=message["ReceiptHandle"],
+            )
 
-                else:
-                    print("Another worker is writing the database. Try again later.")
+            logging.info(
+                "Acknowledged %s: %s",
+                record[0],
+                "stored" if changed else "duplicate/older observation",
+            )
 
-            else:
-                print("Data was corrupted. Discarding and remvoing from the queue")
-                sqs.delete_message(QueueUrl=queue_url, ReceiptHandle=receipt_handle) #Delete the message from SQS
+        except Exception as exc:
+            # No delete here: SQS can deliver the task again after visibility
+            # expires. Repeated failures, including invalid records, eventually
+            # move to the DLQ configured in bootstrap.py. Nothing is "fixed"
+            # merely by retrying; inspect DLQ tasks to diagnose persistent errors.
+            logging.error(
+                "Task %s failed; retained for retry: %s",
+                message.get("MessageId"),
+                exc,
+            )
+            report_event("failed", task_id, type(exc).__name__)
 
-        except Exception as e:
-            print(f"Error processing file: {e}")
-            sqs.delete_message(QueueUrl=queue_url, ReceiptHandle=receipt_handle)
-
-    else:
-        print("No new tasks. Waiting...")
-        time.sleep(2) #Pause again before asking the queue again
+        finally:
+            # Idle means this worker is no longer handling the current attempt,
+            # not that it succeeded. Consult the stored/unchanged/failed events.
+            report_status("idle")

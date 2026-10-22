@@ -73,3 +73,43 @@ To keep our development fast and avoid breaking each other's code, we follow a s
 1. **NEVER push directly to the `main` branch.** The `main` branch must always contain a working, stable version of the project.
 2. **Create a Feature Branch:** When you start working on your folder, create a new branch off of `main`. Use a descriptive name (e.g., `git checkout -b setup/local-compose` or `git checkout -b feat/redis-lock`).
 3. **Open a Pull Request (PR):** When your code is working locally, push your branch to GitHub and open a PR. Have at least one other team member review and approve it before merging it into `main`.
+
+
+### BRAND NEW UPDATED INSTRUCTIONS FOR FAST DELPOYMENT ###
+
+1. Open Docker Desktop and wait until it’s running.
+2. In the project root, copy .env.example and rename the copy to .env. Replace the placeholder with your LTA DataMall API key.
+3. Double-click start-project.bat, or run .\start-project.bat from PowerShell in the project folder.
+4. Wait for startup to finish. The first run may take several minutes to download and build the Docker images.
+5. Open http://localhost:8000 in Chrome or another browser.
+6. Voilà—you’ve got your GUI! Select Live to view actual processing.
+
+
+### TO QUIT ###
+1. Back in terminal press Cntrl C
+2. then type 
+docker compose --env-file .env -f local-env/docker-compose.yml -f local-env/docker-compose.dashboard.yml down
+
+
+### Optional: VIEW THE DB in pgAdmin4 ###
+0. Remember to download pgAdmin4 if you want to view ofc
+1. Start CloudProject using start-project.bat and wait for startup to finish.
+2. Open pgAdmin 4.
+3. Right-click Servers → Register → Server.
+4. Under General, enter a name such as CloudProject.
+5. Under Connection, enter:
+
+| Field | Value |
+|---|---|
+| Host name/address | `127.0.0.1` |
+| Port | `5433` |
+| Maintenance database | `dataclean_db` |
+| Username | `admin` |
+| Password | `admin` |
+
+6. Click Save, then expand:
+CloudProject → Databases → dataclean_db
+→ Schemas → public → Tables → cleansed_traffic
+
+7. Right-click cleansed_traffic → View/Edit Data → All Rows.
+8. Refresh the data view to see the latest records.
