@@ -254,7 +254,7 @@ body.studio-light {
 }
 
 .studio-light .packet-envelope {
-  filter: none;
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.18));
 }
 
 .studio-light .packet-envelope rect {

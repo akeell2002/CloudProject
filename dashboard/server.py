@@ -14,7 +14,7 @@ from typing import Any
 
 import boto3
 from botocore.config import Config
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -31,6 +31,17 @@ except ImportError:
 
 BASE = Path(__file__).resolve().parent
 app = FastAPI(title="CloudProject Dashboard", version="0.1.0")
+
+
+@app.middleware("http")
+async def disable_browser_cache(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
 app.mount("/assets", StaticFiles(directory=str(BASE / "static")), name="assets")
 
 AWS_ENDPOINT = os.getenv("AWS_ENDPOINT", "http://localstack:4566")
@@ -123,6 +134,42 @@ def index() -> FileResponse:
 def health() -> dict[str, Any]:
     return {"ok": True, "service": "dashboard-api"}
 
+def get_producer_telemetry():
+    unavailable = {
+        "connected": False,
+        "status": "unavailable",
+        "last_seen": None,
+        "sent_total": 0,
+        "last_batch_size": 0,
+    }
+    if redis is None:
+        return unavailable
+
+    try:
+        client = redis.Redis(
+            host=REDIS_HOST,
+            port=REDIS_PORT,
+            decode_responses=True,
+            socket_connect_timeout=1,
+            socket_timeout=1,
+        )
+        raw = client.get("dataclean:producer")
+        if not raw:
+            return unavailable
+        data = json.loads(raw)
+        age = max(0, time.time() - float(data.get("last_seen", 0)))
+        return {
+            "connected": age <= 15,
+            "status": data.get("status", "running") if age <= 15 else "unavailable",
+            "last_seen": float(data.get("last_seen", 0)),
+            "sent_total": int(data.get("sent_total", 0)),
+            "last_batch_size": int(data.get("last_batch_size", 0)),
+            "batch_count": int(data.get("batch_count", 0)),
+        }
+    except Exception:
+        return unavailable
+
+
 def get_worker_telemetry():
     unavailable = {
         "connected": False,
@@ -201,6 +248,6 @@ def snapshot() -> dict[str, Any]:
         "database": database,
         "redis": cache,
         "workers": get_worker_telemetry(),
-        "producer": {"connected": False, "note": "Producer heartbeat instrumentation is not connected yet"},
+        "producer": get_producer_telemetry(),
         "metric_note": "SQS counts are approximate; DB count is current rows, not total processing events",
     }

@@ -235,6 +235,7 @@ def report_event(kind, task, detail=""):
         monitor.xadd(
             "dataclean:events",
             {
+                "source": "worker",
                 "worker_id": WORKER_ID,
                 "kind": kind,
                 "task": task or "",
@@ -274,7 +275,7 @@ while True:
         response = sqs.receive_message(
             QueueUrl=queue_url,
             MaxNumberOfMessages=1,
-            WaitTimeSeconds=20,
+            WaitTimeSeconds=2,
             VisibilityTimeout=120,
         )
     except Exception as exc:
@@ -291,6 +292,7 @@ while True:
         task_id = message["MessageId"]
         report_status("processing", task_id)
         report_event("claimed", task_id)
+        time.sleep(0.3)
 
         try:
             body = json.loads(message["Body"])
@@ -330,6 +332,7 @@ while True:
                 stream.close()
 
             report_event("downloaded", task_id)
+            time.sleep(0.3)
             record = clean_record(content)
             changed = store_record(record)
 
@@ -340,6 +343,7 @@ while True:
                 task_id,
                 record[0],
             )
+            time.sleep(0.2)
 
             # Crucially, acknowledge only after the transaction succeeds.
             sqs.delete_message(

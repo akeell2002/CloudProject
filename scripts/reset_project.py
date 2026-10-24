@@ -83,6 +83,7 @@ def main():
         # Never FLUSHALL: Redis may contain unrelated application keys.
         keys = list(cache.scan_iter(match="dataclean:worker:*"))
         keys.append("dataclean:events")
+        keys.append("dataclean:producer")
         for offset in range(0, len(keys), 100):
             cache.delete(*keys[offset:offset + 100])
         logging.info("Reset complete: removed %s camera rows; queues and worker reports cleared", previous_rows)

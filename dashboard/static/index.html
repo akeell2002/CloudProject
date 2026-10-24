@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>CloudProject · Network Studio</title>
   <meta name="description" content="Packet Tracer-style distributed processing dashboard" />
-  <link rel="stylesheet" href="/assets/styles.css" />
-  <link rel="stylesheet" href="/assets/layout.css" />
+  <link rel="stylesheet" href="/assets/styles.css?v=4" />
+  <link rel="stylesheet" href="/assets/layout.css?v=4" />
 </head>
 <body>
   <div id="app">
@@ -51,7 +51,7 @@
               <button class="toolbtn" id="zoomOut" title="Zoom out">−</button><span class="zoom-label" id="zoomPct">100%</span><button class="toolbtn" id="zoomIn" title="Zoom in">+</button><button class="toolbtn" id="zoomReset" title="Reset zoom">⌖</button>
             </div>
           </div>
-          <div id="modeNotice" class="mode-notice">LIVE · Connecting to worker reporting…</div>
+          <div id="modeNotice" class="mode-notice">LIVE · Connecting to real-time pipeline telemetry…</div>
           <div class="canvas-scroller" id="scroller">
             <div class="canvas" id="canvas">
               <div class="grid-bg"></div>
@@ -86,7 +86,7 @@
       <footer class="footerbar"><span>◈ NETWORK STUDIO</span><span id="footerNote">Live worker reporting · Kubernetes integration pending</span><div class="footer-right"><button id="playPause" class="foot-control" disabled>Ⅱ Pause demo</button><button id="demoBurst" class="foot-control" disabled>+ Add workload</button></div></footer>
     </main>
   </div>
-  <script src="/assets/app.js" defer></script>
-  <script src="/assets/layout.js" defer></script>
+  <script src="/assets/app.js?v=4" defer></script>
+  <script src="/assets/layout.js?v=4" defer></script>
 </body>
 </html>

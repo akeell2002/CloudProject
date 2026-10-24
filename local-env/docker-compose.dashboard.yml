@@ -65,14 +65,17 @@ services:
     environment:
       <<: *aws
       LTA_ACCOUNT_KEY: ${LTA_ACCOUNT_KEY:?Set LTA_ACCOUNT_KEY in the root .env file}
-      POLL_SECONDS: "60"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      POLL_SECONDS: "15"
     depends_on:
       bootstrap:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_started
     restart: unless-stopped
-
 
   worker:
     build:
