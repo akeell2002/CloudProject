@@ -70,10 +70,22 @@ def get_queue() -> dict[str, Any]:
             AttributeNames=["ApproximateNumberOfMessages", "ApproximateNumberOfMessagesNotVisible"],
         )
         attrs = result.get("Attributes", {})
+        dlq_count = 0
+        try:
+            dlq_url = client.get_queue_url(QueueName="task-dead-letter")["QueueUrl"]
+            dlq_attrs = client.get_queue_attributes(
+                QueueUrl=dlq_url,
+                AttributeNames=["ApproximateNumberOfMessages"],
+            ).get("Attributes", {})
+            dlq_count = int(dlq_attrs.get("ApproximateNumberOfMessages", 0))
+        except Exception:
+            pass
+
         return {
             "online": True,
             "pending": int(attrs.get("ApproximateNumberOfMessages", 0)),
             "inflight": int(attrs.get("ApproximateNumberOfMessagesNotVisible", 0)),
+            "dlq": dlq_count,
             "error": None,
         }
     except Exception as exc:
@@ -165,6 +177,7 @@ def get_producer_telemetry():
             "sent_total": int(data.get("sent_total", 0)),
             "last_batch_size": int(data.get("last_batch_size", 0)),
             "batch_count": int(data.get("batch_count", 0)),
+            "speed_bands_cached": int(data.get("speed_bands_cached", 0)),
         }
     except Exception:
         return unavailable

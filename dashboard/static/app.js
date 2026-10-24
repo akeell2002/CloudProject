@@ -19,24 +19,26 @@
   const nodes = {
     source: {
       name: 'LTA DataMall',
-      type: 'External camera API',
+      type: 'Municipal Stream APIs',
       icon: '↯',
-      description: 'Live traffic camera telemetry provided by Singapore Land Transport Authority (DataMall v2). Observations capture camera locations and images.',
+      description: 'Live roaming taxi GPS (Taxi-Availability) fused with expressway traffic speed bands (TrafficSpeedBands v4) provided by Singapore LTA DataMall.',
       attributes: () => [
-        ['API', 'Traffic-Imagesv2'],
+        ['APIs', 'Taxi-Availability & SpeedBands'],
         ['Endpoint', 'datamall2.mytransport.sg'],
-        ['Data type', 'Camera observation metadata'],
+        ['Cached speed bands', fmt(state.snapshot?.producer?.speed_bands_cached)],
+        ['Data type', 'Fused vehicle GPS & speed'],
       ]
     },
     producer: {
       name: 'Producer',
-      type: 'Python ingestion service',
+      type: 'Ingestion Service (Raw Lake)',
       icon: '⇣',
-      description: 'Fetches camera observations from LTA, stores raw payloads in LocalStack S3, and emits lightweight SQS Claim-Check tasks.',
+      description: 'Extracts live taxi GPS observations, caches LTA road speed bands in Redis, uploads pure raw JSON to S3, and emits SQS claim-check tasks.',
       attributes: () => [
         ['Status', state.snapshot?.producer?.status || (state.mode === 'demo' ? 'Simulated' : 'Connecting')],
         ['Connection', serviceLabel('producer')],
         ['Total queued', fmt(state.snapshot?.producer?.sent_total)],
+        ['Speed bands active', fmt(state.snapshot?.producer?.speed_bands_cached)],
         ['Latest batch', fmt(state.snapshot?.producer?.last_batch_size)],
         ['Pattern', 'Claim-Check (S3 + SQS)'],
         ['Source', 'LTA DataMall'],
@@ -62,6 +64,7 @@
         ['Connection', serviceLabel('queue')],
         ['Waiting tasks', metric('queue', 'pending')],
         ['In flight (leased)', metric('queue', 'inflight')],
+        ['Dead-letter (DLQ)', fmt(state.snapshot?.queue?.dlq ?? 0)],
         ['Queue name', 'task-queue'],
       ]
     },
@@ -69,7 +72,7 @@
       name: 'PostgreSQL',
       type: 'Cleaned-data store',
       icon: '▤',
-      description: 'Stores cleansed camera telemetry into cleansed_traffic. Uses UNIQUE(vehicle_id) with ON CONFLICT DO UPDATE for guaranteed idempotency.',
+      description: 'Stores cleansed vehicle telemetry into cleansed_traffic. Uses UNIQUE(vehicle_id) with ON CONFLICT DO UPDATE for guaranteed idempotency.',
       attributes: () => [
         ['Connection', serviceLabel('database')],
         ['Cleaned rows', metric('database', 'records')],
@@ -239,7 +242,7 @@
         name: `Worker ${worker.id.slice(0, 8)}`,
         type: demo ? 'Simulated worker' : 'Reporting Docker worker',
         icon: '⬡',
-        description: 'Pulls tasks from SQS, fetches raw JSON from S3, validates fields, and idempotently upserts to PostgreSQL.',
+        description: 'Claims tasks from SQS, downloads raw GPS from S3, fuses nearest expressway speed bands from Redis, cleans data, and idempotently upserts to PostgreSQL.',
         attributes: () => [
           ['Status', worker.status],
           ['Worker ID', worker.id],
@@ -320,7 +323,7 @@
     if (recordsHelp) {
       const sent = state.snapshot?.producer?.sent_total;
       recordsHelp.textContent = (state.mode === 'live' && sent)
-        ? `Unique cameras (${sent} updates)`
+        ? `Unique vehicles (${sent} updates)`
         : 'Current rows in PostgreSQL';
     }
     $('workersMetric').textContent = state.mode === 'demo' ? state.demoWorkers : fmt(state.snapshot?.workers?.replicas);
