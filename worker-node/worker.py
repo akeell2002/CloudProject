@@ -1,7 +1,11 @@
 # LIVE QUEUE WORKER + QUALITY-AWARE CLEANSING ENGINE
-# Flow: SQS Claim-Check -> S3 Fetch -> Spatial & Dynamic Cleansing -> Postgres UPSERT -> Ack
-# Filters spatial GPS anomalies (Singapore bounding box) and speed outliers.
-# Isolates unparseable poison payloads into SQS Dead-Letter Queue (DLQ).
+# Mode 1 (Default / Cloud Native): High-Performance Google gRPC Server
+#   - Coordinator dispatches tasks via Google RPC (traffic.proto)
+#   - Worker fetches raw JSON from S3 Bronze Lake
+#   - Executes distributed speed fusion with Redis road segments
+#   - Cleanses GPS / speed anomalies and commits idempotent PostgreSQL UPSERT
+#   - Returns binary TaskResponse to Coordinator
+# Mode 2 (Fallback): Direct SQS Claim-Check Pull
 
 import json
 import logging
@@ -11,13 +15,18 @@ import random
 import socket
 import threading
 import time
+from concurrent import futures
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 import boto3
+import grpc
 import psycopg2
 import redis
 from botocore.config import Config
+
+import traffic_pb2
+import traffic_pb2_grpc
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,6 +34,14 @@ logging.basicConfig(
 )
 
 WORKER_ID = socket.gethostname()
+try:
+    WORKER_IP = socket.gethostbyname(socket.gethostname())
+except Exception:
+    WORKER_IP = WORKER_ID
+
+GRPC_PORT = int(os.getenv("GRPC_PORT", "50051"))
+WORKER_MODE = os.getenv("WORKER_MODE", "grpc").lower()
+
 S3_ENDPOINT = os.getenv("S3_ENDPOINT", os.getenv("AWS_ENDPOINT", "http://localstack-s3:4566"))
 SQS_ENDPOINT = os.getenv("SQS_ENDPOINT", os.getenv("AWS_ENDPOINT", "http://localstack-sqs:4566"))
 
@@ -59,8 +76,12 @@ monitor = redis.Redis(
 
 worker_state = {
     "id": WORKER_ID,
+    "ip": WORKER_IP,
     "status": "idle",
     "task": None,
+    "grpc_port": GRPC_PORT,
+    "endpoint": f"{WORKER_IP}:{GRPC_PORT}",
+    "mode": WORKER_MODE,
 }
 state_lock = threading.Lock()
 
@@ -69,12 +90,10 @@ DB_PARAMS = {
     "port": int(os.getenv("POSTGRES_PORT", "5432")),
     "dbname": os.getenv("POSTGRES_DB", "dataclean_db"),
     "user": os.getenv("POSTGRES_USER", "admin"),
-    "password": os.environ["POSTGRES_PASSWORD"],
+    "password": os.environ.get("POSTGRES_PASSWORD", "admin"),
     "connect_timeout": 5,
     "options": "-c statement_timeout=15000 -c lock_timeout=5000",
 }
-
-queue_url = sqs.get_queue_url(QueueName="task-queue")["QueueUrl"]
 
 # -----------------------------------------------------------------------------
 # DOMAIN CLEANSING BOUNDARIES
@@ -154,7 +173,7 @@ def clean_record(content):
     and applies quality cleansing filters.
     Returns (cleaned_tuple, None) on success.
     Returns (None, discard_reason) for droppable sensor outliers.
-    Raises ValueError / JSONDecodeError for unparseable poison records (DLQ flow).
+    Raises ValueError / JSONDecodeError for unparseable poison records.
     """
     data = json.loads(content)
     if not isinstance(data, dict):
@@ -293,39 +312,22 @@ threading.Thread(
     daemon=True,
 ).start()
 
-logging.info("Quality-Aware Cleansing Worker %s started; polling SQS", WORKER_ID)
 
-while True:
-    try:
-        response = sqs.receive_message(
-            QueueUrl=queue_url,
-            MaxNumberOfMessages=1,
-            WaitTimeSeconds=2,
-            VisibilityTimeout=120,
-        )
-    except Exception as exc:
-        report_status("queue unavailable")
-        logging.error("Queue polling failed: %s", exc)
-        time.sleep(5)
-        continue
+# -----------------------------------------------------------------------------
+# GOOGLE RPC (gRPC) WORKER SERVICE IMPLEMENTATION
+# -----------------------------------------------------------------------------
+class WorkerServiceServicer(traffic_pb2_grpc.WorkerServiceServicer):
+    """Handles task execution requests dispatched from the Centralized Coordinator."""
 
-    if not response.get("Messages"):
-        report_status("idle")
+    def ProcessTask(self, request, context):
+        task_id = request.task_id
+        file_url = request.file_url
 
-    for message in response.get("Messages", []):
-        task_id = message["MessageId"]
         report_status("processing", task_id)
-        report_event("claimed", task_id)
-        time.sleep(0.3)
+        report_event("claimed", task_id, f"gRPC from Coordinator")
+        time.sleep(0.1)
 
         try:
-            body = json.loads(message["Body"])
-            if not isinstance(body, dict):
-                raise ValueError("Task must be a JSON object")
-            file_url = body.get("file_url")
-            if not isinstance(file_url, str):
-                raise ValueError("Task is missing file_url")
-
             location = urlsplit(file_url)
             key = location.path.lstrip("/")
             if (
@@ -337,7 +339,21 @@ while True:
             ):
                 raise ValueError("Invalid S3 file reference")
 
-            logging.info("Processing %s", key)
+            # -------------------------------------------------------------
+            # STEP: AT-MOST-ONCE DEDUPLICATION (Redis Cache Filter)
+            # -------------------------------------------------------------
+            if monitor.exists(file_url):
+                logging.info("Duplicate task detected: %s. Discarding to prevent redundant compute.", file_url)
+                report_event("unchanged", task_id, "Duplicate task filtered (Redis cache hit)")
+                return traffic_pb2.TaskResponse(
+                    success=True,
+                    vehicle_id="",
+                    status="unchanged",
+                    detail="Duplicate task filtered (Redis cache hit)",
+                    speed_kmh=0,
+                )
+
+            logging.info("gRPC Worker processing S3 object: %s", key)
             result = s3.get_object(
                 Bucket=location.netloc,
                 Key=key,
@@ -349,36 +365,32 @@ while True:
                 stream.close()
 
             report_event("downloaded", task_id)
-            time.sleep(0.3)
+            time.sleep(0.1)
 
-            # -------------------------------------------------------------
-            # STEP: EXECUTE DOMAIN CLEANSING
-            # -------------------------------------------------------------
+            # Execute quality domain cleansing
             record, discard_reason = clean_record(content)
 
             if discard_reason:
-                # SENSOR OUTLIER DETECTED: Drop record from DB and acknowledge SQS
                 logging.warning("CLEANSED & DISCARDED: %s (Task: %s)", discard_reason, task_id[:8])
                 report_event("unchanged", task_id, f"Sanitized/Dropped: {discard_reason}")
-                sqs.delete_message(
-                    QueueUrl=queue_url,
-                    ReceiptHandle=message["ReceiptHandle"],
+                monitor.set(file_url, "completed", ex=86400)
+                return traffic_pb2.TaskResponse(
+                    success=True,
+                    vehicle_id="",
+                    status="discarded",
+                    detail=discard_reason,
+                    speed_kmh=0,
                 )
-                time.sleep(0.2)
-                continue
 
-            # CLEAN RECORD: Commit to database
+            # Valid clean record: commit to PostgreSQL
             changed = store_record(record)
+            # Record in Redis history (At-Most-Once completion record)
+            monitor.set(file_url, "completed", ex=86400)
+
             report_event(
                 "stored" if changed else "unchanged",
                 task_id,
                 f"{record[0]} (Fused: {record[4]} km/h)",
-            )
-            time.sleep(0.2)
-
-            sqs.delete_message(
-                QueueUrl=queue_url,
-                ReceiptHandle=message["ReceiptHandle"],
             )
             logging.info(
                 "Acknowledged %s: %s (fused speed: %s km/h)",
@@ -386,16 +398,107 @@ while True:
                 "stored" if changed else "duplicate/older observation",
                 record[4],
             )
+            return traffic_pb2.TaskResponse(
+                success=True,
+                vehicle_id=record[0],
+                status="stored" if changed else "unchanged",
+                detail=f"Fused speed: {record[4]} km/h",
+                speed_kmh=record[4],
+            )
 
         except Exception as exc:
-            # POISON RECORD / UNEXPECTED FAILURE:
-            # Leave message in SQS without deleting. SQS Redrive will retry up to
-            # maxReceiveCount: 5 before automatically quarantining to task-dead-letter!
-            logging.error(
-                "Task %s failed (Poison Record); retained for SQS DLQ redrive: %s",
-                message.get("MessageId"),
-                exc,
-            )
+            logging.error("Task %s failed: %s", task_id, exc)
             report_event("failed", task_id, type(exc).__name__)
+            # Return success=False to notify Coordinator not to delete from SQS
+            return traffic_pb2.TaskResponse(
+                success=False,
+                vehicle_id="",
+                status="failed",
+                detail=str(exc),
+                speed_kmh=0,
+            )
         finally:
             report_status("idle")
+
+    def HealthCheck(self, request, context):
+        with state_lock:
+            status = worker_state["status"]
+            active = 1 if status == "processing" else 0
+        return traffic_pb2.HealthResponse(
+            worker_id=WORKER_ID,
+            status=status,
+            active_tasks=active,
+        )
+
+
+def serve_grpc():
+    """Starts Google RPC (gRPC) server for Coordinator dispatching."""
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+    traffic_pb2_grpc.add_WorkerServiceServicer_to_server(WorkerServiceServicer(), server)
+    server.add_insecure_port(f"[::]:{GRPC_PORT}")
+    server.start()
+    logging.info(
+        "Google RPC (gRPC) Worker %s started on port %s (IP: %s)",
+        WORKER_ID,
+        GRPC_PORT,
+        WORKER_IP,
+    )
+    server.wait_for_termination()
+
+
+def serve_sqs_pull():
+    """Legacy direct SQS pull mode (used only if WORKER_MODE=pull)."""
+    try:
+        queue_url = sqs.get_queue_url(QueueName="task-queue")["QueueUrl"]
+    except Exception as exc:
+        logging.error("Failed to get SQS queue url: %s", exc)
+        return
+
+    logging.info("Quality-Aware Cleansing Worker %s started; direct SQS pull mode", WORKER_ID)
+
+    while True:
+        try:
+            response = sqs.receive_message(
+                QueueUrl=queue_url,
+                MaxNumberOfMessages=1,
+                WaitTimeSeconds=2,
+                VisibilityTimeout=120,
+            )
+        except Exception as exc:
+            report_status("queue unavailable")
+            logging.error("Queue polling failed: %s", exc)
+            time.sleep(5)
+            continue
+
+        if not response.get("Messages"):
+            report_status("idle")
+
+        for message in response.get("Messages", []):
+            task_id = message["MessageId"]
+            report_status("processing", task_id)
+            report_event("claimed", task_id)
+            try:
+                body = json.loads(message["Body"])
+                file_url = body.get("file_url")
+                location = urlsplit(file_url)
+                result = s3.get_object(Bucket=location.netloc, Key=location.path.lstrip("/"))
+                with result["Body"] as stream:
+                    content = stream.read().decode("utf-8")
+
+                record, discard_reason = clean_record(content)
+                if discard_reason:
+                    sqs.delete_message(QueueUrl=queue_url, ReceiptHandle=message["ReceiptHandle"])
+                    continue
+                store_record(record)
+                sqs.delete_message(QueueUrl=queue_url, ReceiptHandle=message["ReceiptHandle"])
+            except Exception as exc:
+                logging.error("Task %s failed: %s", task_id, exc)
+            finally:
+                report_status("idle")
+
+
+if __name__ == "__main__":
+    if WORKER_MODE == "pull":
+        serve_sqs_pull()
+    else:
+        serve_grpc()

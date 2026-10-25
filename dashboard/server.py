@@ -249,6 +249,43 @@ def get_worker_telemetry():
         return unavailable
 
 
+def get_coordinator_telemetry() -> dict[str, Any]:
+    unavailable = {
+        "connected": False,
+        "status": "unavailable",
+        "last_seen": None,
+        "dispatched_count": 0,
+        "failed_count": 0,
+        "active_workers": 0,
+    }
+    if redis is None:
+        return unavailable
+
+    try:
+        client = redis.Redis(
+            host=REDIS_HOST,
+            port=REDIS_PORT,
+            decode_responses=True,
+            socket_connect_timeout=1,
+            socket_timeout=1,
+        )
+        raw = client.get("dataclean:coordinator")
+        if not raw:
+            return unavailable
+        data = json.loads(raw)
+        age = max(0, time.time() - float(data.get("last_seen", 0)))
+        return {
+            "connected": age <= 15,
+            "status": data.get("status", "running") if age <= 15 else "unavailable",
+            "last_seen": float(data.get("last_seen", 0)),
+            "dispatched_count": int(data.get("dispatched_count", 0)),
+            "failed_count": int(data.get("failed_count", 0)),
+            "active_workers": int(data.get("active_workers", 0)),
+        }
+    except Exception:
+        return unavailable
+
+
 
 @app.get("/api/snapshot")
 def snapshot() -> dict[str, Any]:
@@ -263,5 +300,6 @@ def snapshot() -> dict[str, Any]:
         "redis": cache,
         "workers": get_worker_telemetry(),
         "producer": get_producer_telemetry(),
+        "coordinator": get_coordinator_telemetry(),
         "metric_note": "SQS counts are approximate; DB count is current rows, not total processing events",
     }

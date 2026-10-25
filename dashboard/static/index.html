@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>CloudProject · Network Studio</title>
   <meta name="description" content="Packet Tracer-style distributed processing dashboard" />
-  <link rel="stylesheet" href="/assets/styles.css?v=4" />
-  <link rel="stylesheet" href="/assets/layout.css?v=4" />
+  <link rel="stylesheet" href="/assets/styles.css?v=7" />
+  <link rel="stylesheet" href="/assets/layout.css?v=7" />
 </head>
 <body>
   <div id="app">
@@ -40,6 +40,7 @@
         <div class="metric"><span class="metric-heading">IN PROGRESS</span><div class="metric-bottom"><strong id="inflightMetric">—</strong><span class="metric-icon lavender">◷</span></div><span class="metric-help">Messages in flight</span></div>
         <div class="metric"><span class="metric-heading">STORED RECORDS <span class="tiny">DB</span></span><div class="metric-bottom"><strong id="recordsMetric">—</strong><span class="metric-icon green">▤</span></div><span class="metric-help">Current rows in PostgreSQL</span></div>
         <div class="metric"><span class="metric-heading">WORKER REPLICAS</span><div class="metric-bottom"><strong id="workersMetric">—</strong><span class="metric-icon orange">⬡</span></div><span class="metric-help" id="workersHelp">Not instrumented</span></div>
+        <div class="metric"><span class="metric-heading">COORDINATOR <span class="accent tiny">gRPC</span></span><div class="metric-bottom"><strong id="coordinatorMetric">—</strong><span class="metric-icon lavender">⚙</span></div><span class="metric-help" id="coordinatorHelp">Google RPC Dispatcher</span></div>
       </section>
       <div class="workspace">
         <section class="topology-area">
@@ -62,10 +63,11 @@
               <button class="graph-node storage" data-node="s3" style="left:483px;top:127px"><span class="node-icon violet">▧</span><span class="node-meta"><strong>S3 Storage</strong><small>Raw JSON objects</small></span><span class="node-tag">RAW</span></button>
               <button class="graph-node queue" data-node="queue" style="left:483px;top:409px"><span class="node-icon blue">✉</span><span class="node-meta"><strong>SQS Queue</strong><small>Work messages</small></span><span class="node-tag" id="queueNodeTag">—</span></button>
               <div class="worker-cluster" id="workerCluster" style="left:733px;top:121px">
-                <div class="cluster-title"><span>⬡ &nbsp;KUBERNETES WORKERS</span><span class="cluster-pill" id="clusterPill">Not connected</span></div>
+                <div class="cluster-title"><span>⬡ &nbsp;WORKER PODS</span><span class="cluster-pill" id="clusterPill">Not connected</span></div>
                 <div class="workers" id="workerNodes"></div>
-                <div class="cluster-foot" id="clusterFoot">Replica metrics require Kubernetes integration</div>
+                <div class="cluster-foot" id="clusterFoot">gRPC Cleansing Engine (Port 50051)</div>
               </div>
+              <button class="graph-node coordinator" data-node="coordinator" style="left:733px;top:409px"><span class="node-icon violet">⚙</span><span class="node-meta"><strong>Coordinator</strong><small>gRPC Orchestrator</small></span><span class="node-tag" id="coordNodeTag">gRPC</span></button>
               <button class="graph-node database" data-node="database" style="left:970px;top:268px"><span class="node-icon green">▤</span><span class="node-meta"><strong>PostgreSQL</strong><small>Cleaned records</small></span><span class="node-tag">SQL</span></button>
               <div class="canvas-watermark">CLOUDPROJECT · SYSTEM TOPOLOGY / LOCALSTACK ENVIRONMENT</div>
             </div>
@@ -83,10 +85,10 @@
           <div class="inspector-footer"><span class="foot-diamond">◈</span> <span>Read-only worker monitoring</span></div>
         </aside>
       </div>
-      <footer class="footerbar"><span>◈ NETWORK STUDIO</span><span id="footerNote">Live worker reporting · Kubernetes integration pending</span><div class="footer-right"><button id="playPause" class="foot-control" disabled>Ⅱ Pause demo</button><button id="demoBurst" class="foot-control" disabled>+ Add workload</button></div></footer>
+      <footer class="footerbar"><span>◈ NETWORK STUDIO</span><span id="footerNote">Live Google RPC (gRPC) &amp; Centralized Coordinator Active · Isolated Microservices</span><div class="footer-right"><button id="playPause" class="foot-control" disabled>Ⅱ Pause demo</button><button id="demoBurst" class="foot-control" disabled>+ Add workload</button></div></footer>
     </main>
   </div>
-  <script src="/assets/app.js?v=5" defer></script>
-  <script src="/assets/layout.js?v=5" defer></script>
+  <script src="/assets/app.js?v=7" defer></script>
+  <script src="/assets/layout.js?v=7" defer></script>
 </body>
 </html>

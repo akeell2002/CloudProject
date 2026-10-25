@@ -80,17 +80,33 @@
         ['Table', 'cleansed_traffic'],
       ]
     },
+    coordinator: {
+      name: 'Coordinator',
+      type: 'Central Orchestration Pod',
+      icon: '⚙',
+      description: 'CSC3104 Project Architecture: Centralized Coordinator Pod that claims tickets from SQS, monitors worker telemetry via Redis heartbeats, and dispatches tasks over Google RPC (gRPC / HTTP2).',
+      attributes: () => [
+        ['Protocol', 'Google RPC (gRPC / HTTP2)'],
+        ['Status', state.snapshot?.coordinator?.status || 'Online'],
+        ['Tasks dispatched', fmt(state.snapshot?.coordinator?.dispatched_count)],
+        ['Active workers', fmt(state.snapshot?.coordinator?.active_workers)],
+        ['DLQ / Preserved', fmt(state.snapshot?.coordinator?.failed_count)],
+        ['Scheduling algorithm', 'Least-Loaded / Round-Robin'],
+        ['Inter-service RPC', 'HTTP/2 Protobuf (Port 50051)'],
+      ]
+    },
   };
 
   const edges = [
     {id: 'source-producer', from: 'source', to: 'producer', style: 'strong'},
     {id: 'producer-s3', from: 'producer', to: 's3', style: 'storage-link'},
     {id: 'producer-queue', from: 'producer', to: 'queue', style: 'strong'},
+    {id: 'queue-coordinator', from: 'queue', to: 'coordinator', style: 'strong'},
+    {id: 'coordinator-worker1', from: 'coordinator', to: 'worker1', style: 'strong'},
+    {id: 'coordinator-worker2', from: 'coordinator', to: 'worker2', style: ''},
+    {id: 'coordinator-worker3', from: 'coordinator', to: 'worker3', style: ''},
+    {id: 'coordinator-worker4', from: 'coordinator', to: 'worker4', style: ''},
     {id: 's3-worker1', from: 's3', to: 'worker1', style: 'storage-link'},
-    {id: 'queue-worker1', from: 'queue', to: 'worker1', style: 'strong'},
-    {id: 'queue-worker2', from: 'queue', to: 'worker2', style: ''},
-    {id: 'queue-worker3', from: 'queue', to: 'worker3', style: ''},
-    {id: 'queue-worker4', from: 'queue', to: 'worker4', style: ''},
     {id: 'worker1-database', from: 'worker1', to: 'database', style: 'strong'},
     {id: 'worker2-database', from: 'worker2', to: 'database', style: ''},
     {id: 'worker3-database', from: 'worker3', to: 'database', style: ''},
@@ -102,6 +118,7 @@
     producer: [257, 268, 178, 91],
     s3: [483, 127, 178, 91],
     queue: [483, 409, 178, 91],
+    coordinator: [733, 409, 178, 91],
     worker1: [746, 174, 178, 59],
     worker2: [746, 243, 178, 59],
     worker3: [746, 312, 178, 59],
@@ -280,7 +297,7 @@
         root.append(row);
         boxes[key] = [746, 200 + index * 69, 178, 59];
         edges.push(
-          {id: `queue-${key}`, from: 'queue', to: key, style: 'strong'},
+          {id: `coordinator-${key}`, from: 'coordinator', to: key, style: 'strong'},
           {id: `s3-${key}`, from: 's3', to: key, style: 'storage-link'},
           {id: `${key}-database`, from: key, to: 'database', style: 'strong'},
         );
@@ -327,7 +344,16 @@
         : 'Current rows in PostgreSQL';
     }
     $('workersMetric').textContent = state.mode === 'demo' ? state.demoWorkers : fmt(state.snapshot?.workers?.replicas);
-    $('workersHelp').textContent = state.mode === 'demo' ? 'Simulated workers' : state.snapshot?.workers?.connected ? 'Workers with active heartbeats' : 'Worker monitoring unavailable';
+    $('workersHelp').textContent = state.mode === 'demo' ? 'Simulated workers' : state.snapshot?.workers?.connected ? 'gRPC Worker (Port 50051)' : 'Worker monitoring unavailable';
+    if ($('coordinatorMetric')) {
+      const coord = state.snapshot?.coordinator;
+      $('coordinatorMetric').textContent = (state.mode === 'demo') ? 'Active' : coord?.connected ? `${fmt(coord.dispatched_count)} pkts` : '—';
+      $('coordinatorHelp').textContent = (state.mode === 'demo') ? 'Simulated Dispatcher' : coord?.connected ? `gRPC Dispatcher · ${coord.active_workers} worker` : 'Connecting';
+    }
+    if ($('coordNodeTag')) {
+      const coord = state.snapshot?.coordinator;
+      $('coordNodeTag').textContent = coord?.connected ? `${fmt(coord.dispatched_count)}` : 'RPC';
+    }
     $('queueNodeTag').textContent = metric('queue', 'pending');
     renderInspect();
     if (state.tab === 'records') renderRecords();
@@ -442,14 +468,25 @@
 
       if (event.source === 'producer' || event.worker_id === 'producer') {
         if (kind === 'fetched') {
-          log(`${occurred} · Producer: ${event.detail}`, 'info');
+          log(`${occurred} · Producer: Ingesting ${event.detail} from LTA`, 'info');
           enqueuePacket(() => spawnPacket('source-producer', '#0284c7', 950));
         } else if (kind === 'uploaded') {
-          log(`${occurred} · Producer: ${event.detail}`, 'info');
+          log(`${occurred} · Producer: ${event.detail} -> S3`, 'info');
           enqueuePacket(() => spawnPacket('producer-s3', '#7c3aed', 950));
         } else if (kind === 'queued') {
-          log(`${occurred} · Producer: ${event.detail}`, 'info');
+          log(`${occurred} · Producer: ${event.detail} -> SQS`, 'info');
           enqueuePacket(() => spawnPacket('producer-queue', '#2563eb', 950));
+        }
+      } else if (event.source === 'coordinator') {
+        log(`${occurred} · Coordinator: Dispatched task via Google gRPC`, 'info');
+        enqueuePacket(() => spawnPacket('queue-coordinator', '#2563eb', 850));
+        const edgeWorker = Object.keys(boxes).find(k => k.startsWith('worker')) || 'worker1';
+        enqueuePacket(() => spawnPacket(`coordinator-${edgeWorker}`, '#7c3aed', 850));
+        const coordBtn = document.querySelector('.graph-node.coordinator');
+        if (coordBtn) {
+          coordBtn.classList.remove('recent-event');
+          void coordBtn.offsetWidth;
+          coordBtn.classList.add('recent-event');
         }
       } else {
         const workerId = event.worker_id || 'worker';
@@ -458,20 +495,18 @@
         if (!edgeWorker && edges.some(e => e.to === 'worker1')) edgeWorker = 'worker1';
 
         const descriptions = {
-          claimed: 'claimed task from SQS',
+          claimed: 'received task via gRPC from Coordinator',
           downloaded: 'downloaded raw observation from S3',
           stored: `persisted ${event.detail} to PostgreSQL`,
-          unchanged: `idempotent verify: ${event.detail} up-to-date`,
-          failed: `failed: ${event.detail}; task retained for retry`
+          unchanged: `idempotent verify: ${event.detail}`,
+          failed: `poison detected: ${event.detail}; retained in SQS for DLQ`
         };
 
         const level = kind === 'failed' ? 'error' : kind === 'stored' ? 'success' : 'info';
-        log(`${occurred} · ${workerId.slice(0, 8)}: ${descriptions[kind] || kind}`, level);
+        log(`${occurred} · Worker-${workerId.slice(0, 8)}: ${descriptions[kind] || kind}`, level);
 
         if (edgeWorker) {
-          if (kind === 'claimed') {
-            enqueuePacket(() => spawnPacket(`queue-${edgeWorker}`, '#2563eb', 1000));
-          } else if (kind === 'downloaded') {
+          if (kind === 'downloaded') {
             enqueuePacket(() => spawnPacket(`s3-${edgeWorker}`, '#8b5cf6', 1000));
           } else if (kind === 'stored') {
             enqueuePacket(() => spawnPacket(`${edgeWorker}-database`, '#10b981', 1000));
@@ -496,7 +531,8 @@
       ['source-producer', '#38bdf8'],
       ['producer-s3', '#8b5cf6'],
       ['producer-queue', '#2563eb'],
-      ['queue-worker1', '#2563eb'],
+      ['queue-coordinator', '#2563eb'],
+      ['coordinator-worker1', '#7c3aed'],
       ['s3-worker1', '#8b5cf6'],
       ['worker1-database', '#10b981'],
     ];

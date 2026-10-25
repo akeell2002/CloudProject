@@ -23,11 +23,11 @@ set "COMPOSE=docker compose --env-file .env -f local-env/docker-compose.yml -f l
 echo This launch will clear CloudProject camera rows, queued tasks and worker reports.
 echo Other databases and raw S3 files are retained.
 echo Building images before stopping the existing pipeline...
-%COMPOSE% build dashboard producer worker bootstrap
+%COMPOSE% build dashboard producer worker coordinator bootstrap
 if errorlevel 1 goto failed
 
 echo Stopping ingestion and all Compose worker replicas...
-%COMPOSE% stop producer worker
+%COMPOSE% stop producer coordinator worker
 if errorlevel 1 goto failed
 
 echo Starting local infrastructure...
@@ -44,7 +44,7 @@ echo Resetting demo data. Queue cleanup takes about 65 seconds...
 if errorlevel 1 goto failed
 
 echo Starting the fresh Live pipeline...
-%COMPOSE% up -d dashboard producer worker
+%COMPOSE% up -d dashboard producer worker coordinator
 if errorlevel 1 goto failed
 
 echo.

@@ -48,6 +48,8 @@ services:
   dashboard:
     build:
       context: ../dashboard
+    volumes:
+      - ../dashboard/static:/app/static:ro
     ports:
       - "8000:8000"
     environment:
@@ -88,11 +90,29 @@ services:
       <<: [*aws, *database]
       REDIS_HOST: redis
       REDIS_PORT: "6379"
+      WORKER_MODE: grpc
+      GRPC_PORT: "50051"
     depends_on:
       bootstrap:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
+        condition: service_started
+    restart: unless-stopped
+
+  coordinator:
+    build:
+      context: ../coordinator
+    environment:
+      <<: *aws
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
+      worker:
         condition: service_started
     restart: unless-stopped
