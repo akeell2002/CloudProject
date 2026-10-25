@@ -1,5 +1,7 @@
 x-aws-environment: &aws
-  AWS_ENDPOINT: http://localstack:4566
+  S3_ENDPOINT: http://localstack-s3:4566
+  SQS_ENDPOINT: http://localstack-sqs:4566
+  AWS_ENDPOINT: http://localstack-s3:4566
   AWS_ACCESS_KEY_ID: test
   AWS_SECRET_ACCESS_KEY: test
   AWS_DEFAULT_REGION: us-east-1
@@ -37,7 +39,9 @@ services:
     environment:
       <<: *aws
     depends_on:
-      localstack:
+      localstack-s3:
+        condition: service_started
+      localstack-sqs:
         condition: service_started
     restart: "no"
 
@@ -48,7 +52,7 @@ services:
       - "8000:8000"
     environment:
       <<: [*aws, *database]
-      SQS_QUEUE_URL: http://localstack:4566/000000000000/task-queue
+      SQS_QUEUE_URL: http://localstack-sqs:4566/000000000000/task-queue
       REDIS_HOST: redis
     depends_on:
       bootstrap:

@@ -25,10 +25,11 @@ def main():
         parser.error("This deletes local demo data; pass --confirm-local-reset")
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    endpoint = os.environ.get("AWS_ENDPOINT", "")
+    endpoint = os.environ.get("SQS_ENDPOINT", os.environ.get("AWS_ENDPOINT", ""))
     db_name = os.environ.get("POSTGRES_DB", "")
     # Explicitly restrict this helper to the project's local Compose services.
-    if (urlsplit(endpoint).hostname != "localstack"
+    hostname = urlsplit(endpoint).hostname
+    if (hostname not in ("localstack", "localstack-sqs", "localhost", "127.0.0.1")
             or os.environ.get("POSTGRES_HOST") != "postgres"
             or db_name != "dataclean_db"
             or os.environ.get("REDIS_HOST") != "redis"):

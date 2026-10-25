@@ -1,12 +1,21 @@
 version: '3.8'
 
 services:
-  localstack:
+  localstack-s3:
     image: localstack/localstack:3.4.0
+    container_name: localstack-s3
     ports:
       - "4566:4566"
     environment:
-      - SERVICES=sqs,s3
+      - SERVICES=s3
+
+  localstack-sqs:
+    image: localstack/localstack:3.4.0
+    container_name: localstack-sqs
+    ports:
+      - "4567:4566"
+    environment:
+      - SERVICES=sqs
 
   redis:
     image: redis:alpine

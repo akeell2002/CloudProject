@@ -25,12 +25,13 @@ logging.basicConfig(
 )
 
 WORKER_ID = socket.gethostname()
-ENDPOINT = os.getenv("AWS_ENDPOINT", "http://localstack:4566")
+S3_ENDPOINT = os.getenv("S3_ENDPOINT", os.getenv("AWS_ENDPOINT", "http://localstack-s3:4566"))
+SQS_ENDPOINT = os.getenv("SQS_ENDPOINT", os.getenv("AWS_ENDPOINT", "http://localstack-sqs:4566"))
 
 # AWS SQS & S3 Clients
 sqs = boto3.client(
     "sqs",
-    endpoint_url=ENDPOINT,
+    endpoint_url=SQS_ENDPOINT,
     config=Config(
         connect_timeout=5,
         read_timeout=25,
@@ -39,7 +40,7 @@ sqs = boto3.client(
 )
 s3 = boto3.client(
     "s3",
-    endpoint_url=ENDPOINT,
+    endpoint_url=S3_ENDPOINT,
     config=Config(
         connect_timeout=5,
         read_timeout=10,

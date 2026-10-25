@@ -44,8 +44,9 @@ async def disable_browser_cache(request: Request, call_next):
 
 app.mount("/assets", StaticFiles(directory=str(BASE / "static")), name="assets")
 
-AWS_ENDPOINT = os.getenv("AWS_ENDPOINT", "http://localstack:4566")
-QUEUE_URL = os.getenv("SQS_QUEUE_URL", "http://localstack:4566/000000000000/task-queue")
+S3_ENDPOINT = os.getenv("S3_ENDPOINT", os.getenv("AWS_ENDPOINT", "http://localstack-s3:4566"))
+SQS_ENDPOINT = os.getenv("SQS_ENDPOINT", os.getenv("AWS_ENDPOINT", "http://localstack-sqs:4566"))
+QUEUE_URL = os.getenv("SQS_QUEUE_URL", "http://localstack-sqs:4566/000000000000/task-queue")
 DB_HOST = os.getenv("POSTGRES_HOST", "postgres")
 DB_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
 DB_NAME = os.getenv("POSTGRES_DB", "dataclean_db")
@@ -59,7 +60,7 @@ def get_queue() -> dict[str, Any]:
     try:
         client = boto3.client(
             "sqs",
-            endpoint_url=AWS_ENDPOINT,
+            endpoint_url=SQS_ENDPOINT,
             region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"),
             aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID", "test"),
             aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY", "test"),

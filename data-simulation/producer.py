@@ -36,7 +36,8 @@ API_KEY = os.environ.get("LTA_ACCOUNT_KEY", "").strip()
 if not API_KEY:
     raise RuntimeError("Set a valid LTA_ACCOUNT_KEY in the root .env file")
 
-ENDPOINT = os.getenv("AWS_ENDPOINT", "http://localstack:4566")
+S3_ENDPOINT = os.getenv("S3_ENDPOINT", os.getenv("AWS_ENDPOINT", "http://localstack-s3:4566"))
+SQS_ENDPOINT = os.getenv("SQS_ENDPOINT", os.getenv("AWS_ENDPOINT", "http://localstack-sqs:4566"))
 BUCKET = "lta-traffic-raw"
 QUEUE_NAME = "task-queue"
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
@@ -121,8 +122,8 @@ config = Config(
     read_timeout=10,
     retries={"max_attempts": 2},
 )
-s3 = boto3.client("s3", endpoint_url=ENDPOINT, config=config)
-sqs = boto3.client("sqs", endpoint_url=ENDPOINT, config=config)
+s3 = boto3.client("s3", endpoint_url=S3_ENDPOINT, config=config)
+sqs = boto3.client("sqs", endpoint_url=SQS_ENDPOINT, config=config)
 queue_url = sqs.get_queue_url(QueueName=QUEUE_NAME)["QueueUrl"]
 
 # Fixed fleet of 45 vehicles to test deduplication & UPSERT over time

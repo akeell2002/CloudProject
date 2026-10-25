@@ -17,17 +17,17 @@ from botocore.exceptions import ClientError
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-# Inside Docker, "localstack" is the Compose service name. localhost would
-# refer to this bootstrap container. AWS credentials/region come from Compose.
-endpoint = os.getenv("AWS_ENDPOINT", "http://localstack:4566")
+# Inside Docker, localstack-s3 and localstack-sqs are the Compose service names.
+s3_endpoint = os.getenv("S3_ENDPOINT", os.getenv("AWS_ENDPOINT", "http://localstack-s3:4566"))
+sqs_endpoint = os.getenv("SQS_ENDPOINT", os.getenv("AWS_ENDPOINT", "http://localstack-sqs:4566"))
 config = Config(
     connect_timeout=2,
     read_timeout=3,
     retries={"max_attempts": 1},
 )
 
-s3 = boto3.client("s3", endpoint_url=endpoint, config=config)
-sqs = boto3.client("sqs", endpoint_url=endpoint, config=config)
+s3 = boto3.client("s3", endpoint_url=s3_endpoint, config=config)
+sqs = boto3.client("sqs", endpoint_url=sqs_endpoint, config=config)
 
 
 def initialize():

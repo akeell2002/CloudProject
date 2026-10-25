@@ -6,10 +6,11 @@ In distributed systems, a process or communication channel can fail, or messages
 
 ## Prerequisites
 Ensure your local infrastructure is running via Docker Compose:
-* `local-env-localstack-1` (Port 4566)
-* `local-env-redis-1` (Port 6379)
-* `local-env-postgres-1` (Port 5432)
-* `worker_node` (Must be running and actively tailing logs to observe test results)
+* `localstack-s3` (Port 4566 - Isolated S3 Object Store)
+* `localstack-sqs` (Port 4567 - Isolated SQS Task & Dead-Letter Broker)
+* `local-env-redis-1` (Port 6379 - Shared Speed Cache & Event Stream)
+* `local-env-postgres-1` (Port 5433 host, 5432 container - PostgreSQL Data Store)
+* `worker` (Must be running and actively tailing logs to observe test results)
 
 ---
 
