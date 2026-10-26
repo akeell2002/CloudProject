@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package dataclean;
+
+// WorkerService defines the high-performance gRPC interface exposed by each Worker Pod.
+// The Coordinator invokes this service to dispatch raw LTA telemetry chunk tickets.
+service WorkerService {
+  // ProcessTask instructs the worker to fetch, cleanse, fuse, and commit a task.
+  rpc ProcessTask (TaskRequest) returns (TaskResponse);
+
+  // HealthCheck verifies worker readiness and current load.
+  rpc HealthCheck (HealthRequest) returns (HealthResponse);
+}
+
+message TaskRequest {
+  string task_id = 1;
+  string file_url = 2;
+  int64 timestamp = 3;
+}
+
+message TaskResponse {
+  bool success = 1;
+  string vehicle_id = 2;
+  string status = 3;     // "stored", "unchanged", "discarded", "failed"
+  string detail = 4;     // Descriptive info, e.g. "Sanitized: GPS Outlier", "Stored (Fused: 65 km/h)"
+  int32 speed_kmh = 5;
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  string worker_id = 1;
+  string status = 2;     // "idle", "processing"
+  int32 active_tasks = 3;
+}

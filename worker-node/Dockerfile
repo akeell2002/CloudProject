@@ -11,8 +11,10 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-#Copy worker script into the container
-COPY worker.py .
+#Copy worker script and protobuf definitions into container
+COPY traffic_pb2.py traffic_pb2_grpc.py worker.py ./
+
+EXPOSE 50051
 
 #Default command to execute when the container starts 
 CMD [ "python", "worker.py" ]

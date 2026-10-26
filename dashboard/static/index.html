@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CloudProject · Network Studio</title>
+  <meta name="description" content="Packet Tracer-style distributed processing dashboard" />
+  <link rel="stylesheet" href="/assets/styles.css?v=7" />
+  <link rel="stylesheet" href="/assets/layout.css?v=7" />
+</head>
+<body>
+  <div id="app">
+    <aside class="rail" aria-label="Workspace navigation">
+      <div class="rail-logo" title="CloudProject">◈</div>
+      <button class="rail-icon selected" title="Topology" aria-label="Topology">⌘</button>
+      <button class="rail-icon" id="navRecords" title="Data records" aria-label="Data records">▤</button>
+      <button class="rail-icon" id="navEvents" title="Event log" aria-label="Event log">≡</button>
+      <div class="rail-grow"></div>
+      <div class="rail-bottom" title="Local environment">⌁</div>
+    </aside>
+    <main class="main">
+      <header class="topbar">
+        <div class="title-lockup">
+          <div class="app-symbol">◈</div>
+          <div>
+            <p class="eyebrow">CLOUDPROJECT / NETWORK STUDIO</p>
+            <h1>Distributed Pipeline <span class="version">/ v0.1</span></h1>
+          </div>
+        </div>
+        <div class="top-controls">
+          <div class="switch" role="group" aria-label="Dashboard mode">
+            <button id="liveMode" class="mode-button active">● Live</button>
+            <button id="demoMode" class="mode-button">▶ Demo</button>
+          </div>
+          <div class="status-pill"><span id="connectionDot" class="status-dot pending"></span><span id="connectionLabel">Connecting</span></div>
+        </div>
+      </header>
+      <section class="metrics" aria-label="System metrics">
+        <div class="metric"><span class="metric-heading">QUEUE BACKLOG <span class="accent tiny">SQS</span></span><div class="metric-bottom"><strong id="pendingMetric">—</strong><span class="metric-icon">✉</span></div><span class="metric-help">Messages waiting</span></div>
+        <div class="metric"><span class="metric-heading">IN PROGRESS</span><div class="metric-bottom"><strong id="inflightMetric">—</strong><span class="metric-icon lavender">◷</span></div><span class="metric-help">Messages in flight</span></div>
+        <div class="metric"><span class="metric-heading">STORED RECORDS <span class="tiny">DB</span></span><div class="metric-bottom"><strong id="recordsMetric">—</strong><span class="metric-icon green">▤</span></div><span class="metric-help">Current rows in PostgreSQL</span></div>
+        <div class="metric"><span class="metric-heading">WORKER REPLICAS</span><div class="metric-bottom"><strong id="workersMetric">—</strong><span class="metric-icon orange">⬡</span></div><span class="metric-help" id="workersHelp">Not instrumented</span></div>
+        <div class="metric"><span class="metric-heading">COORDINATOR <span class="accent tiny">gRPC</span></span><div class="metric-bottom"><strong id="coordinatorMetric">—</strong><span class="metric-icon lavender">⚙</span></div><span class="metric-help" id="coordinatorHelp">Google RPC Dispatcher</span></div>
+      </section>
+      <div class="workspace">
+        <section class="topology-area">
+          <div class="stage-bar">
+            <div><span class="overline">LIVE TOPOLOGY</span><span class="stage-subtitle">Flow of data through your distributed system</span></div>
+            <div class="stage-actions">
+              <span class="legend"><i class="legend-dot blue"></i> Pending</span><span class="legend"><i class="legend-dot mint"></i> Stored</span>
+              <span class="hairline"></span>
+              <button class="toolbtn" id="zoomOut" title="Zoom out">−</button><span class="zoom-label" id="zoomPct">100%</span><button class="toolbtn" id="zoomIn" title="Zoom in">+</button><button class="toolbtn" id="zoomReset" title="Reset zoom">⌖</button>
+            </div>
+          </div>
+          <div id="modeNotice" class="mode-notice">LIVE · Connecting to real-time pipeline telemetry…</div>
+          <div class="canvas-scroller" id="scroller">
+            <div class="canvas" id="canvas">
+              <div class="grid-bg"></div>
+              <svg id="connections" viewBox="0 0 1160 660" aria-hidden="true"><defs><filter id="packetGlow"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><g id="edgeLayer"></g><g id="packetLayer"></g></svg>
+              <div class="zone zone-ingress">01 <span>INGESTION</span></div><div class="zone zone-processing">02 <span>DISTRIBUTED PROCESSING</span></div><div class="zone zone-output">03 <span>OUTPUT</span></div>
+              <button class="graph-node source" data-node="source" style="left:42px;top:268px"><span class="node-icon indigo">↯</span><span class="node-meta"><strong>LTA DataMall</strong><small>External API source</small></span><span class="node-tag">API</span></button>
+              <button class="graph-node producer" data-node="producer" style="left:257px;top:268px"><span class="node-icon blue">⇣</span><span class="node-meta"><strong>Producer</strong><small>Ingests source data</small></span><span class="node-tag">PY</span></button>
+              <button class="graph-node storage" data-node="s3" style="left:483px;top:127px"><span class="node-icon violet">▧</span><span class="node-meta"><strong>S3 Storage</strong><small>Raw JSON objects</small></span><span class="node-tag">RAW</span></button>
+              <button class="graph-node queue" data-node="queue" style="left:483px;top:409px"><span class="node-icon blue">✉</span><span class="node-meta"><strong>SQS Queue</strong><small>Work messages</small></span><span class="node-tag" id="queueNodeTag">—</span></button>
+              <div class="worker-cluster" id="workerCluster" style="left:733px;top:121px">
+                <div class="cluster-title"><span>⬡ &nbsp;WORKER PODS</span><span class="cluster-pill" id="clusterPill">Not connected</span></div>
+                <div class="workers" id="workerNodes"></div>
+                <div class="cluster-foot" id="clusterFoot">gRPC Cleansing Engine (Port 50051)</div>
+              </div>
+              <button class="graph-node coordinator" data-node="coordinator" style="left:733px;top:409px"><span class="node-icon violet">⚙</span><span class="node-meta"><strong>Coordinator</strong><small>gRPC Orchestrator</small></span><span class="node-tag" id="coordNodeTag">gRPC</span></button>
+              <button class="graph-node database" data-node="database" style="left:970px;top:268px"><span class="node-icon green">▤</span><span class="node-meta"><strong>PostgreSQL</strong><small>Cleaned records</small></span><span class="node-tag">SQL</span></button>
+              <div class="canvas-watermark">CLOUDPROJECT · SYSTEM TOPOLOGY / LOCALSTACK ENVIRONMENT</div>
+            </div>
+          </div>
+          <div class="bottom-strip"><span><span class="mini-dot"></span><span id="lastSynced">Waiting for snapshot...</span></span><span>Click any component to inspect · Switch to Demo for a simulated scaling sequence</span></div>
+        </section>
+        <aside class="inspector">
+          <div class="inspector-heading"><span class="overline">INSPECTOR</span><span class="inspector-id">↗ COMPONENT VIEW</span></div>
+          <div class="inspect-hero"><div class="inspect-glyph" id="inspectGlyph">✉</div><div><h2 id="inspectTitle">SQS Queue</h2><span id="inspectType">AWS-compatible message broker</span></div></div>
+          <p id="inspectDescription" class="inspect-desc">Stores pointers to raw data in S3, allowing worker pods to process jobs independently.</p>
+          <div class="inspector-attributes" id="inspectAttributes"></div>
+          <div class="inspector-tabs" role="tablist"><button class="active" id="eventsTab" role="tab" aria-selected="true">Activity log</button><button id="recordsTab" role="tab" aria-selected="false">Cleaned data</button></div>
+          <div class="side-panel" id="eventsPanel"><div class="feed" id="eventFeed"></div></div>
+          <div class="side-panel hidden" id="recordsPanel"><div id="recordFeed" class="record-list"></div></div>
+          <div class="inspector-footer"><span class="foot-diamond">◈</span> <span>Read-only worker monitoring</span></div>
+        </aside>
+      </div>
+      <footer class="footerbar"><span>◈ NETWORK STUDIO</span><span id="footerNote">Live Google RPC (gRPC) &amp; Centralized Coordinator Active · Isolated Microservices</span><div class="footer-right"><button id="playPause" class="foot-control" disabled>Ⅱ Pause demo</button><button id="demoBurst" class="foot-control" disabled>+ Add workload</button></div></footer>
+    </main>
+  </div>
+  <script src="/assets/app.js?v=7" defer></script>
+  <script src="/assets/layout.js?v=7" defer></script>
+</body>
+</html>

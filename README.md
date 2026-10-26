@@ -1,75 +1,64 @@
-# DataClean Engine 🚦
+# 🚦 DataClean Engine (CSC3104 — Group 04)
 
-Welcome to the **DataClean Engine** repository for CSC3104 (Group 04). 
+Distributed, fault-tolerant municipal traffic data cleansing system for Singapore LTA DataMall.
 
-This project is a distributed, fault-tolerant data cleansing engine. We take messy, high-velocity traffic telemetry from Singapore's LTA DataMall, clean it concurrently across multiple worker pods, and securely save the sanitized data into a sharded PostgreSQL database. Our system is built to survive pod crashes, memory limits, and heavily corrupted data without losing a single record.
+---
 
-## 📂 Directory Structure
+## ⚡ How to Run (Step-by-Step)
 
-Here is how our project is organized. Every team member has a specific folder to work in to prevent merge conflicts.
+1. **Start Docker Desktop** and make sure it is running.
+2. **Configure your API key**:
+   * Open the `.env` file in the project root (or copy `.env.example` to `.env`).
+   * Add your LTA DataMall key: `LTA_ACCOUNT_KEY=your_key_here`
+3. **Launch the system**:
+   * Double-click `start-project.bat` (or run `.\start-project.bat` in PowerShell).
+   * It will automatically build the images, start all 8 containers, reset old test data, and start streaming live data.
+4. **Open the Web UI**:
+   * Open your browser to: **[http://localhost:8000](http://localhost:8000)**
+   * Select **● Live** to see real-time packets, gRPC dispatches, and cleansed database records.
+5. **How to Stop**:
+   * Press `Ctrl + C` in the batch terminal, then run:
+     ```bash
+     docker compose --env-file .env -f local-env/docker-compose.yml -f local-env/docker-compose.dashboard.yml down
+     ```
 
-*   **`.github/workflows/` (The Robot Reviewer)**
-    *   *What it does:* Contains our CI/CD pipelines.
-    *   *Why we need it:* Whenever someone opens a Pull Request, the scripts here will automatically test our code and build our Docker containers to make sure nothing is broken.
+---
 
-*   **`background-watcher/` (The Safety Net)**
-    *   *What it does:* The straggler mitigation and failure recovery service.
-    *   *Why we need it:* This service constantly monitors our Redis state tracker. If a worker pod crashes or takes too long on a corrupted file, this watcher detects the timeout and re-queues the task so another pod can take over.
+## 📁 What Each Folder & File Does
 
-*   **`data-simulation/` (The Chaos Maker)**
-    *   *What it does:* Python scripts for testing and historical data replay.
-    *   *Why we need it:* We use these scripts to download old LTA DataMall traffic data and intentionally inject "noise" (like deleting GPS coordinates or breaking JSON schemas). This gives our workers realistic, messy data to clean and proves our fault tolerance works.
+| Folder / File | What It Does (In Simple Terms) |
+| :--- | :--- |
+| **`coordinator/`** | **The Dispatcher:** Consumes task tickets from SQS, checks Redis to see which worker is alive and idle, and sends tasks to workers over Google gRPC. Deletes messages from SQS only when the worker confirms success. |
+| **`data-simulation/`** | **The Producer:** Ingests live taxi GPS & road speed bands from LTA DataMall. Uploads raw data to S3, caches 500 road speed bands in Redis, and sends a task ticket to SQS. Also injects chaos/dirty data (speed spikes, bad GPS) to test fault tolerance. |
+| **`worker-node/`** | **The Cleaner (gRPC Server):** Runs on port `50051`. Receives tasks via gRPC, streams raw data from S3, filters out GPS & speed anomalies, fuses expressway speed bands, and saves clean records to PostgreSQL. |
+| **`background-watcher/`** | **Failure Recovery & Watchdog:** Straggler mitigation and failure recovery service. Monitors Redis state tracker for dead worker nodes and stranded tasks. |
+| **`k8s-manifests/`** | **Kubernetes Blueprints:** YAML manifests for deploying, scaling, and networking the pods on a cloud Kubernetes cluster. |
+| **`.github/workflows/`** | **CI/CD Pipelines:** Automated GitHub Actions workflows for continuous integration and container builds. |
+| **`dashboard/`** | **The Web UI & API:** Runs FastAPI (`server.py`) and serves the real-time Packet Tracer-style monitoring dashboard (`static/`). Also contains `bootstrap.py` which creates the S3 bucket and SQS queues on startup. |
+| **`local-env/`** | **Docker Infrastructure:** Contains `docker-compose.yml` (for S3, SQS, Redis, PostgreSQL) and `init.sql` (creates the database table). |
+| **`proto/`** | **gRPC Contract:** Contains `traffic.proto` which defines the exact binary messages (`TaskRequest`, `TaskResponse`) sent between the Coordinator and Worker. |
+| **`scripts/`** | **Utility Scripts:** Contains `reset_project.py` used by `start-project.bat` to clear demo queues and test database records on a fresh restart without touching S3 archives. |
+| **`test-case/`** | **Idempotence Test (`test.ipynb`):** Jupyter Notebook that proves duplicate tasks are filtered by Redis (At-Most-Once) and safe against crashes via PostgreSQL `ON CONFLICT DO UPDATE` (At-Least-Once). |
+| **`start-project.bat`** | One-click script to build, clean, and run the whole system. |
+| **`.env`** | Secrets and environment configuration (stores `LTA_ACCOUNT_KEY`). |
 
-*   **`k8s-manifests/` (The Blueprint)**
-    *   *What it does:* Kubernetes configuration files (YAML).
-    *   *Why we need it:* These files tell Kubernetes exactly how to deploy, network, and automatically scale our worker pods and services.
+---
 
-*   **`local-env/` (The Mock Cloud)**
-    *   *What it does:* A `docker-compose.yml` environment for local development.
-    *   *Why we need it:* This spins up local, free versions of AWS S3 (via MinIO), AWS SQS (via LocalStack), Redis, and PostgreSQL. It allows everyone to test their code on their own laptop without spending AWS credits.
+## ⚠️ Important Things for the Team to Know
 
-*   **`worker-node/` (The Muscle)**
-    *   *What it does:* The core cleansing application.
-    *   *Why we need it:* These are the pods that do the actual heavy lifting. They poll the SQS queue, download the heavy JSON from S3, parse and clean the data, secure a Redis mutex lock, and write the clean records to PostgreSQL.
-
-    **`test-case/` (Validation)**
-    * *Fault Tolerance & Reliability:*
-
-    In distributed message-driven systems, network timeouts and worker node crashes can lead to duplicate task deliveries[cite: 12]. To guarantee data integrity and optimize compute costs, this architecture implements a two-layered idempotency defense:
-
-    * *At-Most-Once (Dynamic Filtering via Redis):* The worker maintains a history of successfully processed S3 object keys[cite: 11]. Re-delivered messages are intercepted at the top of the execution loop and discarded, preventing redundant S3 bandwidth and compute overhead.
-    * *At-Least-Once (Database Idempotency via PostgreSQL):* If the Redis cache is lost or a worker crashes mid-execution, tasks must be re-processed safely[cite: 11, 14]. Using `UNIQUE` schema constraints and `ON CONFLICT DO UPDATE` operations, PostgreSQL handles re-ingested data cleanly without throwing constraint errors or creating duplicate rows.
-
-    > **Note on Testing:** The automated Jupyter Notebook test suite verifying these distributed consensus mechanisms can be found in the [`/test-cases`](./test-cases) directory.        
-
-
-### 📄 Root Files
-*   **`.gitignore`**: Tells Git which files to ignore (like local `.env` files with passwords, massive dataset downloads, or `node_modules`).
-*   **`GROUP04_INSTRUCTIONS.pdf`**: A placeholder for the final testing manual we will submit to the professor.
-
-## 🛠️ Getting Started (Local Setup)
-
-To spin up your local mock cloud, ensure you have Docker Desktop installed, then run:
-
-1. Navigate to the local environment folder: `cd local-env`
-2. Start the mock cloud services: `docker-compose up -d`
-3. Verify the containers (MinIO, LocalStack, Redis, Postgres) are running: `docker ps`
-4. Return to the project root and navigate to the worker folder: `cd ../worker-node`
-5. Build the worker node Docker image: `docker build -t dataclean-worker:latest .`
-6. Run the worker container: `docker run --name worker_node --network host dataclean-worker:latest`
-
-### 🔄 Managing the Worker
-
-Once the `worker_node` container is created, do not run step 6 again. Manage the existing container using these commands:
-* **View live logs:** `docker logs -f worker_node`
-* **Stop the worker:** `docker stop worker_node`
-* **Restart the worker in the background:** `docker start worker_node`
-* **Restart the worker and view output:** `docker start -a worker_node`
-
-## 🚦 Git Workflow Rules (CRITICAL)
-
-To keep our development fast and avoid breaking each other's code, we follow a strict branching strategy.
-
-1. **NEVER push directly to the `main` branch.** The `main` branch must always contain a working, stable version of the project.
-2. **Create a Feature Branch:** When you start working on your folder, create a new branch off of `main`. Use a descriptive name (e.g., `git checkout -b setup/local-compose` or `git checkout -b feat/redis-lock`).
-3. **Open a Pull Request (PR):** When your code is working locally, push your branch to GitHub and open a PR. Have at least one other team member review and approve it before merging it into `main`.
+1. **Separated Containers (Microservices):**
+   * S3 and SQS run in **completely separate containers** (`localstack-s3` on port `4566` and `localstack-sqs` on port `4567`). They are not lumped together.
+2. **Google RPC (gRPC) Inter-Service Communication:**
+   * Instead of slow HTTP REST, the **Coordinator talks to Workers using Google gRPC over HTTP/2 (port 50051)** with Protocol Buffers (`traffic.proto`).
+3. **Database Credentials & Table:**
+   * **Host:** `localhost` (Port: `5433` on your host machine, `5432` inside Docker)
+   * **Database:** `dataclean_db`
+   * **User / Password:** `admin` / `admin`
+   * **Table:** `cleansed_traffic`
+   * *You can connect via pgAdmin 4 using these credentials.*
+4. **Idempotence & Fault Tolerance:**
+   * If a message is sent twice, Redis catches it and drops it.
+   * If Redis is wiped, PostgreSQL `ON CONFLICT (vehicle_id) DO UPDATE` ensures existing records are updated in place with zero duplicate rows.
+   * Open `test-case/test.ipynb` and run the 4 cells to see this automated test in action.
+5. **Dead-Letter Queue (DLQ):**
+   * If corrupted or poisoned data arrives that cannot be parsed, the Coordinator refuses to delete it from SQS. After 5 retries, AWS SQS automatically moves it to `task-dead-letter`.

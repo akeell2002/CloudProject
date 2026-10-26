@@ -1,0 +1,118 @@
+x-aws-environment: &aws
+  S3_ENDPOINT: http://localstack-s3:4566
+  SQS_ENDPOINT: http://localstack-sqs:4566
+  AWS_ENDPOINT: http://localstack-s3:4566
+  AWS_ACCESS_KEY_ID: test
+  AWS_SECRET_ACCESS_KEY: test
+  AWS_DEFAULT_REGION: us-east-1
+
+x-database-environment: &database
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: dataclean_db
+  POSTGRES_USER: admin
+  POSTGRES_PASSWORD: admin
+
+services:
+  postgres:
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          pg_isready -U admin -d dataclean_db &&
+          psql -U admin -d dataclean_db -v ON_ERROR_STOP=1
+          -c "BEGIN;
+          INSERT INTO cleansed_traffic
+          (vehicle_id, recorded_timestamp, latitude, longitude, speed_kmh)
+          SELECT '__healthcheck__', NOW(), 0, 0, 0 WHERE FALSE
+          ON CONFLICT (vehicle_id) DO NOTHING;
+          ROLLBACK;" > /dev/null
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  bootstrap:
+    build:
+      context: ../dashboard
+    command: ["python", "bootstrap.py"]
+    environment:
+      <<: *aws
+    depends_on:
+      localstack-s3:
+        condition: service_started
+      localstack-sqs:
+        condition: service_started
+    restart: "no"
+
+  dashboard:
+    build:
+      context: ../dashboard
+    volumes:
+      - ../dashboard/static:/app/static:ro
+    ports:
+      - "8000:8000"
+    environment:
+      <<: [*aws, *database]
+      SQS_QUEUE_URL: http://localstack-sqs:4566/000000000000/task-queue
+      REDIS_HOST: redis
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
+  producer:
+    build:
+      context: ../data-simulation
+    environment:
+      <<: *aws
+      LTA_ACCOUNT_KEY: ${LTA_ACCOUNT_KEY:?Set LTA_ACCOUNT_KEY in the root .env file}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      POLL_SECONDS: "15"
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ../worker-node
+    environment:
+      <<: [*aws, *database]
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      WORKER_MODE: grpc
+      GRPC_PORT: "50051"
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
+  coordinator:
+    build:
+      context: ../coordinator
+    environment:
+      <<: *aws
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
+      worker:
+        condition: service_started
+    restart: unless-stopped
