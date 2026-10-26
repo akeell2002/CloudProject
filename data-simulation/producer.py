@@ -50,7 +50,7 @@ while True:
             file_name = f"lta_traffic_{uuid.uuid4()}.json"
 
             # Upload to S3 and trigger Claim-Check SQS
-            s3.put_object(Bucket=bucket_name, Key=file_name, Body=json_data)
+               s3.put_object(Bucket=bucket_name, Key=file_name, Body=json_data)
             print(f"\nStored live LTA record in S3: {file_name} (Camera {camera['CameraID']})")
 
             s3_url = f"s3://{bucket_name}/{file_name}"
