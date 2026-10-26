@@ -110,11 +110,20 @@ SPEED_MAX = 125  # Max expressway speed is 90 km/h; 125 km/h allows reasonable h
 
 
 def numeric(value, name):
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    """
+    Cleanses and typecasts raw sensor data into numeric floats.
+    Accepts numbers and valid numeric strings (e.g. '1.3521').
+    Rejects booleans, non-numeric strings, and non-finite values.
+    """
+    if isinstance(value, bool):
         raise ValueError(f"{name} must be a number")
-    if not math.isfinite(value):
+    try:
+        val = float(value)
+    except (ValueError, TypeError):
+        raise ValueError(f"{name} must be a number")
+    if not math.isfinite(val):
         raise ValueError(f"{name} must be finite")
-    return float(value)
+    return val
 
 
 # In-Memory Memoized Road Speed Segments (cleansed from Redis Bronze cache)
@@ -237,7 +246,7 @@ def clean_record(content):
         raise ValueError("Record must be a JSON object")
 
     # 1. Text Normalization: trim whitespace & uppercase standardize
-    raw_id = data.get("vehicle_id") or data.get("vehicle_source")
+    raw_id = data.get("vehicle_source") or data.get("vehicle_id")
     if (
         not isinstance(raw_id, str)
         or not raw_id.strip()
