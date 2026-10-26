@@ -1,7 +1,6 @@
-"""Read-only monitoring API for the CloudProject Packet Tracer-style dashboard.
+"""Pipeline monitoring API with cooperative producer ingestion control.
 
-This service intentionally does not change worker/producer behavior. It reads
-SQS queue attributes, Redis reachability, and existing PostgreSQL rows.
+Stopping ingestion leaves workers, queued tasks and monitoring running.
 """
 from __future__ import annotations
 
@@ -14,7 +13,8 @@ from typing import Any
 
 import boto3
 from botocore.config import Config
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
+from pydantic import BaseModel, StrictBool
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -54,6 +54,71 @@ DB_USER = os.getenv("POSTGRES_USER", "admin")
 DB_PASSWORD = os.getenv("POSTGRES_PASSWORD", "admin")
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+
+
+# Shared with producer.py: "1" requests a stop, "0" (or a missing key) allows ingestion.
+# The API writes this desired state; the producer reports its actual state separately.
+INGESTION_CONTROL_KEY = "dataclean:ingestion:paused"
+
+
+class IngestionCommand(BaseModel):
+    # Require JSON true/false, rather than coercing strings such as "false".
+    paused: StrictBool
+
+
+def ingestion_client():
+    if redis is None:
+        raise RuntimeError("Redis client unavailable")
+    return redis.Redis(
+        host=REDIS_HOST, port=REDIS_PORT, decode_responses=True,
+        socket_connect_timeout=1, socket_timeout=1,
+    )
+
+
+def get_ingestion_control() -> dict[str, Any]:
+    try:
+        client = ingestion_client()
+        # A saved request is not confirmation: an in-flight operation may still be finishing.
+        requested = client.get(INGESTION_CONTROL_KEY) == "1"
+        producer = json.loads(client.get("dataclean:producer") or "{}")
+        # Stale heartbeats must not make an offline producer appear controllable.
+        connected = time.time() - float(producer.get("last_seen", 0)) <= 15
+        return {
+            "available": True,
+            "requested_paused": requested,
+            "paused": bool(producer.get("ingestion_paused", False)),
+            "producer_connected": connected,
+            "supported": producer.get("ingestion_control_supported") is True,
+        }
+    except Exception:
+        return {"available": False, "requested_paused": None, "paused": None,
+                "producer_connected": False, "supported": False}
+
+
+@app.post("/api/ingestion")
+def set_ingestion(command: IngestionCommand, request: Request) -> dict[str, Any]:
+    # A custom header blocks cross-site form submissions; no CORS is enabled.
+    if request.headers.get("x-ingestion-control") != "1":
+        raise HTTPException(status_code=403, detail="Use the dashboard ingestion control")
+    origin = request.headers.get("origin")
+    if origin and origin != str(request.base_url).rstrip("/"):
+        raise HTTPException(status_code=403, detail="Cross-origin control is not allowed")
+    # Refuse commands when the producer is offline or running an older image
+    # that does not advertise support for this control flag.
+    current = get_ingestion_control()
+    if not current["available"]:
+        raise HTTPException(status_code=503, detail="Redis unavailable; control was not changed")
+    if not current["producer_connected"] or not current["supported"]:
+        raise HTTPException(status_code=409, detail="Producer offline or needs updating")
+    try:
+        # Persistent desired state: no expiry that could restart ingestion unexpectedly.
+        ingestion_client().set(INGESTION_CONTROL_KEY, "1" if command.paused else "0")
+    except Exception:
+        raise HTTPException(status_code=503, detail="Could not save ingestion control")
+    # Only acknowledge the saved request here. Later snapshots confirm the stop/resume
+    # from producer heartbeats; this endpoint never stops workers or clears queues.
+    current["requested_paused"] = command.paused
+    return current
 
 
 def get_queue() -> dict[str, Any]:
@@ -301,5 +366,7 @@ def snapshot() -> dict[str, Any]:
         "workers": get_worker_telemetry(),
         "producer": get_producer_telemetry(),
         "coordinator": get_coordinator_telemetry(),
+        # Keep control status in normal polling so other browser tabs see changes too.
+        "ingestion": get_ingestion_control(),
         "metric_note": "SQS counts are approximate; DB count is current rows, not total processing events",
     }

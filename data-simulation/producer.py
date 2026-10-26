@@ -47,6 +47,10 @@ PRODUCER_ID = "producer-1"
 producer_state = {
     "id": PRODUCER_ID,
     "status": "starting",
+    # These heartbeat fields distinguish an observed stop from the API request
+    # and let the dashboard detect older producer images without stop support.
+    "ingestion_paused": False,
+    "ingestion_control_supported": True,
     "batch_count": 0,
     "sent_total": 0,
     "last_batch_size": 0,
@@ -102,6 +106,45 @@ def report_event(kind, detail="", task=""):
         )
     except Exception:
         pass
+
+
+# Must match the dashboard API key; it controls ingestion only, not queued work.
+INGESTION_CONTROL_KEY = "dataclean:ingestion:paused"
+
+
+def wait_for_ingestion(running_status="streaming"):
+    """Pause at a safe boundary, never between an S3 upload and its SQS send.
+
+    Heartbeats continue on their own thread. If control cannot be read, hold new
+    ingestion until Redis recovers so a stop request is not silently ignored.
+    """
+    while True:
+        unavailable = False
+        try:
+            if monitor is None:
+                raise RuntimeError("Redis control unavailable")
+            # Re-read on every check so a Resume command can release this loop.
+            paused = monitor.get(INGESTION_CONTROL_KEY) == "1"
+        except Exception:
+            paused = True
+            unavailable = True
+        status = "ingestion control unavailable" if unavailable else (
+            "ingestion stopped" if paused else running_status
+        )
+        with state_lock:
+            changed = (producer_state["ingestion_paused"] != paused
+                       or producer_state["status"] != status)
+            producer_state["ingestion_paused"] = paused
+            producer_state["status"] = status
+        # Publish transitions immediately; the background heartbeat still runs
+        # while this thread waits, so a stopped producer remains visible as online.
+        if changed:
+            publish_heartbeat()
+        if not paused:
+            return
+        # Poll without busy-waiting; resume normally takes at most one polling interval
+        # plus Redis/network time once the producer is at this safe boundary.
+        time.sleep(0.5)
 
 
 def heartbeat_loop():
@@ -168,12 +211,16 @@ logging.info("Municipal Stream Producer active (Raw Ingest -> S3 Bronze Layer)")
 
 while True:
     try:
+        # Honor a saved stop before starting the next round of external API requests.
+        wait_for_ingestion("fetching speed bands")
         refresh_speed_bands()
 
         with state_lock:
             producer_state["status"] = "fetching LTA Taxis"
         publish_heartbeat()
 
+        # Check again after the speed-band request, which may take time.
+        wait_for_ingestion("fetching LTA Taxis")
         # Ingest live roaming taxis
         response = requests.get(
             TAXI_API_URL,
@@ -231,6 +278,9 @@ while True:
 
         sent = 0
         for vehicle_id, taxi in assigned_batch:
+            # Check before each record, not just each batch. Once this check passes,
+            # finish its S3 upload and SQS notification together before stopping.
+            wait_for_ingestion()
             ingested_at = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
             real_lat = taxi.get("Latitude")
             real_lon = taxi.get("Longitude")

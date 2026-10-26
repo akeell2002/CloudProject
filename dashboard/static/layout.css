@@ -886,3 +886,89 @@ body.studio-light {
   font-weight: bold;
 }
 
+
+/* Live producer control beside the existing demo buttons. */
+.studio-light .foot-control.ingestion-control {
+  background: #fff1f2;
+  border-color: #fda4af;
+  color: #be123c;
+}
+.studio-light .foot-control.ingestion-control:hover:enabled { background: #ffe4e6; }
+/* Green indicates that Resume is now the available action; status text confirms the actual producer state. */
+.studio-light .foot-control.ingestion-control.is-stopped {
+  background: #ecfdf5;
+  border-color: #6ee7b7;
+  color: #047857;
+}
+.studio-light .foot-control.ingestion-control.is-stopped:hover:enabled { background: #d1fae5; }
+/* Put progress/error feedback below the controls, including when buttons wrap. */
+.ingestion-status {
+  flex-basis: 100%;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* An intentional producer stop uses amber; downstream services remain unchanged. */
+.studio-light .graph-node.producer.ingestion-stopped {
+  background: #fffbeb;
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.10);
+}
+.studio-light .graph-node.producer.ingestion-stopped .node-icon,
+.studio-light .graph-node.producer.ingestion-stopped .node-tag {
+  background: #fef3c7;
+  color: #92400e;
+  border-color: #f59e0b;
+}
+.studio-light .graph-node.producer.ingestion-stopped .node-meta small { color: #92400e; }
+/* Only mute the ingestion edges, not the SQS-to-worker or database paths. */
+.ingestion-stopped #edge-source-producer,
+.ingestion-stopped #edge-producer-s3,
+.ingestion-stopped #edge-producer-queue {
+  stroke: #d97706;
+  stroke-dasharray: 6 6;
+  opacity: 0.45;
+}
+/* Responsive popup sizing keeps the message within the viewport. Native dialog stays hidden until showModal(). */
+.ingestion-stop-dialog {
+  width: min(440px, calc(100vw - 40px));
+  box-sizing: border-box;
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+  padding: 28px;
+  border: 1px solid #cbd5e1;
+  border-radius: 18px;
+  background: #fff;
+  color: #0f172a;
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.2);
+  font-family: inherit;
+}
+/* Dim the page while the confirmation is open; backend processing and polling continue. */
+.ingestion-stop-dialog::backdrop { background: rgba(15, 23, 42, 0.30); }
+.ingestion-stop-symbol {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 24px;
+  margin-bottom: 16px;
+}
+.ingestion-stop-dialog h2 { margin: 0 0 12px; font-size: 22px; }
+.ingestion-stop-dialog p { margin: 0 0 14px; font-size: 15px; line-height: 1.6; }
+.ingestion-stop-dialog .ingestion-stop-hint { color: #64748b; font-size: 13px; }
+.ingestion-stop-dialog form { display: flex; justify-content: flex-end; margin-top: 20px; }
+.ingestion-stop-dialog button {
+  padding: 10px 20px;
+  border: 0;
+  border-radius: 9px;
+  background: #2563eb;
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+/* Make the keyboard-focused dismissal button visible without relying on color alone. */
+.ingestion-stop-dialog button:focus-visible { outline: 3px solid #93c5fd; outline-offset: 3px; }

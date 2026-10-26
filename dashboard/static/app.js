@@ -549,9 +549,13 @@
   }
 
   function spawnPacket(edgeId, color = '#2563eb', duration = 1200) {
+    // Delayed animations from older producer events must not look like new ingestion.
+    if (ingestionVisualStopped && ingestionEdges.has(edgeId)) return;
     const path = $(`edge-${edgeId}`);
     if (!path) return;
-    const g = makeSvg('g', {class: 'packet-envelope'});
+    // Remember each packet's route so a confirmed ingestion stop removes only
+    // producer-side animations, leaving queued work and database writes visible.
+    const g = makeSvg('g', {class: 'packet-envelope', 'data-edge-id': edgeId});
     g.style.setProperty('--packet-color', color);
     const rect = makeSvg('rect', {x: -9, y: -6, width: 18, height: 12, rx: 2, fill: '#ffffff', stroke: color, 'stroke-width': 1.8});
     const flap = makeSvg('path', {d: 'M -7 -3 L 0 2 L 7 -3', fill: 'none', stroke: color, 'stroke-width': 1.4});
@@ -730,9 +734,140 @@
     $('playPause').textContent = '▶ Resume demo';
   }
 
+  // Live ingestion control is independent of Demo playback and dashboard polling.
+  // Version changes invalidate snapshots started before a newer control request.
+  let ingestionBusy = false;
+  let ingestionControl = null;
+  let ingestionVersion = 0;
+  let ingestionError = '';
+  // Presentation state only; backend commands and error handling are unchanged.
+  let ingestionVisualStopped = false;
+  let ingestionStopNoticeShown = false;
+  const ingestionEdges = new Set(['source-producer', 'producer-s3', 'producer-queue']);
+
+  // Reflect the existing confirmed-stop status on the diagram and popup.
+  // This function only changes the UI; it never sends commands or stops services.
+  function renderIngestionVisual(stopped) {
+    const wasStopped = ingestionVisualStopped;
+    ingestionVisualStopped = stopped;
+    const producer = document.querySelector('.graph-node.producer');
+    const canvas = $('canvas');
+    const dialog = $('ingestionStoppedDialog');
+    // The canvas class mutes the three ingestion links; the producer class
+    // adds the amber style and explicit intentional-stop label.
+    canvas.classList.toggle('ingestion-stopped', stopped);
+    producer.classList.toggle('ingestion-stopped', stopped);
+    producer.querySelector('.node-meta small').textContent = stopped ? 'Stopped by request' : 'Ingests source data';
+    producer.querySelector('.node-tag').textContent = stopped ? 'STOPPED' : 'PY';
+    producer.title = stopped ? 'New ingestion is stopped by request. Queued tasks continue processing.' : '';
+
+    if (stopped) {
+      // Clear only upstream packets. Worker/queue animations keep showing real work.
+      $('packetLayer').querySelectorAll('[data-edge-id]').forEach(packet => {
+        if (ingestionEdges.has(packet.dataset.edgeId)) packet.remove();
+      });
+      $('modeNotice').textContent = 'INGESTION STOPPED BY REQUEST · No new records. Queued tasks continue processing; monitoring remains live.';
+      $('footerNote').textContent = 'Ingestion stopped by request · Queue processing and monitoring remain active';
+      // Normal snapshots arrive repeatedly. Open the modal once per stop, so
+      // dismissing it with Got it or Escape does not reopen it on the next poll.
+      if (!ingestionStopNoticeShown) {
+        if (!dialog.open) dialog.showModal();
+        ingestionStopNoticeShown = true;
+      }
+    } else {
+      // Close the previous confirmation when leaving the stopped view, including
+      // Resume and Demo mode, rather than leaving a stale popup on screen.
+      if (dialog.open) dialog.close();
+      // Restore the normal live banner when the producer leaves the stopped view.
+      if (wasStopped && state.mode === 'live') {
+        $('modeNotice').textContent = 'LIVE · Real-time pipeline events streaming across Producer, S3, SQS, Workers, and PostgreSQL.';
+        $('footerNote').textContent = 'Real-time pipeline monitoring active';
+      }
+      // Keep the once-per-stop latch through mode changes/reconnection; reset when
+      // a resume request is observed, so the next deliberate stop gets a popup.
+      if (ingestionControl?.available && ingestionControl.requested_paused === false) {
+        ingestionStopNoticeShown = false;
+      }
+    }
+  }
+
+  function renderIngestionControl() {
+    const button = $('ingestionToggle');
+    const status = $('ingestionStatus');
+    const control = ingestionControl;
+    // The button offers the opposite of the requested state, while the status
+    // below uses producer acknowledgment to distinguish "Stopping" from "Stopped".
+    const stopped = control?.requested_paused === true;
+    // Use the same conditions as the existing confirmed-stop message below.
+    // This adds visual feedback only; it does not introduce new error handling.
+    renderIngestionVisual(state.mode === 'live' && !ingestionError && control?.available
+      && control.producer_connected && control.supported && stopped && control.paused);
+    button.textContent = ingestionBusy ? 'Applying…' : stopped ? '▶ Resume ingestion' : '■ Stop ingestion';
+    button.classList.toggle('is-stopped', stopped);
+    // Prevent double submissions, real changes in Demo mode, and commands to
+    // offline/older producers that cannot act on the requested state.
+    button.disabled = ingestionBusy || state.mode !== 'live' || !control?.available
+      || !control?.producer_connected || !control?.supported;
+    button.title = stopped ? 'Resume fetching and queueing new records'
+      : 'Stop new ingestion; queued tasks continue processing';
+    if (state.mode !== 'live') {
+      status.textContent = 'Ingestion control is available in Live mode.';
+    } else if (ingestionError) {
+      status.textContent = ingestionError;
+    } else if (!control?.available) {
+      status.textContent = 'Ingestion control unavailable.';
+    } else if (!control.producer_connected) {
+      status.textContent = 'Producer offline; waiting for connection.';
+    } else if (!control.supported) {
+      status.textContent = 'Update the producer to enable ingestion control.';
+    } else if (stopped) {
+      status.textContent = control.paused
+        ? 'Ingestion stopped. Queued tasks continue processing.'
+        : 'Stopping after the current operation…';
+    } else {
+      status.textContent = control.paused ? 'Waiting for producer to resume…' : 'Ingestion running.';
+    }
+  }
+
+  async function toggleIngestion() {
+    if ($('ingestionToggle').disabled) return;
+    // Send an explicit desired value, so repeated Stop requests remain idempotent.
+    const paused = !ingestionControl.requested_paused;
+    ingestionBusy = true;
+    ingestionError = '';
+    ingestionVersion++;
+    renderIngestionControl();
+    try {
+      const response = await fetch('/api/ingestion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Ingestion-Control': '1' },
+        body: JSON.stringify({ paused }),
+        signal: AbortSignal.timeout(10000),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : `HTTP ${response.status}`);
+      // A successful POST confirms the request was saved, not that the producer
+      // has stopped yet. Regular snapshots supply that later acknowledgment.
+      ingestionControl = result;
+      log(paused ? 'Stop ingestion requested. Queued tasks continue processing.'
+        : 'Resume ingestion requested.', 'warn');
+    } catch (error) {
+      ingestionError = `Control request failed: ${error.message}. Checking status…`;
+      log(ingestionError, 'warn');
+    } finally {
+      // Even after a timeout, poll again: the server may have saved the command
+      // before the response was lost. Do not assume the previous state still holds.
+      ingestionBusy = false;
+      ingestionVersion++;
+      renderIngestionControl();
+      void fetchSnapshot();
+    }
+  }
+
   function setMode(mode) {
     if (mode === state.mode) return;
     state.mode = mode;
+    renderIngestionControl();
     modeGeneration++;
     eventCursor = null;
     $('packetLayer').replaceChildren();
@@ -767,6 +902,7 @@
   async function fetchSnapshot() {
     if (state.mode !== 'live' || state.refreshing) return;
     const generation = modeGeneration;
+    const controlVersion = ingestionVersion;
     state.refreshing = true;
     try {
       const response = await fetch('/api/snapshot', { cache: 'no-store', signal: AbortSignal.timeout(10000) });
@@ -778,6 +914,12 @@
         next.workers.items = previous.workers.items.map(w => ({ ...w, online: false, status: 'unknown' }));
       }
       state.snapshot = next;
+      // Ignore old polling results that could overwrite a more recent button action.
+      if (!ingestionBusy && controlVersion === ingestionVersion) {
+        ingestionControl = next.ingestion ?? null;
+        ingestionError = '';
+        renderIngestionControl();
+      }
       $('connectionDot').className = 'status-dot online';
       $('connectionLabel').textContent = 'Live connected';
       $('lastSynced').textContent = `Synced ${new Date(next.timestamp).toLocaleTimeString()} · SQS ${next.queue.online ? 'online' : 'offline'} · DB ${next.database.online ? 'online' : 'offline'} · Producer ${next.producer?.connected ? 'online' : 'offline'}`;
@@ -791,6 +933,9 @@
         renderWorkers();
         updateMetrics();
         consumePipelineEvents(next.workers);
+        // The regular snapshot renderer restores generic LIVE text above.
+        // Reapply the stop banner afterward without reopening a dismissed popup.
+        renderIngestionVisual(ingestionVisualStopped);
         if (state.tab === 'records') {
           const currentRecordsJson = JSON.stringify(next.database?.latest ?? []);
           if (currentRecordsJson !== state.lastRecordsJson) {
@@ -805,6 +950,10 @@
       if (state.mode !== 'live' || generation !== modeGeneration) return;
       $('connectionDot').className = 'status-dot offline';
       $('connectionLabel').textContent = 'API unavailable';
+      if (!ingestionBusy && controlVersion === ingestionVersion) {
+        ingestionControl = null;
+        renderIngestionControl();
+      }
       $('lastSynced').textContent = 'Connection lost. Reconnecting…';
       if (state.snapshot) {
         state.snapshot.workers = {
@@ -841,6 +990,7 @@
     $('zoomOut').addEventListener('click', () => adjustZoom(-0.1));
     $('zoomReset').addEventListener('click', () => adjustZoom(1 - state.zoom));
     $('playPause').addEventListener('click', () => state.demoPlaying ? stopDemo() : startDemo());
+    $('ingestionToggle').addEventListener('click', toggleIngestion);
     $('demoBurst').addEventListener('click', () => {
       if (state.mode !== 'demo') return;
       state.demoQueue = Math.min(100, state.demoQueue + 25);

@@ -85,9 +85,19 @@
           <div class="inspector-footer"><span class="foot-diamond">◈</span> <span>Read-only worker monitoring</span></div>
         </aside>
       </div>
-      <footer class="footerbar"><span>◈ NETWORK STUDIO</span><span id="footerNote">Live Google RPC (gRPC) &amp; Centralized Coordinator Active · Isolated Microservices</span><div class="footer-right"><button id="playPause" class="foot-control" disabled>Ⅱ Pause demo</button><button id="demoBurst" class="foot-control" disabled>+ Add workload</button></div></footer>
+      <footer class="footerbar"><span>◈ NETWORK STUDIO</span><span id="footerNote">Live Google RPC (gRPC) &amp; Centralized Coordinator Active · Isolated Microservices</span><div class="footer-right"><button id="playPause" class="foot-control" disabled>Ⅱ Pause demo</button><button id="demoBurst" class="foot-control" disabled>+ Add workload</button><!-- Live producer control; layout.js moves this footer group into the activity panel. Keep disabled until API capability checks succeed. --><button id="ingestionToggle" class="foot-control ingestion-control" type="button" disabled title="Stop new ingestion; queued tasks continue processing">■ Stop ingestion</button><!-- Announce stop/resume progress without moving keyboard focus. --><span id="ingestionStatus" class="ingestion-status" role="status" aria-live="polite">Connecting to ingestion control…</span></div></footer>
     </main>
   </div>
+  <!-- Shown once when the existing ingestion status confirms a requested stop. -->
+  <!-- Native dialog supplies modal focus handling and Escape dismissal. The ARIA references give it an accessible title and description. -->
+  <dialog id="ingestionStoppedDialog" class="ingestion-stop-dialog" aria-labelledby="ingestionStoppedTitle" aria-describedby="ingestionStoppedMessage">
+    <div class="ingestion-stop-symbol" aria-hidden="true">Ⅱ</div>
+    <h2 id="ingestionStoppedTitle">Ingestion stopped</h2>
+    <p id="ingestionStoppedMessage">New data ingestion has stopped. Workers will continue processing tasks already in the queue.</p>
+    <p class="ingestion-stop-hint">The dashboard stays live. Select Resume ingestion when you are ready to continue.</p>
+    <!-- Got it closes only this message. Resuming ingestion still requires the separate Resume button. -->
+    <form method="dialog"><button type="submit" autofocus>Got it</button></form>
+  </dialog>
   <script src="/assets/app.js?v=14" defer></script>
   <script src="/assets/layout.js?v=14" defer></script>
 </body>
