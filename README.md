@@ -40,6 +40,7 @@ Distributed, fault-tolerant municipal traffic data cleansing system for Singapor
 | **`scripts/`** | **Utility Scripts:** Contains `reset_project.py` used by `start-project.bat` to clear demo queues and test database records on a fresh restart without touching S3 archives. |
 | **`test-case/`** | **Idempotence Test (`test.ipynb`):** Jupyter Notebook that proves duplicate tasks are filtered by Redis (At-Most-Once) and safe against crashes via PostgreSQL `ON CONFLICT DO UPDATE` (At-Least-Once). |
 | **`start-project.bat`** | One-click script to build, clean, and run the whole system. |
+| **`reset-data.bat`** | Open up a new terminal, run the script to clear project queues, records and monitoring counters |
 | **`.env`** | Secrets and environment configuration (stores `LTA_ACCOUNT_KEY`). |
 
 ---
