@@ -1,0 +1,95 @@
+================================================================================
+          CSC3104 CLOUD & DISTRIBUTED COMPUTING - GROUP 04
+       DATACLEAN ENGINE: DISTRIBUTED TRAFFIC PIPELINE ARCHITECTURE
+================================================================================
+
+ · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·
+ :                             EXTERNAL DATA SOURCE                            :
+ :                     [ Singapore LTA DataMall REST API ]                     :
+ · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·
+                                        │
+                                        │ (HTTPS Poll / 15s)
+                                        ▼
+ · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·
+ : 01 INGESTION TIER                     │                                     :
+ :                                       ▼                                     :
+ :                           ┌───────────────────────┐                         :
+ :                           │   Producer Service    │                         :
+ :                           │  (data-simulation)    │                         :
+ :                           └──────────┬────────────┘                         :
+ :                                      │                                      :
+ :             ┌────────────────────────┼────────────────────────┐             :
+ :             │ (Raw Payload)          │ (Claim Ticket ~100B)   │ (Speed Bands:
+ :             ▼                        ▼                        ▼  500 entries)
+ :    ┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐    :
+ :    │  localstack-s3  │      │ localstack-sqs  │      │   redis:6379    │    :
+ :    │   (Port 4566)   │      │   (Port 4567)   │      │  Speed Cache &  │    :
+ :    │ lta-traffic-raw │      │   task-queue    │      │ Worker Registry │    :
+ :    └────────┬────────┘      └────────┬────────┘      └────────┬────────┘    :
+ · · · · · · · │ · · · · · · · · · · · ·│ · · · · · · · · · · · ·│ · · · · · · ·
+               │                        │                        │
+               │                        │ (1. Poll Ticket)       │ (Discovery)
+               │                        ▼                        │
+ · · · · · · · │ · · · · · · · · · · · · · · · · · · · · · · · · │ · · · · · · ·
+ : 02 DISTRIBUTED PROCESSING            │                        │             :
+ :             │              ┌─────────┴─────────┐              │             :
+ :             │              │    Coordinator    │◄─────────────┘             :
+ :             │              │  (gRPC Dispatch)  │                            :
+ :             │              └─────────┬─────────┘                            :
+ :             │                        │                                      :
+ :             │                        │ (2. gRPC ProcessTask on Port 50051)  :
+ :             │                        ▼                                      :
+ :             │              ┌───────────────────┐                            :
+ :             └─────────────►│    Worker Pod     │◄─────────────┐             :
+ :              (3. Direct    │  (:50051 Server)  │ (4. Speed    │             :
+ :               S3 Fetch)    └─────────┬─────────┘   Fusion)    │             :
+ · · · · · · · · · · · · · · · · · · · ·│ · · · · · · · · · · · ·│ · · · · · · ·
+                                        │                        │
+                                        │ (5. Idempotent UPSERT) │
+                                        ▼                        │
+ · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · │ · · · · · · ·
+ : 03 OUTPUT & MONITORING               │                        │             :
+ :                            ┌─────────┴─────────┐    ┌─────────┴─────────┐   :
+ :                            │   PostgreSQL DB   │    │  Dashboard Studio │   :
+ :                            │ (Port 5433/5432)  │    │    (Port 8000)    │   :
+ :                            │ cleansed_traffic  │    │  FastAPI + Web UI │   :
+ :                            └───────────────────┘    └───────────────────┘   :
+ · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·
+
+================================================================================
+PIPELINE EXECUTION FLOW (STEP-BY-STEP):
+================================================================================
+
+1. DATA INGESTION (PURE ELT / ZERO CLEANING AT INGEST):
+   - Producer polls Singapore LTA DataMall REST API every 15s.
+   - Raw Taxi GPS payload is dumped untouched into LocalStack S3 Bronze (Bucket: lta-traffic-raw, speed: null).
+   - Raw Traffic Speed Bands (500 segments with raw polyline strings and string bounds) are stored untouched into Redis Bronze.
+   - A lightweight Claim Check ticket (~100 bytes containing s3_bucket, s3_key, batch_id) is enqueued into LocalStack SQS (`task-queue`).
+
+2. DISTRIBUTED COORDINATION & SERVICE DISCOVERY:
+   - Workers announce their IP, port (:50051), and idle status via Redis heartbeats (`dataclean:worker:<id>`).
+   - Coordinator continuously discovers active worker endpoints from Redis.
+   - Coordinator consumes claim-check tickets from SQS and schedules tasks using idle-first / round-robin dispatch.
+
+3. HIGH-SPEED gRPC RPC EXECUTION:
+   - Coordinator invokes `ProcessTask` RPC on the target Worker via Google gRPC / HTTP/2 on port 50051.
+   - Protocol Buffers (`traffic.proto`) strictly type-check task parameters.
+
+4. CLAIM-CHECK DIRECT OBJECT FETCH:
+   - Worker receives the task ticket and directly downloads the raw JSON from LocalStack S3.
+   - Bypasses coordinator proxying to eliminate network bottlenecks and cut latency by 80-90%.
+
+5. DISTRIBUTED DATA CLEANSING & SPATIAL SPEED FUSION (WORKER POD):
+   - Worker cleans raw Taxi GPS: trims whitespace, normalizes uppercase ID, typecasts coordinates to SQL FLOAT.
+   - Worker cleans raw Speed Bands: splits space-separated polyline coordinates, typecasts "MinimumSpeed" / "MaximumSpeed" strings to integer km/h, and memoizes in local worker RAM (60s TTL).
+   - Spatial Fusion: Euclidean distance matching joins the taxi coordinate to the nearest road segment (e.g. AYE: 42 km/h).
+   - Outlier sanitization: Drops non-Singapore coordinates (SG bounding box: Lat 1.15-1.48, Lon 103.55-104.08) and speed spikes (>150 km/h).
+   - Poison messages are quarantined into Dead Letter Queue (`task-dead-letter`).
+
+6. IDEMPOTENT PERSISTENCE:
+   - Cleansed data is written into PostgreSQL table `cleansed_traffic`.
+   - Uses `ON CONFLICT (vehicle_id) DO UPDATE SET ...` ensuring zero duplicate records even across network retries.
+
+7. REAL-TIME MONITORING:
+   - FastAPI Dashboard (`http://localhost:8000`) monitors SQS queue depth, Worker health, S3 batch uploads, and PostgreSQL records in real-time.
+================================================================================

@@ -132,82 +132,35 @@ FLEET_POOL = [
     for _ in range(45)
 ]
 
-# Cached Speed Bands
-cached_speed_segments = []
+# Raw Speed Bands Ingest State
 last_speed_fetch_time = 0
 
 
 def refresh_speed_bands():
-    """Fetches real expressway speeds from TrafficSpeedBandsv2 every 5 minutes."""
-    global cached_speed_segments, last_speed_fetch_time
+    """Fetches raw expressway speed bands from LTA DataMall and caches raw JSON directly into Redis.
+    Following the cloud ELT pattern, the Producer performs zero parsing — preserving raw Bronze data.
+    """
+    global last_speed_fetch_time
     now = time.time()
-    if cached_speed_segments and (now - last_speed_fetch_time < 300):
-        return  # Cache is still valid
+    if now - last_speed_fetch_time < 300:
+        return  # Cache is still valid (5 minute refresh cycle)
 
     headers = {"AccountKey": API_KEY, "Accept": "application/json"}
     try:
-        logging.info("Refreshing road speed bands from TrafficSpeedBandsv2...")
+        logging.info("Ingesting raw road speed bands from TrafficSpeedBandsv2 into Redis Bronze cache...")
         resp = requests.get(SPEED_API_URL, headers=headers, timeout=15)
         if resp.status_code == 200:
-            data = resp.json().get("value", [])
-            parsed_segments = []
-            for item in data:
-                # Extract coordinates (handles StartLat/StartLon or Location string)
-                lat, lon = None, None
-                if "StartLat" in item and "StartLon" in item:
-                    try:
-                        lat = float(item["StartLat"])
-                        lon = float(item["StartLon"])
-                    except (ValueError, TypeError):
-                        pass
-                elif "Location" in item and isinstance(item["Location"], str):
-                    parts = item["Location"].split()
-                    if len(parts) >= 2:
-                        try:
-                            lat = float(parts[0])
-                            lon = float(parts[1])
-                        except ValueError:
-                            pass
-
-                # Derive speed from band or min/max bounds
-                speed = None
-                if "MinimumSpeed" in item and "MaximumSpeed" in item:
-                    try:
-                        min_s = int(item["MinimumSpeed"])
-                        max_s = int(item["MaximumSpeed"])
-                        speed = (min_s + max_s) // 2
-                    except (ValueError, TypeError):
-                        pass
-
-                if speed is None and "SpeedBand" in item:
-                    try:
-                        band = int(item["SpeedBand"])
-                        speed = band * 10  # Band 6 -> ~60 km/h
-                    except (ValueError, TypeError):
-                        pass
-
-                if lat and lon and speed:
-                    parsed_segments.append({
-                        "road": item.get("RoadName", "Expressway"),
-                        "lat": lat,
-                        "lon": lon,
-                        "speed": speed,
-                    })
-
-            if parsed_segments:
-                cached_speed_segments = parsed_segments
+            raw_items = resp.json().get("value", [])
+            if raw_items and monitor is not None:
+                # Stores 100% UNTOUCHED, RAW LTA items directly into Redis
+                monitor.set("dataclean:speed_bands", json.dumps(raw_items), ex=600)
                 last_speed_fetch_time = now
-                if monitor is not None:
-                    try:
-                        monitor.set("dataclean:speed_bands", json.dumps(parsed_segments), ex=600)
-                    except Exception as err:
-                        logging.warning("Failed to store speed bands in Redis: %s", err)
                 with state_lock:
-                    producer_state["speed_bands_cached"] = len(cached_speed_segments)
-                logging.info("Cached %s road speed segments in Redis from LTA DataMall", len(cached_speed_segments))
-                report_event("fetched", f"Cached {len(cached_speed_segments)} expressway speed segments in Redis")
+                    producer_state["speed_bands_cached"] = len(raw_items)
+                logging.info("Ingested %s raw LTA speed band items into Redis Bronze cache", len(raw_items))
+                report_event("fetched", f"Cached {len(raw_items)} raw LTA road segments into Redis")
     except Exception as err:
-        logging.warning("Speed bands fetch skipped: %s (using fallback)", err)
+        logging.warning("Speed bands ingest skipped: %s", err)
 
 
 fleet_history = {}
@@ -360,12 +313,25 @@ while True:
                 logging.info("Injected DIRTY SPEED record for %s", vehicle_id)
 
             else:
-                # 80% CLEAN RECORD: Raw live taxi observation (Pure Bronze Lake data)
+                # 80% BRONZE LAKE RECORD: Raw Taxi Availability telemetry in S3
+                # Authentic messy raw GPS: untrimmed lowercase vehicle string,
+                # stringified coordinates with sensor noise, and IoT gateway telemetry.
+                # Notice: S3 has NO speed band! Speed bands are cached in Redis.
                 record = {
+                    "odata.metadata": "https://datamall2.mytransport.sg/ltaodataservice/$metadata#TaxiAvailability",
+                    "vehicle_source": f"  {vehicle_id.lower()}  \r\n",
                     "vehicle_id": vehicle_id,
+                    "StartLat": str(real_lat),
+                    "StartLon": str(real_lon),
+                    "latitude": str(real_lat),
+                    "longitude": str(real_lon),
+                    "CreateDate": ingested_at,
                     "timestamp": ingested_at,
-                    "latitude": real_lat,
-                    "longitude": real_lon,
+                    "gateway_telemetry": {
+                        "battery_mv": "12450",
+                        "rssi_dbm": "-74",
+                        "firmware_rev": "v1.4b-prod"
+                    }
                 }
                 s3.put_object(
                     Bucket=BUCKET,
@@ -373,12 +339,12 @@ while True:
                     Body=json.dumps(record).encode("utf-8"),
                     ContentType="application/json",
                 )
-                report_event("uploaded", f"{vehicle_id} raw JSON -> S3", key)
+                report_event("uploaded", f"{vehicle_id} raw Taxi GPS -> S3", key)
                 sqs.send_message(
                     QueueUrl=queue_url,
                     MessageBody=json.dumps({"file_url": f"s3://{BUCKET}/{key}"}),
                 )
-                report_event("queued", f"{vehicle_id} raw GPS -> SQS", key)
+                report_event("queued", f"{vehicle_id} raw Taxi GPS -> SQS", key)
 
             sent += 1
             with state_lock:

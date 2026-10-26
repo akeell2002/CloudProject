@@ -117,26 +117,83 @@ def numeric(value, name):
     return float(value)
 
 
-# Cached Road Speed Segments (populated from Redis)
+# In-Memory Memoized Road Speed Segments (cleansed from Redis Bronze cache)
 cached_speed_segments = []
 last_speed_cache_read = 0
 
 
 def get_cached_speed_segments():
-    """Reads road speed bands from Redis, refreshing every 60 seconds."""
+    """Reads raw LTA speed bands from Redis, cleans & parses them in-memory,
+    and caches the clean list in local RAM with a 60-second TTL (Memoization pattern).
+    """
     global cached_speed_segments, last_speed_cache_read
     now = time.time()
     if cached_speed_segments and (now - last_speed_cache_read < 60):
         return cached_speed_segments
+
     try:
         raw = monitor.get("dataclean:speed_bands")
         if raw:
-            cached_speed_segments = json.loads(raw)
-            last_speed_cache_read = now
-            logging.info("Worker loaded %s speed bands from Redis", len(cached_speed_segments))
-            return cached_speed_segments
+            raw_items = json.loads(raw)
+            cleaned = []
+            for item in raw_items:
+                # Fallback if already clean dictionary
+                if "lat" in item and "lon" in item and "speed" in item:
+                    cleaned.append(item)
+                    continue
+
+                # 1. Parse coordinates from raw Location polyline string or StartLat/StartLon
+                lat, lon = None, None
+                if "StartLat" in item and "StartLon" in item:
+                    try:
+                        lat = float(item["StartLat"])
+                        lon = float(item["StartLon"])
+                    except (ValueError, TypeError):
+                        pass
+                elif "Location" in item and isinstance(item["Location"], str):
+                    parts = item["Location"].split()
+                    if len(parts) >= 2:
+                        try:
+                            lat = float(parts[0])
+                            lon = float(parts[1])
+                        except ValueError:
+                            pass
+
+                # 2. Typecast string boundaries & derive median speed
+                speed = None
+                if "MinimumSpeed" in item and "MaximumSpeed" in item:
+                    try:
+                        min_s = int(item["MinimumSpeed"])
+                        max_s = int(item["MaximumSpeed"])
+                        speed = (min_s + max_s) // 2
+                    except (ValueError, TypeError):
+                        pass
+
+                # 3. Fallback to discrete SpeedBand tier code (1-8)
+                if speed is None and "SpeedBand" in item:
+                    try:
+                        band = int(item["SpeedBand"])
+                        speed = band * 10
+                    except (ValueError, TypeError):
+                        pass
+
+                if lat and lon and speed:
+                    road_name = str(item.get("RoadName", "Expressway")).split("(")[0].strip()
+                    cleaned.append({
+                        "road": road_name,
+                        "lat": lat,
+                        "lon": lon,
+                        "speed": speed,
+                    })
+
+            if cleaned:
+                cached_speed_segments = cleaned
+                last_speed_cache_read = now
+                logging.info("Worker Pod cleansed & memoized %s speed bands from Redis (60s TTL)", len(cached_speed_segments))
+                return cached_speed_segments
     except Exception as exc:
-        logging.warning("Failed to fetch speed bands from Redis: %s", exc)
+        logging.warning("Failed to fetch/clean speed bands from Redis: %s", exc)
+
     return cached_speed_segments
 
 
@@ -179,16 +236,21 @@ def clean_record(content):
     if not isinstance(data, dict):
         raise ValueError("Record must be a JSON object")
 
-    vehicle_id = data.get("vehicle_id")
+    # 1. Text Normalization: trim whitespace & uppercase standardize
+    raw_id = data.get("vehicle_id") or data.get("vehicle_source")
     if (
-        not isinstance(vehicle_id, str)
-        or not vehicle_id.strip()
-        or len(vehicle_id.strip()) > 50
+        not isinstance(raw_id, str)
+        or not raw_id.strip()
+        or len(raw_id.strip()) > 50
     ):
         raise ValueError("Invalid vehicle identifier")
+    vehicle_id = raw_id.strip().upper()
 
-    latitude = numeric(data.get("latitude"), "latitude")
-    longitude = numeric(data.get("longitude"), "longitude")
+    # 2. Type-Casting & Coordinate Precision Normalization
+    raw_lat = data.get("latitude") if "latitude" in data else data.get("StartLat") if "StartLat" in data else data.get("Latitude")
+    raw_lon = data.get("longitude") if "longitude" in data else data.get("StartLon") if "StartLon" in data else data.get("Longitude")
+    latitude = round(numeric(raw_lat, "latitude"), 4)
+    longitude = round(numeric(raw_lon, "longitude"), 4)
 
     # RULE 1: Singapore Spatial Bounding Box Filter
     if not (SG_LAT_MIN <= latitude <= SG_LAT_MAX and SG_LON_MIN <= longitude <= SG_LON_MAX):
@@ -196,28 +258,33 @@ def clean_record(content):
 
     # DISTRIBUTED STREAM FUSION:
     # If the raw observation carries a faulty sensor spike (chaos), evaluate that;
-    # otherwise, compute dynamic speed by fusing with nearest expressway speed band.
+    # otherwise, Worker queries Redis speed cache to match road speed for these coordinates!
     if "speed_sensor_reading" in data:
         speed = numeric(data["speed_sensor_reading"], "speed_sensor_reading")
     elif "speed_kmh" in data:
         speed = numeric(data["speed_kmh"], "speed_kmh")
     else:
+        # Queries Redis road speed cache:
         speed = match_speed_to_coordinate(latitude, longitude)
 
     # RULE 2: Physical Dynamics Sanity Check
     if not (SPEED_MIN <= speed <= SPEED_MAX) or not float(speed).is_integer():
         return None, f"Physical Speed Anomaly ({speed} km/h) outside valid range [0-{SPEED_MAX}]"
 
-    timestamp = data.get("timestamp")
-    if not isinstance(timestamp, str):
+    raw_ts = data.get("timestamp") or data.get("CreateDate")
+    if not isinstance(raw_ts, str):
         raise ValueError("Missing timestamp")
 
-    observed_at = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    try:
+        observed_at = datetime.fromisoformat(raw_ts.replace("Z", "+00:00"))
+    except ValueError:
+        observed_at = datetime.now(timezone.utc)
     if observed_at.tzinfo is not None:
         observed_at = observed_at.astimezone(timezone.utc).replace(tzinfo=None)
 
+    # Notice: gateway_telemetry and odata.metadata are pruned away!
     return (
-        vehicle_id.strip(),
+        vehicle_id,
         observed_at,
         latitude,
         longitude,
