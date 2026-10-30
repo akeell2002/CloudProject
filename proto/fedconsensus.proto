@@ -1,1 +1,177 @@
+syntax = "proto3";
 
+package fedconsensus;
+
+// The gRPC communication interface between all consortium nodes
+service FedConsensusService {
+  // 1. Leader proposes to ban a domain with evidence
+  rpc ProposeDefederation(ProposeRequest) returns (ProposeResponse);
+
+  // 2. Followers independently verify evidence and cast their signed vote
+  rpc CastVote(VoteRequest) returns (VoteResponse);
+
+  // 3. Once Quorum is reached, broadcast the Quorum Proof to finalize the ban
+  rpc CommitDefederation(CommitRequest) returns (CommitResponse);
+
+  // 4. Leader lease renewal so everyone knows who the current leader is
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+
+  // 5. Emergency vote to kick out a leader that is censoring reports or offline
+  rpc ImpeachLeader(ImpeachRequest) returns (ImpeachResponse);
+
+  // 6. A crashed node that just woke up asks peers: "What bans did I miss?"
+  rpc CatchupSync(CatchupRequest) returns (CatchupResponse);
+
+  // 7. Status check for our dashboard and CLI
+  rpc GetStatus(StatusRequest) returns (StatusResponse);
+}
+
+enum ReasonCode {
+  REASON_UNKNOWN = 0;
+  REASON_SPAM = 1;
+  REASON_BOTNET = 2;
+  REASON_PHISHING = 3;
+  REASON_MALICIOUS_FILES = 4;
+  REASON_HATE_SPEECH = 5;
+}
+
+enum VoteDecision {
+  VOTE_UNKNOWN = 0;
+  VOTE_APPROVE = 1;
+  VOTE_REJECT = 2;
+}
+
+message ProposeRequest {
+  string proposal_id = 1;
+  int64 sequence_number = 2;          // e.g. 1, 2, 3... (strictly increasing)
+  int64 epoch = 3;                    // Current leader term
+  string target_domain = 4;           // e.g. "spam-botnet.net"
+  ReasonCode reason = 5;              // e.g. REASON_BOTNET
+  string evidence_payload = 6;        // The raw ActivityPub JSON post
+  string origin_http_signature = 7;    // The cryptographic signature of the accused server
+  float threat_score = 8;             // Classifier score (>= 0.60)
+  string proposer_id = 9;             // e.g. "fednode-0"
+  string proposer_signature = 10;     // Ed25519 signature of the leader
+  int64 timestamp = 11;
+}
+
+message ProposeResponse {
+  bool accepted = 1;
+  string reason = 2;
+  string node_id = 3;
+}
+
+message VoteRequest {
+  string proposal_id = 1;
+  int64 sequence_number = 2;
+  int64 epoch = 3;
+  string target_domain = 4;
+  string voter_id = 5;
+  VoteDecision decision = 6;          // APPROVE or REJECT
+  string voter_signature = 7;         // Ed25519 signature of the voter
+  int64 timestamp = 8;
+}
+
+message VoteResponse {
+  bool acknowledged = 1;
+  string message = 2;
+}
+
+// A single signature inside the Quorum Proof
+message VoterSignature {
+  string voter_id = 1;
+  string signature = 2;
+  int64 timestamp = 3;
+}
+
+// The Quorum Certificate (QC): The legal proof holding Q matching signatures
+message QuorumProof {
+  string proposal_id = 1;
+  int64 sequence_number = 2;
+  int64 epoch = 3;
+  string target_domain = 4;
+  ReasonCode reason = 5;
+  repeated VoterSignature signatures = 6; // Must contain at least Q = N - f signatures!
+  int64 finalized_at = 7;
+}
+
+message CommitRequest {
+  string proposal_id = 1;
+  int64 sequence_number = 2;
+  int64 epoch = 3;
+  string target_domain = 4;
+  QuorumProof quorum_proof = 5;       // Attach the proof
+  string committer_id = 6;
+  string committer_signature = 7;
+}
+
+message CommitResponse {
+  bool committed = 1;
+  string message = 2;
+}
+
+message HeartbeatRequest {
+  string leader_id = 1;
+  int64 epoch = 2;
+  int64 lease_expires_at = 3;
+  string signature = 4;
+}
+
+message HeartbeatResponse {
+  bool acknowledged = 1;
+  int64 current_epoch = 2;
+}
+
+message ImpeachRequest {
+  string accuser_id = 1;
+  int64 target_epoch = 2;
+  string leader_id = 3;
+  string justification = 4;
+  string signature = 5;
+}
+
+message ImpeachResponse {
+  bool vote_impeach = 1;
+  string voter_id = 2;
+}
+
+message CatchupRequest {
+  string node_id = 1;
+  int64 from_sequence_number = 2;     // "Give me all bans starting from sequence X"
+}
+
+message CommitRecord {
+  int64 sequence_number = 1;
+  int64 epoch = 2;
+  string target_domain = 3;
+  ReasonCode reason = 4;
+  QuorumProof quorum_proof = 5;
+  int64 committed_at = 6;
+}
+
+message CatchupResponse {
+  string node_id = 1;
+  repeated CommitRecord records = 2;
+  int64 latest_sequence_number = 3;
+}
+
+message StatusRequest {
+  string caller_id = 1;
+}
+
+message PeerReputationEntry {
+  string peer_id = 1;
+  int32 trust_score = 2;              // 0 to 100
+  bool is_active = 3;
+  int32 violations_count = 4;
+}
+
+message StatusResponse {
+  string node_id = 1;
+  string state = 2;                   // LEADER, FOLLOWER, BYZANTINE
+  int64 current_epoch = 3;
+  int64 last_committed_seq = 4;
+  int32 blocked_domains_count = 5;
+  repeated PeerReputationEntry reputations = 6;
+  string operational_mode = 7;        // AUTOMATIC or ADVISORY
+}

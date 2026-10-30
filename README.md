@@ -267,3 +267,54 @@ CloudProject/
 ├── start-cluster.bat               # 1-click startup batch script
 └── README.md                       # Comprehensive architecture and reference guide
 ```
+
+
+---
+
+## 7. Completed Modules & Implementation Rationale (Phase 1)
+
+The following foundational modules have been fully implemented, unit-tested, and verified:
+
+### 1. `proto/fedconsensus.proto` (The gRPC Network Contract)
+* **What it does:** Defines the strict, single source of truth for all network communication between Kubernetes pods.
+* **Problem it solves:** In distributed consensus, nodes cannot communicate via unstructured text. This file defines the exact binary schemas for the 6 core actions:
+  1. `ProposeDefederation`: Leader broadcasts target domain, evidence, and Ed25519 signature.
+  2. `CastVote`: Followers return cryptographically signed `APPROVE` / `REJECT` ballots.
+  3. `CommitDefederation`: Broadcaster attaches the **Quorum Proof** ($Q = N - f$ signatures) to finalize defederation.
+  4. `Heartbeat`: Leader lease renewal to prevent split-brain dual leaders.
+  5. `ImpeachLeader`: Emergency vote to remove a censoring or offline leader.
+  6. `CatchupSync`: Recovering nodes query missing bans and replay state.
+
+### 2. `node/crypto/ed25519.py` (Digital Signatures & Deterministic Hashing)
+* **What it does:** Provides asymmetric keypair generation, deterministic SHA-256 canonical hashing, and Ed25519 digital signature signing and verification.
+* **Problem it solves (Byzantine Forgery):** In a Byzantine environment, nodes cannot trust plain text. If Node 3 says *"Node 1 voted YES"*, other nodes verify Node 1's public key. If the signature doesn't match, the vote is instantly rejected.
+* **Why SHA-256?** ActivityPub posts can be large (2MB). Elliptic-curve cryptography requires a fixed 32-byte input. SHA-256 condenses the payload into a 32-byte fingerprint with an "avalanche effect" (changing 1 letter alters the entire hash).
+
+### 3. `node/crypto/http_sig.py` (Origin Anti-Framing Defense)
+* **What it does:** Verifies that abusive post evidence was signed by the private key of the *accused server*.
+* **Problem it solves (False-Flag / Framing Attacks):** If a rogue leader hates an innocent server (`friendly-community.org`), the leader could make up a fake spam post and propose a ban. This module checks: *"Was this post authentically signed by `friendly-community.org`?"* If not, the proposal is rejected as a framing attempt, and the leader is penalized.
+
+### 4. `node/storage/database.py` (Crash-Resilient SQLite in WAL Mode)
+* **What it does:** Embedded relational storage using SQLite configured with Write-Ahead Logging (`PRAGMA journal_mode = WAL;`).
+* **Problem it solves (Crash Resilience & High Concurrency):**
+  - **No Table Locks:** Readers never block writers; writers never block readers.
+  - **Zero Corruption on Crash:** If Kubernetes kills a pod mid-write (`kill -9` or OOM crash), SQLite recovers atomically from the WAL file upon reboot.
+  - **Storage:** Persists `committed_defederations` with their tamper-proof Quorum Proofs, the `active_blocklist`, and the `peer_reputation` ledger.
+
+### 5. `node/storage/reputation.py` (Dynamic Peer Reputation Ledger)
+* **What it does:** Tracks peer trust scores bounded between $100 \rightarrow 0$.
+* **Problem it solves (Byzantine Accountability):**
+  - Forged Signature: `-40 points`
+  - Equivocation (Double-Voting / Lying): `-50 points`
+  - Censorship (Ignoring Attacks): `-30 points`
+  - Fake Evidence: `-25 points`
+  - Honest Vote: `+2 points`
+  - **Quarantine Rule:** If a peer's trust drops below **30**, it is quarantined: its voting rights are stripped, preventing persistent attacks.
+
+### 6. `node/config.py` (Identity Persistence & Quorum Math)
+* **What it does:** Central configuration loader for environment variables, persistent key storage, and BFT mathematical limits.
+* **Problem it solves:**
+  - **Persistent Keypairs:** When a pod restarts after a crash, it reloads its private/public keypair from `node_identity.json` so peers still recognize its identity.
+  - **BFT Quorum Math:** Computes `f = (N - 1) // 3` and enforces strict supermajority quorum:
+    `Q = N - f`
+    (e.g., for `N = 5`, `f = (5 - 1) // 3 = 1`, and `Q = 5 - 1 = 4` out of 5 votes to mathematically eliminate split-brain risk).
