@@ -77,4 +77,4 @@ class NodeConfig:
         mode = os.getenv("QUORUM_MODE", "STRICT").upper()
         if mode == "MAJORITY":
             return 2 * f + 1  # 3 out of 5
-        return self.total_nodes - f  # 4 out of 5 (Default Option B)
+        return self.total_nodes - f  # 4 out of 5 
