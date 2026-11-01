@@ -1,1 +1,106 @@
+version: '3.8'
 
+networks:
+  fedconsensus-net:
+    driver: bridge
+
+volumes:
+  fednode-0-data:
+  fednode-1-data:
+  fednode-2-data:
+  fednode-3-data:
+  fednode-4-data:
+
+x-common-env: &common-env
+  GRPC_PORT: 50051
+  HTTP_PORT: 8080
+  DATA_DIR: /data
+  PEER_ADDRESSES: "fednode-0:50051,fednode-1:50051,fednode-2:50051,fednode-3:50051,fednode-4:50051"
+  BYZANTINE_MODE: NONE
+  QUORUM_MODE: STRICT
+
+services:
+  fednode-0:
+    build:
+      context: .
+      dockerfile: node/Dockerfile
+    container_name: fednode-0
+    networks:
+      - fedconsensus-net
+    environment:
+      <<: *common-env
+      NODE_ID: fednode-0
+    volumes:
+      - fednode-0-data:/data
+    ports:
+      - "50051:50051"
+      - "8080:8080"
+    restart: unless-stopped
+
+  fednode-1:
+    build:
+      context: .
+      dockerfile: node/Dockerfile
+    container_name: fednode-1
+    networks:
+      - fedconsensus-net
+    environment:
+      <<: *common-env
+      NODE_ID: fednode-1
+    volumes:
+      - fednode-1-data:/data
+    ports:
+      - "50052:50051"
+      - "8081:8080"
+    restart: unless-stopped
+
+  fednode-2:
+    build:
+      context: .
+      dockerfile: node/Dockerfile
+    container_name: fednode-2
+    networks:
+      - fedconsensus-net
+    environment:
+      <<: *common-env
+      NODE_ID: fednode-2
+    volumes:
+      - fednode-2-data:/data
+    ports:
+      - "50053:50051"
+      - "8082:8080"
+    restart: unless-stopped
+
+  fednode-3:
+    build:
+      context: .
+      dockerfile: node/Dockerfile
+    container_name: fednode-3
+    networks:
+      - fedconsensus-net
+    environment:
+      <<: *common-env
+      NODE_ID: fednode-3
+    volumes:
+      - fednode-3-data:/data
+    ports:
+      - "50054:50051"
+      - "8083:8080"
+    restart: unless-stopped
+
+  fednode-4:
+    build:
+      context: .
+      dockerfile: node/Dockerfile
+    container_name: fednode-4
+    networks:
+      - fedconsensus-net
+    environment:
+      <<: *common-env
+      NODE_ID: fednode-4
+    volumes:
+      - fednode-4-data:/data
+    ports:
+      - "50055:50051"
+      - "8084:8080"
+    restart: unless-stopped
