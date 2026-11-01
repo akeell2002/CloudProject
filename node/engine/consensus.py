@@ -1,7 +1,7 @@
 import json
 import time
 import threading
-from typing import Dict, List, Optional, Set, Any
+from typing import Dict, List, Optional, Set, Any, Tuple
 from proto import fedconsensus_pb2 as pb2
 from node.config import NodeConfig
 from node.storage.database import Database
