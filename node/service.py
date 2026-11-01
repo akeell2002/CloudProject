@@ -1,1 +1,189 @@
+import time
+import logging
+from typing import Dict, Any, Optional
 
+import grpc
+from proto import fedconsensus_pb2 as pb2
+from proto import fedconsensus_pb2_grpc as pb2_grpc
+
+from node.config import NodeConfig
+from node.storage.database import Database
+from node.storage.reputation import ReputationManager
+from node.ingress.firewall import FirewallFilter
+from node.engine.consensus import ConsensusEngine
+from node.engine.leader import LeaderManager
+from node.engine.catchup import CatchupEngine
+
+logger = logging.getLogger("fedconsensus.service")
+
+
+class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
+    """
+    gRPC Server Implementation for FedConsensus (Milestone 3.2).
+    Binds the 7 cluster RPC operations and supports runtime Byzantine fault injection
+    (NONE, SILENT, LIAR, FORGER).
+    """
+    def __init__(
+        self,
+        config: NodeConfig,
+        database: Database,
+        reputation: ReputationManager,
+        firewall: FirewallFilter,
+        consensus: ConsensusEngine,
+        leader: LeaderManager,
+        catchup: CatchupEngine
+    ):
+        self.config = config
+        self.db = database
+        self.reputation = reputation
+        self.firewall = firewall
+        self.consensus = consensus
+        self.leader = leader
+        self.catchup = catchup
+
+        # Configurable fault mode: NONE, SILENT, LIAR, FORGER
+        self.byzantine_mode = self.config.byzantine_mode
+
+    def set_byzantine_mode(self, mode: str):
+        """Allows dynamic fault injection from CLI or Dashboard (Phase 4)."""
+        clean_mode = mode.upper().strip()
+        logger.warning(f"[{self.config.node_id}] Switching Byzantine mode to: {clean_mode}")
+        self.byzantine_mode = clean_mode
+
+    # -------------------------------------------------------------
+    # 1. ProposeDefederation (Phase 1 of BFT)
+    # -------------------------------------------------------------
+    def ProposeDefederation(self, request: pb2.ProposeRequest, context) -> pb2.ProposeResponse:
+        # Byzantine SILENT: simulate dead/dropping node
+        if self.byzantine_mode == "SILENT":
+            context.abort(grpc.StatusCode.UNAVAILABLE, "Node is in SILENT Byzantine fault mode")
+
+        logger.info(f"[{self.config.node_id}] Received proposal for: {request.target_domain}")
+
+        # Follower audits the proposal
+        accepted, reason, vote_req = self.consensus.handle_proposal(request)
+
+        # Byzantine LIAR: refuse to vote for legitimate threats
+        if self.byzantine_mode == "LIAR" and vote_req:
+            logger.warning(f"[{self.config.node_id}] Byzantine LIAR injecting REJECT ballot!")
+            vote_req.decision = pb2.VOTE_REJECT
+
+        # Byzantine FORGER: tamper with digital signature
+        if self.byzantine_mode == "FORGER" and vote_req:
+            logger.warning(f"[{self.config.node_id}] Byzantine FORGER corrupting ballot signature!")
+            vote_req.voter_signature = "bad_signature_000000000000000000000000000000000000000000000000"
+
+        # If proposal accepted and vote created, process locally
+        if accepted and vote_req:
+            proof = self.consensus.handle_vote(vote_req)
+            if proof:
+                self.consensus.commit_defederation(proof)
+
+        return pb2.ProposeResponse(
+            accepted=accepted,
+            reason=reason,
+            node_id=self.config.node_id
+        )
+
+    # -------------------------------------------------------------
+    # 2. CastVote (Phase 2 of BFT)
+    # -------------------------------------------------------------
+    def CastVote(self, request: pb2.VoteRequest, context) -> pb2.VoteResponse:
+        if self.byzantine_mode == "SILENT":
+            context.abort(grpc.StatusCode.UNAVAILABLE, "Node is in SILENT Byzantine fault mode")
+
+        proof = self.consensus.handle_vote(request)
+        if proof:
+            logger.info(f"[{self.config.node_id}] Quorum Certificate minted for {proof.target_domain}!")
+            self.consensus.commit_defederation(proof)
+
+        return pb2.VoteResponse(
+            acknowledged=True,
+            message="Vote registered successfully"
+        )
+
+    # -------------------------------------------------------------
+    # 3. CommitDefederation (Phase 3 of BFT)
+    # -------------------------------------------------------------
+    def CommitDefederation(self, request: pb2.CommitRequest, context) -> pb2.CommitResponse:
+        if self.byzantine_mode == "SILENT":
+            context.abort(grpc.StatusCode.UNAVAILABLE, "Node is in SILENT Byzantine fault mode")
+
+        success = self.consensus.commit_defederation(request.quorum_proof)
+        return pb2.CommitResponse(
+            committed=success,
+            message="Committed to SQLite and Firewall" if success else "Commit rejected"
+        )
+
+    # -------------------------------------------------------------
+    # 4. Heartbeat (Leader Lease Renewal)
+    # -------------------------------------------------------------
+    def Heartbeat(self, request: pb2.HeartbeatRequest, context) -> pb2.HeartbeatResponse:
+        if self.byzantine_mode == "SILENT":
+            context.abort(grpc.StatusCode.UNAVAILABLE, "Node is in SILENT Byzantine fault mode")
+
+        leader_pubkey = self.consensus.peer_public_keys.get(request.leader_id, "")
+        acknowledged, current_epoch = self.leader.handle_heartbeat(request, leader_pubkey)
+
+        return pb2.HeartbeatResponse(
+            acknowledged=acknowledged,
+            current_epoch=current_epoch
+        )
+
+    # -------------------------------------------------------------
+    # 5. ImpeachLeader (Anti-Censorship Emergency Election)
+    # -------------------------------------------------------------
+    def ImpeachLeader(self, request: pb2.ImpeachRequest, context) -> pb2.ImpeachResponse:
+        if self.byzantine_mode == "SILENT":
+            context.abort(grpc.StatusCode.UNAVAILABLE, "Node is in SILENT Byzantine fault mode")
+
+        accuser_pubkey = self.consensus.peer_public_keys.get(request.accuser_id, "")
+        impeached = self.leader.handle_impeachment(request, accuser_pubkey)
+
+        return pb2.ImpeachResponse(
+            vote_impeach=impeached,
+            voter_id=self.config.node_id
+        )
+
+    # -------------------------------------------------------------
+    # 6. CatchupSync (State Recovery & Self-Healing)
+    # -------------------------------------------------------------
+    def CatchupSync(self, request: pb2.CatchupRequest, context) -> pb2.CatchupResponse:
+        if self.byzantine_mode == "SILENT":
+            context.abort(grpc.StatusCode.UNAVAILABLE, "Node is in SILENT Byzantine fault mode")
+
+        return self.catchup.handle_catchup_request(request)
+
+    # -------------------------------------------------------------
+    # 7. GetStatus (Telemetry for Dashboard & CLI)
+    # -------------------------------------------------------------
+    def GetStatus(self, request: pb2.StatusRequest, context) -> pb2.StatusResponse:
+        # Determine current node state
+        if self.byzantine_mode != "NONE":
+            state_str = f"BYZANTINE_{self.byzantine_mode}"
+        elif self.leader.is_current_leader():
+            state_str = "LEADER"
+        else:
+            state_str = "FOLLOWER"
+
+        # Build reputation list
+        rep_entries = []
+        for r in self.reputation.get_ledger():
+            rep_entries.append(
+                pb2.PeerReputationEntry(
+                    peer_id=r["peer_id"],
+                    trust_score=r["trust_score"],
+                    is_active=bool(r["is_active"]),
+                    violations_count=r["violations_count"]
+                )
+            )
+
+        return pb2.StatusResponse(
+            node_id=self.config.node_id,
+            state=state_str,
+            current_epoch=self.leader.current_epoch,
+            last_committed_seq=self.db.get_latest_sequence_number(),
+            blocked_domains_count=self.firewall.count(),
+            reputations=rep_entries,
+            operational_mode=self.config.operational_mode
+        )
