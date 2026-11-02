@@ -17,8 +17,8 @@ from proto import fedconsensus_pb2_grpc as pb2_grpc
 def test_dual_server_startup():
     temp_dir = tempfile.mkdtemp()
     os.environ["DATA_DIR"] = temp_dir
-    os.environ["GRPC_PORT"] = "59051"
-    os.environ["HTTP_PORT"] = "58080"
+    os.environ["GRPC_PORT"] = "19051"
+    os.environ["HTTP_PORT"] = "18080"
     os.environ["NODE_ID"] = "fednode-test"
 
     runner = FedNodeRunner()
@@ -27,7 +27,7 @@ def test_dual_server_startup():
 
     try:
         # 1. Test HTTP /health endpoint
-        health_url = "http://127.0.0.1:58080/health"
+        health_url = "http://127.0.0.1:18080/health"
         req = urllib.request.Request(health_url)
         with urllib.request.urlopen(req, timeout=2.0) as resp:
             assert resp.status == 200
@@ -37,7 +37,7 @@ def test_dual_server_startup():
         print("  [PASS] 1. HTTP /health responding cleanly")
 
         # 2. Test HTTP /inbox accepting benign ActivityPub post
-        inbox_url = "http://127.0.0.1:58080/inbox"
+        inbox_url = "http://127.0.0.1:18080/inbox"
         benign_payload = json.dumps({
             "actor": "https://normal-server.org/users/alice",
             "object": {"content": "Hello world from decentralized social media!"}
@@ -55,11 +55,11 @@ def test_dual_server_startup():
         print("  [PASS] 2. HTTP POST /inbox accepted benign post (HTTP 202)")
 
         # 3. Test gRPC Mesh GetStatus
-        channel = grpc.insecure_channel("127.0.0.1:59051")
+        channel = grpc.insecure_channel("127.0.0.1:19051")
         stub = pb2_grpc.FedConsensusServiceStub(channel)
         status_res = stub.GetStatus(pb2.StatusRequest(caller_id="tester"), timeout=2.0)
         assert status_res.node_id == "fednode-test"
-        print("  [PASS] 3. gRPC Mesh GetStatus answered on internal port 59051")
+        print("  [PASS] 3. gRPC Mesh GetStatus answered on internal port 19051")
 
         print("\n=======================================================")
         print("   MILESTONE 3.3: DUAL-SERVER RUNNER VERIFIED 100%!    ")
