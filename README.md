@@ -3,7 +3,7 @@
 [![Course](https://img.shields.io/badge/Course-CSC3104%20Cloud%20%26%20Distributed%20Computing-blue.svg)](https://www.gla.ac.uk/)
 [![Institution](https://img.shields.io/badge/Institution-University%20of%20Glasgow%20%2F%20SIT-red.svg)](https://www.singaporetech.edu.sg/)
 [![Architecture](https://img.shields.io/badge/Architecture-3--Phase%20BFT%20Quorum%20%2B%20gRPC-green.svg)](#2-system-architecture--how-it-works)
-[![Cloud Native](https://img.shields.io/badge/Cloud%20Native-Kubernetes%20StatefulSets-orange.svg)](#5-cloud-native-kubernetes-infrastructure)
+[![Cloud Native](https://img.shields.io/badge/Cloud%20Native-Kubernetes%20StatefulSets-orange.svg)](#6-cloud-native-kubernetes-infrastructure)
 
 FedConsensus is a cloud-native, Byzantine-resilient consensus engine designed for decentralized social networks (Mastodon / ActivityPub). It automates domain-level defederation across independent instances in **sub-second latency (< 300 ms)** using a 3-phase BFT quorum protocol, Ed25519 digital signatures, and cryptographic origin verification.
 
@@ -14,9 +14,10 @@ FedConsensus is a cloud-native, Byzantine-resilient consensus engine designed fo
 2. [System Architecture & How It Works](#2-system-architecture--how-it-works)
 3. [Phase 1 Modules: Cryptography & Storage Engine](#3-phase-1-modules-cryptography--storage-engine)
 4. [Phase 2 Modules: Ingress, Threat Detection & Consensus](#4-phase-2-modules-ingress-threat-detection--consensus)
-5. [Cloud-Native Kubernetes Infrastructure](#5-cloud-native-kubernetes-infrastructure)
-6. [Repository File Tree](#6-repository-file-tree)
-7. [Verification & Testing](#7-verification--testing)
+5. [Phase 3 Modules: Catch-Up Sync, gRPC Service & Cluster Fleet](#5-phase-3-modules-catch-up-sync-grpc-service--cluster-fleet)
+6. [Cloud-Native Kubernetes Infrastructure](#6-cloud-native-kubernetes-infrastructure)
+7. [Repository File Tree](#7-repository-file-tree)
+8. [Verification & Testing](#8-verification--testing)
 
 ---
 
@@ -160,7 +161,40 @@ These modules handle real-time social network traffic, automated threat scanning
 
 ---
 
-## 5. Cloud-Native Kubernetes Infrastructure
+## 5. Phase 3 Modules: Catch-Up Sync, gRPC Service & Cluster Fleet
+
+These modules connect individual node components across the network, provide crash recovery self-healing, enable Byzantine chaos fault injection, and containerize the cluster.
+
+### 1. `node/engine/catchup.py` (Self-Healing Catch-Up Sync & QC Replay)
+* **What it does:** Allows crashed or partitioned nodes to query peers for missed defederation records (`handle_catchup_request`) and replay them locally (`replay_records`).
+* **Problem it solves (State Gap on Crash Recovery):** When a Kubernetes pod crashes or is restarted, its in-memory firewall and local database may be out of date. Without catch-up, the restarted node would permit malicious traffic that the rest of the cluster has already banned.
+* **Cryptographic QC Verification:** When catching up, the node does *not* blindly trust the peer. It mathematically verifies that every replayed record contains a valid **Quorum Certificate (QC)** with at least $Q = 4$ signatures from authenticated peer public keys before writing to SQLite WAL and loading the ban into the RAM firewall.
+
+### 2. `node/service.py` (Consortium gRPC Server & Byzantine Fault Injection)
+* **What it does:** Implements the 7 core gRPC remote procedure calls (`ProposeDefederation`, `CastVote`, `CommitDefederation`, `Heartbeat`, `ImpeachLeader`, `CatchupSync`, `GetStatus`) connecting the consortium mesh.
+* **Problem it solves (Inter-Node Coordination & Chaos Testing):** Binds the consensus engine to live network ports, enabling sub-millisecond binary message exchange across pods.
+* **Runtime Byzantine Fault Injection (`set_byzantine_mode`):** Enables dynamic testing of malicious behavior for academic benchmark evaluations:
+  - `NONE`: Normal honest validation.
+  - `SILENT`: Simulates node crash or packet drop (rejects RPCs / times out).
+  - `LIAR`: Maliciously casts `VOTE_REJECT` on verified threats to protect colluding attackers.
+  - `FORGER`: Corrupts ballot digital signatures to attempt signature forgery attacks.
+
+### 3. `node/main.py` (Dual-Server Node Bootstrap & Escalation Loop)
+* **What it does:** Unified daemon entrypoint that concurrently initializes and runs the two distinct server layers of the node.
+* **Problem it solves (Decoupling Public Web from Consortium Mesh):**
+  - **Port 8080 (External HTTP / REST):** Public-facing ActivityPub receiver handling `POST /inbox` posts from the global Fediverse and `GET /health` liveness probes.
+  - **Port 50051 (Internal gRPC / Binary):** Private consortium mesh handling BFT consensus proposals, ballots, and heartbeats.
+  - **Automated Escalation Loop:** Automatically wires the Threat Classifier to consensus: if an incoming post on Port 8080 scores $\ge 0.60$, `main.py` launches a background thread to broadcast a BFT proposal to the internal gRPC cluster on Port 50051 without blocking HTTP response delivery.
+  - **Leader Heartbeat Daemon:** Automatically broadcasts periodic heartbeat pulses (every 2 seconds) to preserve the leader lease.
+
+### 4. `node/Dockerfile` & `docker-compose.yml` (Local 5-Node Cluster Fleet)
+* **What it does:** Container specification and multi-node orchestration engine to spin up a complete 5-node FedConsensus network (`fednode-0` to `fednode-4`) on an isolated virtual bridge network (`fedconsensus-net`).
+* **Problem it solves (Realistic Distributed Testing):** Allows developers and evaluators to run, test, and benchmark the entire distributed system locally on a single machine before Kubernetes deployment. Each container mounts its own persistent SQLite volume (`fednode-X-data`), preserving blocklists and cryptographic identities across container restarts (`docker-compose stop/start`).
+* **One-Click Startup (`start-cluster.bat`):** Automates container teardown, rebuild, and background deployment with container health status output.
+
+---
+
+## 6. Cloud-Native Kubernetes Infrastructure
 
 FedConsensus is containerized and deployed using **Kubernetes StatefulSets**:
 
@@ -187,7 +221,7 @@ FedConsensus is containerized and deployed using **Kubernetes StatefulSets**:
 
 ---
 
-## 6. Repository File Tree
+## 7. Repository File Tree
 
 ```text
 CloudProject/
@@ -238,6 +272,7 @@ CloudProject/
 ├── tests/                          # Automated verification test suites
 │   ├── test_phase1_verification.py # Phase 1 unit test suite
 │   ├── test_phase2_verification.py # Phase 2 pipeline integration suite
+│   ├── test_phase3_verification.py # Phase 3 cluster integration suite
 │   ├── test_consensus.py           # BFT voting & quorum math tests
 │   ├── test_byzantine.py           # Byzantine fault masking tests
 │   └── test_scenarios.py           # End-to-end chaos verification
@@ -254,7 +289,7 @@ CloudProject/
 
 ---
 
-## 7. Verification & Testing
+## 8. Verification & Testing
 
 To independently verify the implemented phases, run the automated test suites:
 
@@ -264,4 +299,7 @@ python tests/test_phase1_verification.py
 
 # Verify Phase 2 (Ingress, Firewall, Threat Classifier, 3-Phase BFT, Impeachment)
 python tests/test_phase2_verification.py
+
+# Verify Phase 3 (Catch-up Sync, gRPC Service, Byzantine Chaos, Dual Servers)
+python tests/test_phase3_verification.py
 ```
