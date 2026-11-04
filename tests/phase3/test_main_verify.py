@@ -6,7 +6,7 @@ import urllib.request
 import tempfile
 import shutil
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 from node.main import FedNodeRunner
 import grpc

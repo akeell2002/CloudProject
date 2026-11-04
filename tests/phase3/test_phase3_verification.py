@@ -8,7 +8,7 @@ import urllib.request
 import grpc
 
 # Ensure project root is in sys.path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 from proto import fedconsensus_pb2 as pb2
 from proto import fedconsensus_pb2_grpc as pb2_grpc

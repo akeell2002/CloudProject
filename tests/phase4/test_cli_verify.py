@@ -10,7 +10,7 @@ from concurrent import futures
 from unittest.mock import MagicMock
 
 # Add project root to sys.path first
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 import grpc
 from proto import fedconsensus_pb2 as pb2

@@ -3,7 +3,7 @@
 [![Course](https://img.shields.io/badge/Course-CSC3104%20Cloud%20%26%20Distributed%20Computing-blue.svg)](https://www.gla.ac.uk/)
 [![Institution](https://img.shields.io/badge/Institution-University%20of%20Glasgow%20%2F%20SIT-red.svg)](https://www.singaporetech.edu.sg/)
 [![Architecture](https://img.shields.io/badge/Architecture-3--Phase%20BFT%20Quorum%20%2B%20gRPC-green.svg)](#2-system-architecture--how-it-works)
-[![Cloud Native](https://img.shields.io/badge/Cloud%20Native-Kubernetes%20StatefulSets-orange.svg)](#6-cloud-native-kubernetes-infrastructure)
+[![Cloud Native](https://img.shields.io/badge/Cloud%20Native-Kubernetes%20StatefulSets-orange.svg)](#6-phase-4-modules-operator-diagnostics-cli--kubernetes-infrastructure)
 
 FedConsensus is a cloud-native, Byzantine-resilient consensus engine designed for decentralized social networks (Mastodon / ActivityPub). It automates domain-level defederation across independent instances in **sub-second latency (< 300 ms)** using a 3-phase BFT quorum protocol, Ed25519 digital signatures, and cryptographic origin verification.
 
@@ -15,7 +15,7 @@ FedConsensus is a cloud-native, Byzantine-resilient consensus engine designed fo
 3. [Phase 1 Modules: Cryptography & Storage Engine](#3-phase-1-modules-cryptography--storage-engine)
 4. [Phase 2 Modules: Ingress, Threat Detection & Consensus](#4-phase-2-modules-ingress-threat-detection--consensus)
 5. [Phase 3 Modules: Catch-Up Sync, gRPC Service & Cluster Fleet](#5-phase-3-modules-catch-up-sync-grpc-service--cluster-fleet)
-6. [Cloud-Native Kubernetes Infrastructure](#6-cloud-native-kubernetes-infrastructure)
+6. [Phase 4 Modules: Operator Diagnostics CLI & Kubernetes Infrastructure](#6-phase-4-modules-operator-diagnostics-cli--kubernetes-infrastructure)
 7. [Repository File Tree](#7-repository-file-tree)
 8. [Verification & Testing](#8-verification--testing)
 
@@ -194,7 +194,35 @@ These modules connect individual node components across the network, provide cra
 
 ---
 
-## 6. Cloud-Native Kubernetes Infrastructure
+## 6. Phase 4 Modules: Operator Diagnostics CLI & Kubernetes Infrastructure
+
+Phase 4 transitions FedConsensus from local Docker testing into enterprise cloud-native Kubernetes orchestration and provides terminal diagnostic tooling and end-to-end chaos verification.
+
+### 1. `cli/fedctl.py` (Local Node Operator Diagnostics CLI)
+* **What it does:** A lightweight terminal management client connecting over gRPC to any target node (`localhost:50051` to `50055`) to query status, inspect peer reputation, and dispatch manual proposals.
+* **Commands Implemented:**
+  - `status`: Queries `GetStatus` telemetry to display role (`LEADER` / `FOLLOWER`), current epoch, sequence number, and blocked domain count.
+  - `peers`: Formats the peer reputation ledger into an aligned terminal table and flags nodes with trust $< 30$ as `QUARANTINED`.
+  - `propose <domain> [--reason]`: Allows a local node administrator to submit an emergency signed proposal over gRPC if an attack was missed by automated filters.
+* **Problem it solves:** In headless cloud deployments (AWS EC2 / remote Kubernetes nodes without a web browser), sysadmins need a fast, scriptable CLI to inspect node health and reputation without digging through raw SQLite files.
+
+### 2. `k8s/configmap.yaml` (Consortium Cluster Topology)
+* **What it does:** Centralizes cluster-wide environment variables (`GRPC_PORT: 50051`, `HTTP_PORT: 8080`, `DATA_DIR: /data`, `BYZANTINE_MODE: NONE`) and the peer DNS address phonebook (`PEER_ADDRESSES`).
+* **Problem it solves:** Decouples networking configuration from container images, allowing operators to reconfigure cluster topology without rebuilding Docker containers.
+
+### 3. `k8s/service-headless.yaml` (Point-to-Point Headless DNS Service)
+* **What it does:** Defines a Headless Service (`clusterIP: None`) named `fedconsensus-mesh`.
+* **Problem it solves (The Middleman Load Balancer Problem):** Standard Kubernetes Services randomly distribute traffic across pods using round-robin proxies. In BFT consensus, a leader must send ballots to *specific* individual peers. A Headless Service creates direct internal DNS A-records for each pod (`fednode-0.fedconsensus-mesh:50051`, `fednode-1.fedconsensus-mesh:50051`), enabling direct point-to-point gRPC mesh communication.
+
+### 4. `k8s/statefulset.yaml` & `k8s/pvc.yaml` (Persistent Cloud Orchestration)
+* **What it does:** Deploys the 5-node cluster as a Kubernetes `StatefulSet` with dedicated persistent storage (`volumeClaimTemplates`).
+* **Problem it solves (Container Ephemerality & Amnesia):** Standard Kubernetes Deployments assign random pod hostnames and wipe disk files upon container restarts. The StatefulSet guarantees:
+  1. **Deterministic Identities:** Fixed, permanent pod names (`fednode-0` through `fednode-4`).
+  2. **Kubernetes Downward API:** Pods automatically discover their own identity (`NODE_ID = metadata.name`) dynamically at boot.
+  3. **Dedicated PVC Binding:** Automatically mounts dedicated 1Gi storage claims (`data-fednode-X`) so SQLite WAL databases and Ed25519 node identities survive pod crashes.
+  4. **Health Probes:** Automates self-healing via `livenessProbe` and `readinessProbe` checking `GET /health` on port 8080.
+
+### 5. `Cloud-Native Kubernetes Infrastructure`
 
 FedConsensus is containerized and deployed using **Kubernetes StatefulSets**:
 
@@ -269,13 +297,33 @@ CloudProject/
 │   ├── configmap.yaml              # Cluster topology and peer configuration
 │   └── pvc.yaml                    # PersistentVolumeClaims for SQLite WAL persistence
 │
-├── tests/                          # Automated verification test suites
-│   ├── test_phase1_verification.py # Phase 1 unit test suite
-│   ├── test_phase2_verification.py # Phase 2 pipeline integration suite
-│   ├── test_phase3_verification.py # Phase 3 cluster integration suite
-│   ├── test_consensus.py           # BFT voting & quorum math tests
-│   ├── test_byzantine.py           # Byzantine fault masking tests
-│   └── test_scenarios.py           # End-to-end chaos verification
+├── tests/                          # Automated verification test suites organized by phase
+│   ├── phase1/                     # Phase 1: Cryptography & Storage Engine
+│   │   ├── test_crypto_verify.py       # Ed25519 signatures, canonical hash & anti-framing
+│   │   ├── test_database_verify.py     # SQLite WAL mode, commits & catch-up queries
+│   │   ├── test_reputation_verify.py   # Peer trust scores, violations & quarantine
+│   │   ├── test_config_verify.py       # Protobuf contracts & BFT quorum math (Q = N - f)
+│   │   └── test_phase1_verification.py # Phase 1 comprehensive verification suite
+│   ├── phase2/                     # Phase 2: Ingress Firewall, Classifier & Consensus
+│   │   ├── test_firewall_verify.py     # Sub-microsecond O(1) in-memory perimeter drops
+│   │   ├── test_classifier_verify.py   # Heuristic threat analysis & scoring (>= 0.60)
+│   │   ├── test_inbox_verify.py        # ActivityPub /inbox receiver & escalation
+│   │   ├── test_consensus_engine_verify.py # 3-Phase BFT State Machine & QC minting
+│   │   ├── test_leader_verify.py       # Leases, heartbeats & follower impeachment
+│   │   └── test_phase2_verification.py # Phase 2 comprehensive pipeline suite
+│   ├── phase3/                     # Phase 3: Catch-up Sync, gRPC Service & Dual Servers
+│   │   ├── test_catchup_verify.py      # Self-healing catch-up replay & QC verification
+│   │   ├── test_service_verify.py      # Consortium gRPC servicer & Byzantine chaos modes
+│   │   ├── test_main_verify.py         # Dual-server daemon (Port 8080 & 50051)
+│   │   └── test_phase3_verification.py # Phase 3 comprehensive cluster suite
+│   ├── phase4/                     # Phase 4: Operator CLI & Kubernetes Infrastructure
+│   │   ├── test_cli_verify.py          # fedctl terminal diagnostic management CLI
+│   │   ├── test_k8s_verify.py          # Kubernetes StatefulSet, headless svc & PVC manifests
+│   │   └── test_phase4_verification.py # Phase 4 comprehensive cloud infrastructure suite
+│   └── end_to_end_testing/         # End-to-End BFT Quorum, Byzantine Masking & Chaos Lifecycles
+│       ├── test_consensus.py           # Quorum math, split-brain invariance & live QC minting
+│       ├── test_byzantine.py           # Byzantine LIAR masking & FORGER signature audit
+│       └── test_scenarios.py           # End-to-end moderation, crash catch-up & anti-framing
 │
 ├── benchmarks/                     # Quantitative Evaluation Framework (25% Paper)
 │   ├── benchmark_runner.py         # Automated latency and throughput benchmarking
@@ -291,15 +339,45 @@ CloudProject/
 
 ## 8. Verification & Testing
 
-To independently verify the implemented phases, run the automated test suites:
+To independently verify the implemented phases, execute the automated verification test suites:
 
 ```powershell
-# Verify Phase 1 (gRPC, Ed25519 Signatures, SQLite WAL, Reputation, Config)
-python tests/test_phase1_verification.py
+# Phase 1: Comprehensive Verification Suite
+python tests/phase1/test_phase1_verification.py
 
-# Verify Phase 2 (Ingress, Firewall, Threat Classifier, 3-Phase BFT, Impeachment)
-python tests/test_phase2_verification.py
+# Phase 1: Individual Factor Tests
+python tests/phase1/test_crypto_verify.py
+python tests/phase1/test_database_verify.py
+python tests/phase1/test_reputation_verify.py
+python tests/phase1/test_config_verify.py
 
-# Verify Phase 3 (Catch-up Sync, gRPC Service, Byzantine Chaos, Dual Servers)
-python tests/test_phase3_verification.py
+# Phase 2: Comprehensive Pipeline Verification Suite
+python tests/phase2/test_phase2_verification.py
+
+# Phase 2: Individual Factor Tests
+python tests/phase2/test_firewall_verify.py
+python tests/phase2/test_classifier_verify.py
+python tests/phase2/test_inbox_verify.py
+python tests/phase2/test_consensus_engine_verify.py
+python tests/phase2/test_leader_verify.py
+
+# Phase 3: Comprehensive Cluster Integration Suite
+python tests/phase3/test_phase3_verification.py
+
+# Phase 3: Individual Factor Tests
+python tests/phase3/test_catchup_verify.py
+python tests/phase3/test_service_verify.py
+python tests/phase3/test_main_verify.py
+
+# Phase 4: Comprehensive Cloud Infrastructure Suite
+python tests/phase4/test_phase4_verification.py
+
+# Phase 4: Individual Factor Tests
+python tests/phase4/test_cli_verify.py
+python tests/phase4/test_k8s_verify.py
+
+# End-to-End Chaos Verification Suites
+python tests/end_to_end_testing/test_consensus.py
+python tests/end_to_end_testing/test_byzantine.py
+python tests/end_to_end_testing/test_scenarios.py
 ```

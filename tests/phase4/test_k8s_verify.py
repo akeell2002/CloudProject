@@ -8,7 +8,7 @@ import yaml
 
 
 def test_k8s_manifests():
-    k8s_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "k8s"))
+    k8s_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "k8s"))
     files = glob.glob(os.path.join(k8s_dir, "*.yaml"))
     assert len(files) == 4, f"Expected 4 manifests, found {len(files)}"
 
