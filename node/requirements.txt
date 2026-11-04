@@ -1,5 +1,3 @@
 grpcio>=1.60.0
 protobuf>=4.25.0
-cryptography>=42.0.0grpcio>=1.60.0
-protobuf>=4.25.0
 cryptography>=42.0.0
