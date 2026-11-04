@@ -229,9 +229,13 @@ class ConsensusEngine:
                 self.reputation.penalize_forgery(voter_id)
                 return None
 
-            # Record valid vote
-            self._record_vote(vote.proposal_id, voter_id, vote.voter_signature)
-            self.reputation.reward_honest_participation(voter_id)
+             # Record valid vote ONLY if decision is APPROVE
+            if vote.decision == pb2.VOTE_APPROVE:
+                self._record_vote(vote.proposal_id, voter_id, vote.voter_signature)
+                self.reputation.reward_honest_participation(voter_id)
+            else:
+                # Dissenting/rejecting votes do NOT count toward Quorum Certificate
+                return None
 
             # Check Quorum Threshold (Q = N - f)
             required_quorum = self.config.quorum_size
