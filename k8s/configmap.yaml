@@ -1,1 +1,17 @@
-
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fedconsensus-config
+  labels:
+    app: fedconsensus
+data:
+  GRPC_PORT: "50051"
+  HTTP_PORT: "8080"
+  DATA_DIR: "/data"
+  BYZANTINE_MODE: "NONE"
+  QUORUM_MODE: "STRICT"
+  PEER_ADDRESSES: "fednode-0.fedconsensus-mesh:50051,
+                   fednode-1.fedconsensus-mesh:50051,
+                   fednode-2.fedconsensus-mesh:50051,
+                   fednode-3.fedconsensus-mesh:50051,
+                   fednode-4.fedconsensus-mesh:50051"

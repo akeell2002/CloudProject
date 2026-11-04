@@ -1,1 +1,17 @@
-
+apiVersion: v1
+kind: Service
+metadata:
+  name: fedconsensus-mesh
+  labels:
+    app: fedconsensus
+spec:
+  clusterIP: None
+  selector:
+    app: fednode
+  ports:
+    - name: grpc
+      port: 50051
+      targetPort: 50051
+    - name: http-inbox
+      port: 8080
+      targetPort: 8080

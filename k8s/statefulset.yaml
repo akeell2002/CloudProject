@@ -1,1 +1,59 @@
-
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: fednode
+  labels:
+    app: fedconsensus
+spec:
+  serviceName: "fedconsensus-mesh"
+  replicas: 5
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: fednode
+  template:
+    metadata:
+      labels:
+        app: fednode
+    spec:
+      containers:
+        - name: fednode
+          image: fedconsensus-node:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 50051
+              name: grpc
+            - containerPort: 8080
+              name: http
+          envFrom:
+            - configMapRef:
+                name: fedconsensus-config
+          env:
+            # Downward API: injects pod name (e.g. fednode-0) as NODE_ID
+            - name: NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 5
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 1Gi
