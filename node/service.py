@@ -190,6 +190,7 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
 
         leader_pubkey = self.consensus.peer_public_keys.get(request.leader_id, "")
         acknowledged, current_epoch = self.leader.handle_heartbeat(request, leader_pubkey)
+        self.consensus.current_epoch = self.leader.current_epoch
 
         return pb2.HeartbeatResponse(
             acknowledged=acknowledged,
@@ -203,8 +204,16 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
         if self.byzantine_mode == "SILENT":
             context.abort(grpc.StatusCode.UNAVAILABLE, "Node is in SILENT Byzantine fault mode")
 
+        prev_epoch = self.leader.current_epoch
         accuser_pubkey = self.consensus.peer_public_keys.get(request.accuser_id, "")
         impeached = self.leader.handle_impeachment(request, accuser_pubkey)
+        self.consensus.current_epoch = self.leader.current_epoch
+        if impeached and self.leader.current_epoch > prev_epoch:
+            new_leader = self.leader.get_leader_for_epoch(self.leader.current_epoch)
+            self.consensus.telemetry.record(
+                "message", self.config.node_id, new_leader,
+                f"Leader {request.leader_id} impeached; elected {new_leader} for Epoch {self.leader.current_epoch}",
+            )
 
         return pb2.ImpeachResponse(
             vote_impeach=impeached,
@@ -287,14 +296,14 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
             logger.warning(f"[{self.config.node_id}] Could not find address for proposer {proposer_id}")
             return
         try:
-            channel = grpc.insecure_channel(addr)
-            stub = pb2_grpc.FedConsensusServiceStub(channel)
-            self.consensus.telemetry.record(
-                "vote", self.config.node_id, addr, "Transmitting vote to proposer",
-                proposal_id=vote_req.proposal_id, decision="APPROVE" if vote_req.decision == pb2.VOTE_APPROVE else "REJECT"
-            )
-            stub.CastVote(vote_req, timeout=2.0)
-            logger.info(f"[{self.config.node_id}] Successfully sent vote to proposer {proposer_id} at {addr}")
+            with grpc.insecure_channel(addr) as channel:
+                stub = pb2_grpc.FedConsensusServiceStub(channel)
+                self.consensus.telemetry.record(
+                    "vote", self.config.node_id, addr, "Transmitting vote to proposer",
+                    proposal_id=vote_req.proposal_id, decision="APPROVE" if vote_req.decision == pb2.VOTE_APPROVE else "REJECT"
+                )
+                stub.CastVote(vote_req, timeout=2.0)
+                logger.info(f"[{self.config.node_id}] Successfully sent vote to proposer {proposer_id} at {addr}")
         except Exception as e:
             logger.warning(f"[{self.config.node_id}] Failed to send vote to proposer {proposer_id} at {addr}: {e}")
 
@@ -303,9 +312,9 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
             if self._is_self_peer(peer_addr):
                 continue
             try:
-                channel = grpc.insecure_channel(peer_addr)
-                stub = pb2_grpc.FedConsensusServiceStub(channel)
-                stub.CommitDefederation(commit_req, timeout=2.0)
-                logger.info(f"[{self.config.node_id}] Broadcasted commit to {peer_addr}")
+                with grpc.insecure_channel(peer_addr) as channel:
+                    stub = pb2_grpc.FedConsensusServiceStub(channel)
+                    stub.CommitDefederation(commit_req, timeout=2.0)
+                    logger.info(f"[{self.config.node_id}] Broadcasted commit to {peer_addr}")
             except Exception as e:
                 logger.debug(f"[{self.config.node_id}] Failed to broadcast commit to {peer_addr}: {e}")

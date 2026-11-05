@@ -14,12 +14,14 @@ from node.telemetry import EventLog
 
 class ProposalState:
     """Tracks in-flight voting state for a single proposal."""
-    def __init__(self, proposal_id: str, sequence_number: int, epoch: int, target_domain: str, reason: int):
+    def __init__(self, proposal_id: str, sequence_number: int, epoch: int, target_domain: str, reason: int, threat_score: float = 0.85, request: Optional[pb2.ProposeRequest] = None):
         self.proposal_id = proposal_id
         self.sequence_number = sequence_number
         self.epoch = epoch
         self.target_domain = target_domain
         self.reason = reason
+        self.threat_score = round(threat_score, 3)
+        self.request = request
         # voter_id -> pb2.VoterSignature
         self.approved_votes: Dict[str, pb2.VoterSignature] = {}
         self.is_committed = False
@@ -73,7 +75,7 @@ class ConsensusEngine:
     ) -> pb2.ProposeRequest:
         """Constructs and cryptographically signs a Phase 1 proposal."""
         with self._lock:
-            self._sequence_counter += 1
+            self._sequence_counter = max(self._sequence_counter, self.db.get_latest_sequence_number()) + 1
             seq = self._sequence_counter
             epoch = self.current_epoch
             proposal_id = f"prop-{epoch}-{seq}-{target_domain}"
@@ -89,24 +91,16 @@ class ConsensusEngine:
             }
             proposer_sig = sign_message(self.config.private_key_hex, sign_meta)
 
-            # Initialize local proposal tracker
-            self.active_proposals[proposal_id] = ProposalState(
-                proposal_id=proposal_id,
-                sequence_number=seq,
-                epoch=epoch,
-                target_domain=target_domain,
-                reason=reason
-            )
+            vote_meta = {
+                "proposal_id": proposal_id,
+                "sequence_number": seq,
+                "epoch": epoch,
+                "target_domain": target_domain,
+                "decision": "APPROVE"
+            }
+            leader_vote_sig = sign_message(self.config.private_key_hex, vote_meta)
 
-            # Auto-cast the leader's own vote
-            self._record_vote(proposal_id, self.config.node_id, proposer_sig)
-            self.telemetry.record(
-                "proposal", self.config.node_id, "consortium",
-                "Proposed a domain block", proposal_id=proposal_id,
-                domain=target_domain, score=round(threat_score, 3),
-            )
-
-            return pb2.ProposeRequest(
+            prop_req = pb2.ProposeRequest(
                 proposal_id=proposal_id,
                 sequence_number=seq,
                 epoch=epoch,
@@ -119,6 +113,27 @@ class ConsensusEngine:
                 proposer_signature=proposer_sig,
                 timestamp=int(time.time() * 1000)
             )
+
+            # Initialize local proposal tracker
+            self.active_proposals[proposal_id] = ProposalState(
+                proposal_id=proposal_id,
+                sequence_number=seq,
+                epoch=epoch,
+                target_domain=target_domain,
+                reason=reason,
+                threat_score=threat_score,
+                request=prop_req
+            )
+
+            # Auto-cast the leader's own vote using standard ballot format
+            self._record_vote(proposal_id, self.config.node_id, leader_vote_sig)
+            self.telemetry.record(
+                "proposal", self.config.node_id, "consortium",
+                "Proposed a domain block", proposal_id=proposal_id,
+                domain=target_domain, score=round(threat_score, 3),
+            )
+
+            return prop_req
 
     # -------------------------------------------------------------
     # PHASE 2: PREPARE (Follower Auditing & Voting)
@@ -190,7 +205,9 @@ class ConsensusEngine:
                     sequence_number=req.sequence_number,
                     epoch=req.epoch,
                     target_domain=req.target_domain,
-                    reason=req.reason
+                    reason=req.reason,
+                    threat_score=req.threat_score,
+                    request=req
                 )
 
             # Record leader's vote and follower's own vote
@@ -316,8 +333,13 @@ class ConsensusEngine:
                 return False
 
             # 2. Verify all signatures in Quorum Certificate
+            valid_voters: Set[str] = set()
+            tracked_prop = self.active_proposals.get(proof.proposal_id)
+            score_val = tracked_prop.threat_score if tracked_prop else 0.85
             for s in proof.signatures:
                 pubkey = self.peer_public_keys.get(s.voter_id)
+                if not pubkey:
+                    return False
                 vote_meta = {
                     "proposal_id": proof.proposal_id,
                     "sequence_number": proof.sequence_number,
@@ -325,9 +347,20 @@ class ConsensusEngine:
                     "target_domain": proof.target_domain,
                     "decision": "APPROVE"
                 }
-                # Check for either leader proposal sig or follower vote sig
-                if not pubkey:
+                prop_meta = {
+                    "proposal_id": proof.proposal_id,
+                    "sequence_number": proof.sequence_number,
+                    "epoch": proof.epoch,
+                    "target_domain": proof.target_domain,
+                    "reason": proof.reason,
+                    "threat_score": round(score_val, 3)
+                }
+                if not (verify_signature(pubkey, vote_meta, s.signature) or verify_signature(pubkey, prop_meta, s.signature)):
                     return False
+                valid_voters.add(s.voter_id)
+
+            if len(valid_voters) < required_quorum:
+                return False
 
             # Convert QuorumProof to serializable dict for SQLite WAL
             proof_dict = {
@@ -363,8 +396,18 @@ class ConsensusEngine:
                 domain=proof.target_domain,
             )
 
-            # Mark proposal committed
-            if proof.proposal_id in self.active_proposals:
-                self.active_proposals[proof.proposal_id].is_committed = True
+            # Mark proposal committed and sync full quorum voter list
+            if proof.proposal_id not in self.active_proposals:
+                self.active_proposals[proof.proposal_id] = ProposalState(
+                    proposal_id=proof.proposal_id,
+                    sequence_number=proof.sequence_number,
+                    epoch=proof.epoch,
+                    target_domain=proof.target_domain,
+                    reason=proof.reason
+                )
+            prop_state = self.active_proposals[proof.proposal_id]
+            for s in proof.signatures:
+                prop_state.approved_votes[s.voter_id] = s
+            prop_state.is_committed = True
 
             return True

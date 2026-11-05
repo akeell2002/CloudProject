@@ -79,6 +79,15 @@ class Database:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             try:
+                cursor.execute(
+                    "SELECT target_domain FROM committed_defederations WHERE sequence_number = ?;",
+                    (sequence_number,)
+                )
+                existing = cursor.fetchone()
+                if existing and existing["target_domain"] != target_domain:
+                    cursor.execute("SELECT COALESCE(MAX(sequence_number), 0) + 1 FROM committed_defederations;")
+                    sequence_number = int(cursor.fetchone()[0])
+
                 cursor.execute("""
                     INSERT OR REPLACE INTO committed_defederations 
                     (sequence_number, epoch, target_domain, reason, quorum_proof_json, committed_at)

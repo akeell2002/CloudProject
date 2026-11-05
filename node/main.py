@@ -6,7 +6,7 @@ import logging
 import signal
 import threading
 from concurrent import futures
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
 from typing import List, Optional
 
 import grpc
@@ -107,7 +107,11 @@ class ActivityPubHTTPHandler(BaseHTTPRequestHandler):
                     self.service.simulated_offline = False
                     self.service.set_byzantine_mode(mode)
                     if self.service.catchup:
-                        threading.Thread(target=self.service.catchup.sync_with_consortium, daemon=True).start()
+                        threading.Thread(
+                            target=self.service.catchup.sync_with_consortium,
+                            args=(self.service.consensus,),
+                            daemon=True
+                        ).start()
                 else:
                     self.service.set_byzantine_mode(mode)
             self.send_response(200)
@@ -216,33 +220,90 @@ class FedNodeRunner:
             if self._is_self_peer(peer_addr):
                 continue  # Skip self
             try:
-                channel = grpc.insecure_channel(peer_addr)
-                stub = pb2_grpc.FedConsensusServiceStub(channel)
-                self.consensus.telemetry.record(
-                    "proposal", self.config.node_id, peer_addr, "Sending block proposal",
-                    proposal_id=prop_req.proposal_id, domain=prop_req.target_domain,
-                )
-                res = stub.ProposeDefederation(prop_req, timeout=1.0)
-                if res.accepted:
-                    logger.info(f"[{self.config.node_id}] Peer {peer_addr} accepted proposal")
+                with grpc.insecure_channel(peer_addr) as channel:
+                    stub = pb2_grpc.FedConsensusServiceStub(channel)
+                    self.consensus.telemetry.record(
+                        "proposal", self.config.node_id, peer_addr, "Sending block proposal",
+                        proposal_id=prop_req.proposal_id, domain=prop_req.target_domain,
+                    )
+                    res = stub.ProposeDefederation(prop_req, timeout=1.0)
+                    if res.accepted:
+                        logger.info(f"[{self.config.node_id}] Peer {peer_addr} accepted proposal")
             except Exception:
                 pass  # Peer might be down or not started yet
 
     def _heartbeat_loop(self):
-        """Background thread: Leader sends heartbeat every 2 seconds to renew lease."""
+        """Background thread: Leader heartbeats, lease failover election, pending proposal retry, and catchup sync."""
+        tick = 0
         while self.running:
             time.sleep(2.0)
-            if self.leader.is_current_leader():
+            tick += 1
+            if getattr(self.service, "simulated_offline", False) or self.service.byzantine_mode == "SILENT":
+                continue
+
+            expected_leader = self.leader.get_leader_for_epoch(self.leader.current_epoch)
+            if expected_leader == self.config.node_id:
                 hb = self.leader.generate_heartbeat()
+                self.consensus.current_epoch = self.leader.current_epoch
                 for peer_addr in self.config.peers:
                     if self._is_self_peer(peer_addr):
                         continue
                     try:
-                        channel = grpc.insecure_channel(peer_addr)
-                        stub = pb2_grpc.FedConsensusServiceStub(channel)
-                        stub.Heartbeat(hb, timeout=0.8)
+                        with grpc.insecure_channel(peer_addr) as channel:
+                            stub = pb2_grpc.FedConsensusServiceStub(channel)
+                            stub.Heartbeat(hb, timeout=0.8)
                     except Exception:
                         pass
+            elif time.time() > self.leader.lease_expires_at:
+                # Leader lease expired -> trigger emergency impeachment & failover election
+                imp_req = self.leader.create_impeachment_request(
+                    justification=f"Leader {expected_leader} heartbeat lease expired"
+                )
+                prev_epoch = self.leader.current_epoch
+                impeached = self.leader.handle_impeachment(imp_req, self.config.public_key_hex)
+                self.consensus.current_epoch = self.leader.current_epoch
+                if impeached and self.leader.current_epoch > prev_epoch:
+                    new_leader = self.leader.get_leader_for_epoch(self.leader.current_epoch)
+                    self.consensus.telemetry.record(
+                        "message", self.config.node_id, new_leader,
+                        f"Leader {expected_leader} impeached; elected {new_leader} for Epoch {self.leader.current_epoch}",
+                    )
+                for peer_addr in self.config.peers:
+                    if self._is_self_peer(peer_addr):
+                        continue
+                    try:
+                        with grpc.insecure_channel(peer_addr) as channel:
+                            stub = pb2_grpc.FedConsensusServiceStub(channel)
+                            stub.ImpeachLeader(imp_req, timeout=0.8)
+                    except Exception:
+                        pass
+
+            # Retry pending uncommitted proposals (heals 2-nodes-down partitions once a peer revives)
+            with self.consensus._lock:
+                pending = [
+                    p for p in self.consensus.active_proposals.values()
+                    if not p.is_committed and p.request is not None and p.request.proposer_id == self.config.node_id
+                ]
+            for prop in pending:
+                for peer_addr in self.config.peers:
+                    if self._is_self_peer(peer_addr):
+                        continue
+                    peer_host = peer_addr.split(":")[0]
+                    if peer_host in prop.approved_votes:
+                        continue
+                    try:
+                        with grpc.insecure_channel(peer_addr) as channel:
+                            stub = pb2_grpc.FedConsensusServiceStub(channel)
+                            stub.ProposeDefederation(prop.request, timeout=0.8)
+                    except Exception:
+                        pass
+
+            # Periodic self-healing catchup sync every 2 ticks (~4s)
+            if tick % 2 == 0 and self.catchup:
+                try:
+                    self.catchup.sync_with_consortium(self.consensus)
+                except Exception:
+                    pass
 
     def start(self):
         """Starts both gRPC and HTTP servers concurrently."""
@@ -256,15 +317,15 @@ class FedNodeRunner:
         self.grpc_server.start()
         logger.info(f"Consortium gRPC mesh listening on {grpc_addr}")
 
-        # 2. Start HTTP External Ingress Server
+        # 2. Start HTTP External Ingress Server (multi-threaded so /inbox never blocks /health)
         ActivityPubHTTPHandler.inbox = self.inbox
         ActivityPubHTTPHandler.service = self.service
-        self.http_server = HTTPServer(("0.0.0.0", self.config.http_port), ActivityPubHTTPHandler)
+        self.http_server = ThreadingHTTPServer(("0.0.0.0", self.config.http_port), ActivityPubHTTPHandler)
         http_thread = threading.Thread(target=self.http_server.serve_forever, daemon=True)
         http_thread.start()
         logger.info(f"ActivityPub HTTP /inbox listening on http://0.0.0.0:{self.config.http_port}")
 
-        # 3. Start Leader Heartbeat loop
+        # 3. Start Leader Heartbeat & Self-Healing loop
         threading.Thread(target=self._heartbeat_loop, daemon=True).start()
 
     def stop(self):

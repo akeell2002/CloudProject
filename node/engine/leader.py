@@ -136,11 +136,12 @@ class LeaderManager:
             # Check if Quorum threshold reached to depose leader
             required_quorum = self.config.quorum_size
             if len(self.impeachment_votes[req.target_epoch]) >= required_quorum:
-                # Penalize censoring leader
-                self.reputation.penalize_censorship(req.leader_id)
-                # Advance epoch (failover to next leader!)
-                self.current_epoch = req.target_epoch + 1
-                self.lease_expires_at = time.time() + self.LEASE_DURATION_SECONDS
+                if self.current_epoch <= req.target_epoch:
+                    # Penalize censoring leader once per deposed epoch
+                    self.reputation.penalize_censorship(req.leader_id)
+                    # Advance epoch (failover to next leader!)
+                    self.current_epoch = req.target_epoch + 1
+                    self.lease_expires_at = time.time() + self.LEASE_DURATION_SECONDS
                 return True
 
             return False

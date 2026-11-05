@@ -234,6 +234,18 @@ class Operator:
                 )
                 with self.opener.open(req, timeout=3) as resp:
                     resp.read()
+                if not is_stop:
+                    for peer_info in self.monitor.nodes:
+                        try:
+                            rep_req = Request(
+                                f"{peer_info['address']}/reputation",
+                                data=json.dumps({"peer_id": node_id, "score": 100}).encode(),
+                                headers={"Content-Type": "application/json"}
+                            )
+                            with self.opener.open(rep_req, timeout=1.5) as r:
+                                r.read()
+                        except Exception:
+                            pass
                 self.monitor.refresh()
                 return {"message": f"[{node_id}] {'Node killed (offline)' if is_stop else 'Node revived and syncing missed bans'}"}
             if action == "settings":

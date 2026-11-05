@@ -101,8 +101,8 @@ class CatchupEngine:
         replayed_count = 0
 
         for rec in records:
-            # Skip records we already have
-            if rec.sequence_number <= local_latest:
+            # Skip records we already have if domain is already blocked
+            if rec.sequence_number <= local_latest and self.firewall.is_blocked(rec.target_domain):
                 continue
 
             proof = rec.quorum_proof
@@ -116,7 +116,7 @@ class CatchupEngine:
                 continue
 
             # Cryptographically audit each signature in the proof
-            valid_signatures = 0
+            valid_voters = set()
             for sig in proof.signatures:
                 pubkey = self.peer_public_keys.get(sig.voter_id)
                 if not pubkey:
@@ -133,7 +133,7 @@ class CatchupEngine:
 
                 # Try verifying vote format or leader proposal format
                 if verify_signature(pubkey, vote_meta, sig.signature):
-                    valid_signatures += 1
+                    valid_voters.add(sig.voter_id)
                 else:
                     # In case it was the leader's initial proposal signature format
                     prop_meta = {
@@ -145,9 +145,9 @@ class CatchupEngine:
                         "threat_score": 0.85  # default baseline
                     }
                     if verify_signature(pubkey, prop_meta, sig.signature):
-                        valid_signatures += 1
+                        valid_voters.add(sig.voter_id)
 
-            if valid_signatures < self.config.quorum_size:
+            if len(valid_voters) < self.config.quorum_size:
                 logger.warning(
                     f"[Catchup] Signature verification failed on seq {rec.sequence_number}. Rejecting."
                 )
@@ -186,3 +186,37 @@ class CatchupEngine:
                 )
 
         return replayed_count
+
+    def sync_with_consortium(self, consensus=None) -> int:
+        """Queries online consortium peers via gRPC CatchupSync and replays any missed bans."""
+        import grpc
+        from proto import fedconsensus_pb2_grpc as pb2_grpc
+
+        total_replayed = 0
+        for peer_addr in self.config.peers:
+            host = peer_addr.split(":")[0]
+            if host == self.config.node_id or (host in ("localhost", "127.0.0.1") and f":{self.config.grpc_port}" in peer_addr):
+                continue
+            try:
+                with grpc.insecure_channel(peer_addr) as channel:
+                    stub = pb2_grpc.FedConsensusServiceStub(channel)
+                    req = pb2.CatchupRequest(
+                        node_id=self.config.node_id,
+                        from_sequence_number=1
+                    )
+                    res = stub.CatchupSync(req, timeout=1.5)
+                    if res and res.records:
+                        count = self.replay_records(list(res.records))
+                        if count > 0 and consensus is not None:
+                            for rec in res.records:
+                                consensus.commit_defederation(rec.quorum_proof)
+                                consensus.telemetry.record(
+                                    "commit", self.config.node_id, "firewall",
+                                    f"Self-healed missed ban via CatchupSync from {res.node_id}",
+                                    proposal_id=rec.quorum_proof.proposal_id,
+                                    domain=rec.target_domain,
+                                )
+                        total_replayed += count
+            except Exception:
+                continue
+        return total_replayed
