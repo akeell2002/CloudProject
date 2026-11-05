@@ -26,6 +26,8 @@ class ProposalState:
         self.approved_votes: Dict[str, pb2.VoterSignature] = {}
         self.is_committed = False
         self.created_at = time.time()
+        self.committed_at: Optional[float] = None
+        self.latency_ms: Optional[int] = None
 
 
 class ConsensusEngine:
@@ -408,6 +410,9 @@ class ConsensusEngine:
             prop_state = self.active_proposals[proof.proposal_id]
             for s in proof.signatures:
                 prop_state.approved_votes[s.voter_id] = s
+            if not prop_state.is_committed:
+                prop_state.committed_at = time.time()
+                prop_state.latency_ms = max(1, int((prop_state.committed_at - prop_state.created_at) * 1000))
             prop_state.is_committed = True
 
             return True

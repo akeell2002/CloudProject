@@ -90,10 +90,10 @@
     </aside>
     <div class="monitor-content">
     <section class="metrics" aria-label="Cluster summary">
-      <article class="metric"><span class="metric-label"><i class="dot green"></i>Active servers</span><div><strong id="active-count">—</strong><span id="total-label">/ — configured</span></div><p>Reachable at the last check</p></article>
+      <article class="metric"><span class="metric-label"><i class="dot green"></i>Active servers</span><div><strong id="active-count">—</strong><span id="total-label">/ — configured</span></div><p id="active-subtext">Reachable at the last check</p></article>
       <article class="metric"><span class="metric-label"><i class="dot gray"></i>Inactive servers</span><div><strong id="inactive-count">—</strong><span>unreachable</span></div><p>Kept visible for recovery</p></article>
-      <article class="metric"><span class="metric-label"><i class="dot red"></i>Threat proposals</span><div><strong id="threat-count">—</strong><span>awaiting a decision</span></div><p>Observed across active nodes</p></article>
-      <article class="metric"><span class="metric-label"><i class="dot cyan"></i>Banned domains</span><div><strong id="ban-count">—</strong><span>reported blocks</span></div><p>See coverage in the banned list</p></article>
+      <article class="metric"><span class="metric-label"><i class="dot red"></i>Threat proposals</span><div><strong id="threat-count">—</strong><span>awaiting a decision</span></div><p id="threat-subtext">Quorum rule: Q = 4/5 (N=5, f=1)</p></article>
+      <article class="metric"><span class="metric-label"><i class="dot cyan"></i>Banned domains</span><div><strong id="ban-count">—</strong><span>reported blocks</span></div><p id="ban-subtext">See coverage in the banned list</p></article>
     </section>
     <div class="overview-grid">
       <section class="panel network-panel" aria-labelledby="network-title">

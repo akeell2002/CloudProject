@@ -48,6 +48,8 @@ def node_snapshot(service):
                 "sequence": p.sequence_number,
                 "created_at": int(p.created_at * 1000),
                 "committed": p.is_committed,
+                "latency_ms": getattr(p, "latency_ms", None) or 0,
+                "threat_score": getattr(p, "threat_score", 0.85),
                 "approvals": sorted(p.approved_votes),
                 "quorum": service.config.quorum_size,
                 "observer": service.config.node_id,

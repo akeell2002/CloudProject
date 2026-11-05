@@ -356,7 +356,8 @@ h1 {
 }
 .message-path {
   stroke:var(--cyan);
-  stroke-width:2;
+  stroke-width:2.2;
+  stroke-linecap:round;
   fill:none;
   stroke-dasharray:6 9;
   animation:flow 1.4s linear infinite
@@ -456,6 +457,7 @@ h1 {
 }
 .mesh-node {
   position:absolute;
+  z-index:2;
   transform:translate(-50%,-28px);
   border:0;
   background:transparent;
@@ -505,7 +507,10 @@ h1 {
 }
 .node-name {
   font:10px var(--mono);
-  margin-top:8px
+  margin-top:8px;
+  background:#0d151de6;
+  padding:1px 5px;
+  border-radius:3px
 }
 .node-role {
   font-size:9px;
@@ -1386,4 +1391,75 @@ main {
 .ban-item:hover {
   border-color: var(--cyan);
   background: rgba(255, 255, 255, 0.03);
+}
+.bft-specs-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin: 0 0 14px;
+}
+.bft-spec-item {
+  background: #101923;
+  border: 1px solid #263644;
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.bft-spec-item.spec-ok {
+  border-color: #2f5a4a;
+  background: #11231e;
+}
+.bft-spec-item.spec-danger {
+  border-color: #5e3440;
+  background: #23161d;
+}
+.bft-spec-label {
+  font-size: 9px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.bft-spec-val {
+  font: 600 11px var(--mono);
+  color: #e3eff6;
+}
+.bft-spec-item.spec-ok .bft-spec-val {
+  color: var(--green);
+}
+.bft-spec-item.spec-danger .bft-spec-val {
+  color: var(--red);
+}
+.ban-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+.ban-item > div {
+  flex: 1;
+  min-width: 0;
+}
+.ban-time-badge {
+  font: 600 10px var(--mono);
+  color: var(--green);
+  background: #122620;
+  border: 1px solid #2e5949;
+  border-radius: 4px;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+.firewall-test-btn {
+  margin-top: 10px;
+  width: 100%;
+  border-color: #2f5a4a;
+  background: #132821;
+  color: #b7ebd6;
+  font-size: 11px;
+}
+.firewall-test-btn:hover {
+  background: #19352b;
+  border-color: var(--green);
 }
