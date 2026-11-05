@@ -1,5 +1,13 @@
 # FedConsensus: Byzantine-Resilient Consensus for Federated Social Moderation
 
+**Operator dashboard:** from this project directory, run
+`python -m dashboard.server` and open http://127.0.0.1:8090.
+It is also included in `docker compose up --build -d`.
+See [dashboard/README.md](dashboard/README.md) for setup, telemetry, and the
+clearly labelled guided demo. Rebuild updated node containers to enable live
+votes and activity. The dashboard is read-only; it does not repair the existing
+consensus transport or proof-validation limitations.
+
 [![Course](https://img.shields.io/badge/Course-CSC3104%20Cloud%20%26%20Distributed%20Computing-blue.svg)](https://www.gla.ac.uk/)
 [![Institution](https://img.shields.io/badge/Institution-University%20of%20Glasgow%20%2F%20SIT-red.svg)](https://www.singaporetech.edu.sg/)
 [![Architecture](https://img.shields.io/badge/Architecture-3--Phase%20BFT%20Quorum%20%2B%20gRPC-green.svg)](#2-system-architecture--how-it-works)
@@ -16,7 +24,7 @@ FedConsensus is a cloud-native, Byzantine-resilient consensus engine designed fo
 4. [Phase 2 Modules: Ingress, Threat Detection & Consensus](#4-phase-2-modules-ingress-threat-detection--consensus)
 5. [Phase 3 Modules: Catch-Up Sync, gRPC Service & Cluster Fleet](#5-phase-3-modules-catch-up-sync-grpc-service--cluster-fleet)
 6. [Phase 4 Modules: Operator Diagnostics CLI & Kubernetes Infrastructure](#6-phase-4-modules-operator-diagnostics-cli--kubernetes-infrastructure)
-7. [Repository File Tree](#7-repository-file-tree)
+7. [Repository File Tree at a Glance](#7-repository-file-tree-at-a-glance)
 8. [Verification & Testing](#8-verification--testing)
 
 ---
@@ -249,7 +257,7 @@ FedConsensus is containerized and deployed using **Kubernetes StatefulSets**:
 
 ---
 
-## 7. Repository File Tree
+## 7. Repository File Tree at a Glance
 
 ```text
 CloudProject/
@@ -273,6 +281,7 @@ CloudProject/
 │   │   ├── activitypub.py          # W3C ActivityPub /inbox HTTP receiver
 │   │   ├── classifier.py           # Multi-feature threat classifier
 │   │   └── firewall.py             # Sub-microsecond perimeter blocklist filter
+│   ├── telemetry.py                # In-memory bounded event logging & node telemetry snapshot
 │   ├── service.py                  # gRPC server binding node components
 │   ├── config.py                   # Node identity, port, and peer topology
 │   ├── main.py                     # FedNode service bootstrap entrypoint
@@ -280,11 +289,13 @@ CloudProject/
 │   └── Dockerfile                  # Container specification for FedNode
 │
 ├── dashboard/                      # Observability & Chaos Testing Studio
-│   ├── server.py                   # Backend service aggregating cluster telemetry
+│   ├── README.md                   # Operator dashboard guide, limits & local instructions
+│   ├── server.py                   # Read-only cluster monitor & HTTP telemetry server
 │   ├── static/                     # Real-time web UI frontend
-│   │   ├── index.html              # Browser UI layout
-│   │   ├── app.js                  # 1-click chaos triggers (kill, revive, Byzantine)
-│   │   └── style.css               # Dashboard styling
+│   │   ├── index.html              # Operator web UI layout (Live Cluster & Guided Demo)
+│   │   ├── app.js                  # Real-time network graph, node inspection & live event stream
+│   │   ├── demo.js                 # Browser-local interactive guided demo simulation
+│   │   └── style.css               # Modern dark-mode dashboard styling
 │   ├── requirements.txt            # Python dependencies for dashboard
 │   └── Dockerfile                  # Container specification for dashboard
 │
@@ -316,9 +327,13 @@ CloudProject/
 │   │   ├── test_service_verify.py      # Consortium gRPC servicer & Byzantine chaos modes
 │   │   ├── test_main_verify.py         # Dual-server daemon (Port 8080 & 50051)
 │   │   └── test_phase3_verification.py # Phase 3 comprehensive cluster suite
-│   ├── phase4/                     # Phase 4: Operator CLI & Kubernetes Infrastructure
+│   ├── phase4/                     # Phase 4: Operator CLI, K8s & Dashboard Verification
 │   │   ├── test_cli_verify.py          # fedctl terminal diagnostic management CLI
 │   │   ├── test_k8s_verify.py          # Kubernetes StatefulSet, headless svc & PVC manifests
+│   │   ├── test_dashboard_verify.py    # Telemetry bounding, polling resilience & security checks
+│   │   ├── test_dashboard_node_verify.py # Node /telemetry endpoint integration test
+│   │   ├── test_dashboard_demo.cjs     # Guided demo mechanics & timing assertions (Node.js)
+│   │   ├── test_dashboard_routes.cjs   # Network routes & persistent sender labels (Node.js)
 │   │   └── test_phase4_verification.py # Phase 4 comprehensive cloud infrastructure suite
 │   └── end_to_end_testing/         # End-to-End BFT Quorum, Byzantine Masking & Chaos Lifecycles
 │       ├── test_consensus.py           # Quorum math, split-brain invariance & live QC minting
@@ -375,6 +390,11 @@ python tests/phase4/test_phase4_verification.py
 # Phase 4: Individual Factor Tests
 python tests/phase4/test_cli_verify.py
 python tests/phase4/test_k8s_verify.py
+
+# Phase 4: Operator Dashboard Test Suite
+python -B -m unittest discover -s tests/phase4 -p "test_dashboard_verify.py"
+node tests/phase4/test_dashboard_demo.cjs
+node tests/phase4/test_dashboard_routes.cjs
 
 # End-to-End Chaos Verification Suites
 python tests/end_to_end_testing/test_consensus.py

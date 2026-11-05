@@ -1,1 +1,99 @@
-
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>FedConsensus · Federation monitor</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/demo.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="FedConsensus home">
+      <span class="brand-icon" aria-hidden="true">F<span>:</span></span>
+      <span>FedConsensus<small>FEDERATION SECURITY</small></span>
+    </a>
+    <span class="workspace-label">CONSORTIUM / OVERVIEW</span>
+    <div class="top-actions">
+      <span id="connection" class="connection"><i></i>Connecting</span>
+      <div class="mode-switch" role="group" aria-label="Data source">
+        <button id="live-mode" class="selected" aria-pressed="true">Live cluster</button>
+        <button id="demo-mode" aria-pressed="false">Guided demo</button>
+      </div>
+    </div>
+  </header>
+  <main>
+    <div class="page-heading">
+      <div><p class="eyebrow">DISTRIBUTED DEFENSE, IN VIEW</p><h1>Federation overview<span class="heading-dot">.</span></h1>
+      <p class="subtitle">See your servers, follow the votes, and know what gets blocked.</p></div>
+      <div class="heading-actions"><span id="updated" class="muted mono">Waiting for first update</span>
+      <button id="refresh" class="icon-button" aria-label="Refresh cluster" title="Refresh cluster">↻</button></div>
+    </div>
+    <div id="demo-banner" class="notice demo-notice" hidden>
+      <span><strong>DEMO MODE</strong> Illustrative events and votes. Your real servers are unaffected.</span>
+      <button id="replay" class="text-button">Replay scenario ↻</button>
+    </div>
+    <div id="live-notice" class="notice" role="status" hidden></div>
+    <section class="metrics" aria-label="Cluster summary">
+      <article class="metric"><span class="metric-label"><i class="dot green"></i>Active servers</span><div><strong id="active-count">—</strong><span id="total-label">/ — configured</span></div><p>Reachable at the last check</p></article>
+      <article class="metric"><span class="metric-label"><i class="dot gray"></i>Inactive servers</span><div><strong id="inactive-count">—</strong><span>unreachable</span></div><p>Kept visible for recovery</p></article>
+      <article class="metric"><span class="metric-label"><i class="dot red"></i>Threat proposals</span><div><strong id="threat-count">—</strong><span>awaiting a decision</span></div><p>Observed across active nodes</p></article>
+      <article class="metric"><span class="metric-label"><i class="dot cyan"></i>Banned domains</span><div><strong id="ban-count">—</strong><span>reported blocks</span></div><p>See coverage in the banned list</p></article>
+    </section>
+    <div class="overview-grid">
+      <section class="panel network-panel" aria-labelledby="network-title">
+        <div class="panel-heading"><div><span class="eyebrow">01 / NETWORK</span><h2 id="network-title">Your server network</h2></div><span class="pill neutral">READ ONLY</span></div>
+        <div class="network-stage">
+          <svg id="network-lines" viewBox="0 0 600 310" preserveAspectRatio="none" aria-hidden="true"></svg>
+          <div id="mesh-center" class="mesh-center" aria-hidden="true"><span class="mesh-symbol">⌘</span><strong>CONSORTIUM</strong><span id="mesh-caption">Waiting for nodes</span></div>
+          <div id="external-sender" class="external-sender" role="group" aria-label="External server: waiting for traffic">
+            <span class="sender-icon" aria-hidden="true">▤</span>
+            <span id="sender-type" class="sender-type">EXTERNAL SERVER</span>
+            <strong id="sender-domain" class="sender-domain">Awaiting sender</strong>
+            <span id="sender-status" class="sender-status">Waiting for traffic</span>
+          </div>
+          <div id="service-endpoint" class="service-endpoint" hidden>
+            <span id="service-type" class="sender-type">DESTINATION</span>
+            <strong id="service-label" class="sender-domain"></strong>
+          </div>
+          <div id="network-nodes"></div>
+          <div id="message-label" class="message-label">No observed transmissions yet</div>
+        </div>
+        <div class="network-legend"><span><i class="dot green"></i>Active</span><span><i class="dot gray"></i>Inactive</span><span><i class="dot red"></i>Flagged / fault</span><span>★ Leader</span><span>→ Message direction</span></div>
+        <div class="server-groups">
+          <div><h3><i class="dot green"></i>Active servers <span id="active-group-count">0</span></h3><div id="active-servers" class="server-list"></div></div>
+          <div class="inactive-group"><h3><i class="dot gray"></i>Inactive servers <span id="inactive-group-count">0</span></h3><div id="inactive-servers" class="server-list"></div></div>
+        </div>
+        <p class="panel-footnote">Select a server to inspect its status and its own peer reputation ledger.</p>
+      </section>
+      <section id="incident-panel" class="panel incident-panel" aria-labelledby="incident-title">
+        <div class="panel-heading"><div><span class="eyebrow">02 / CONSENSUS</span><h2 id="incident-title">Threat &amp; voting</h2></div><span id="incident-state" class="pill neutral">MONITORING</span></div>
+        <label class="field-label" for="proposal-select">Observed proposal</label>
+        <select id="proposal-select"><option value="">No proposals observed</option></select>
+        <div id="incident-content"></div>
+      </section>
+    </div>
+    <div class="bottom-grid">
+      <section class="panel traffic-panel" aria-labelledby="traffic-title">
+        <div class="panel-heading"><div><span class="eyebrow">03 / ACTIVITY</span><h2 id="traffic-title">Who is sending what</h2></div>
+          <label class="sr-only" for="event-filter">Filter activity</label><select id="event-filter" class="compact-select"><option value="all">All activity</option><option value="security">Threats &amp; votes</option></select></div>
+        <div class="table-scroll"><table><thead><tr><th scope="col">Time</th><th scope="col">Sender → receiver</th><th scope="col">Activity</th><th scope="col">Details</th></tr></thead><tbody id="event-rows"></tbody></table></div>
+        <p class="panel-footnote">Recent observations only. Sender domains are claimed identities unless origin verification succeeds.</p>
+      </section>
+      <section class="panel banned-panel" aria-labelledby="banned-title">
+        <div class="panel-heading"><div><span class="eyebrow">04 / ENFORCEMENT</span><h2 id="banned-title">Banned domains</h2></div><span id="banned-badge" class="count-badge">0</span></div>
+        <label class="sr-only" for="ban-search">Search banned domains</label><input id="ban-search" type="search" placeholder="Search domains…" autocomplete="off">
+        <div id="banned-list" class="banned-list"></div>
+        <p class="panel-footnote">A reported block is local to the listed nodes. Unreachable nodes show last-known coverage.</p>
+      </section>
+    </div>
+    <footer><span><i class="dot cyan"></i>FedConsensus observatory</span><span id="footer-note">Live observations · refreshes every 2 seconds</span></footer>
+  </main>
+  <dialog id="node-dialog" aria-labelledby="node-dialog-title">
+    <div class="dialog-heading"><div><p class="eyebrow">SERVER DETAILS</p><h2 id="node-dialog-title"></h2></div><button id="close-dialog" class="icon-button" aria-label="Close server details">×</button></div>
+    <div id="node-details"></div>
+  </dialog>
+</body>
+</html>

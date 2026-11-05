@@ -20,6 +20,18 @@ x-common-env: &common-env
   QUORUM_MODE: STRICT
 
 services:
+  dashboard:
+    build:
+      context: .
+      dockerfile: dashboard/Dockerfile
+    networks:
+      - fedconsensus-net
+    environment:
+      DASHBOARD_NODES: "http://fednode-0:8080,http://fednode-1:8080,http://fednode-2:8080,http://fednode-3:8080,http://fednode-4:8080"
+    ports:
+      - "127.0.0.1:8090:8090"
+    restart: unless-stopped
+
   fednode-0:
     build:
       context: .

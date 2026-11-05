@@ -9,6 +9,7 @@ from node.storage.reputation import ReputationManager
 from node.ingress.firewall import FirewallFilter
 from node.crypto.ed25519 import sign_message, verify_signature, canonical_json_hash
 from node.crypto.http_sig import verify_origin_http_signature
+from node.telemetry import EventLog
 
 
 class ProposalState:
@@ -42,6 +43,7 @@ class ConsensusEngine:
         self.db = database
         self.firewall = firewall
         self.reputation = reputation
+        self.telemetry = EventLog(config.node_id)
 
         self._lock = threading.Lock()
         self.current_epoch = 1
@@ -97,6 +99,11 @@ class ConsensusEngine:
 
             # Auto-cast the leader's own vote
             self._record_vote(proposal_id, self.config.node_id, proposer_sig)
+            self.telemetry.record(
+                "proposal", self.config.node_id, "consortium",
+                "Proposed a domain block", proposal_id=proposal_id,
+                domain=target_domain, score=round(threat_score, 3),
+            )
 
             return pb2.ProposeRequest(
                 proposal_id=proposal_id,
@@ -138,6 +145,11 @@ class ConsensusEngine:
             }
             if not proposer_pubkey or not verify_signature(proposer_pubkey, sign_meta, req.proposer_signature):
                 self.reputation.penalize_forgery(proposer_id)
+                self.telemetry.record(
+                    "invalid", proposer_id, self.config.node_id,
+                    "Proposal rejected: invalid or unknown signing key",
+                    proposal_id=req.proposal_id, domain=req.target_domain,
+                )
                 return False, "Invalid proposer signature (forgery detected)", None
 
             # 2. Origin HTTP Signature Anti-Framing Audit
@@ -183,6 +195,11 @@ class ConsensusEngine:
             # Record leader's vote and follower's own vote
             self._record_vote(req.proposal_id, proposer_id, req.proposer_signature)
             self._record_vote(req.proposal_id, self.config.node_id, voter_sig)
+            self.telemetry.record(
+                "vote", self.config.node_id, proposer_id,
+                "Signed an approval ballot", proposal_id=req.proposal_id,
+                domain=req.target_domain, decision="APPROVE",
+            )
 
             vote_req = pb2.VoteRequest(
                 proposal_id=req.proposal_id,
@@ -215,6 +232,12 @@ class ConsensusEngine:
 
             # Check voter eligibility (quarantine check)
             if not self.reputation.is_peer_eligible_to_vote(voter_id):
+                self.telemetry.record(
+                    "vote", voter_id, self.config.node_id,
+                    "Ballot excluded: peer is quarantined",
+                    proposal_id=vote.proposal_id, domain=vote.target_domain,
+                    decision="QUARANTINED",
+                )
                 return None
 
             # Verify ballot signature
@@ -227,9 +250,20 @@ class ConsensusEngine:
             }
             if not voter_pubkey or not verify_signature(voter_pubkey, vote_meta, vote.voter_signature):
                 self.reputation.penalize_forgery(voter_id)
+                self.telemetry.record(
+                    "invalid", voter_id, self.config.node_id,
+                    "Ballot rejected: invalid signature",
+                    proposal_id=vote.proposal_id, domain=vote.target_domain,
+                    decision="INVALID",
+                )
                 return None
 
-             # Record valid vote ONLY if decision is APPROVE
+            self.telemetry.record(
+                "vote", voter_id, self.config.node_id,
+                "Received a signed ballot", proposal_id=vote.proposal_id,
+                domain=vote.target_domain, decision=vote_meta["decision"],
+            )
+            # Record valid vote ONLY if decision is APPROVE
             if vote.decision == pb2.VOTE_APPROVE:
                 self._record_vote(vote.proposal_id, voter_id, vote.voter_signature)
                 self.reputation.reward_honest_participation(voter_id)
@@ -322,6 +356,11 @@ class ConsensusEngine:
 
             # 4. Immediately enforce on Perimeter Firewall
             self.firewall.block_domain(proof.target_domain)
+            self.telemetry.record(
+                "commit", self.config.node_id, "firewall",
+                "Domain block applied locally", proposal_id=proof.proposal_id,
+                domain=proof.target_domain,
+            )
 
             # Mark proposal committed
             if proof.proposal_id in self.active_proposals:

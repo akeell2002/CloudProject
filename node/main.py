@@ -23,6 +23,7 @@ from node.engine.consensus import ConsensusEngine
 from node.engine.leader import LeaderManager
 from node.engine.catchup import CatchupEngine
 from node.service import FedConsensusService
+from node.telemetry import node_snapshot
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,7 +38,13 @@ class ActivityPubHTTPHandler(BaseHTTPRequestHandler):
     service: Optional[FedConsensusService] = None
 
     def do_GET(self):
-        if self.path in ("/health", "/status"):
+        if self.path == "/telemetry":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(json.dumps(node_snapshot(self.service)).encode("utf-8"))
+        elif self.path in ("/health", "/status"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -57,6 +64,19 @@ class ActivityPubHTTPHandler(BaseHTTPRequestHandler):
             post_data = self.rfile.read(content_length).decode("utf-8")
 
             status_code, response_json = self.inbox.process_inbox_post(post_data)
+            if self.service:
+                kind = {
+                    "FLAGGED_FOR_CONSENSUS": "threat", "BLOCKED": "blocked",
+                }.get(response_json.get("status"), "message")
+                self.service.consensus.telemetry.record(
+                    kind, response_json.get("domain", "unknown"),
+                    self.service.config.node_id,
+                    "; ".join(response_json.get("reasons", []))
+                    or response_json.get("message", response_json.get("error", "Post received")),
+                    domain=response_json.get("domain", ""),
+                    score=response_json.get("threat_score"),
+                    status=response_json.get("status", "INVALID"),
+                )
 
             self.send_response(status_code)
             self.send_header("Content-Type", "application/json")
@@ -135,6 +155,10 @@ class FedNodeRunner:
             try:
                 channel = grpc.insecure_channel(peer_addr)
                 stub = pb2_grpc.FedConsensusServiceStub(channel)
+                self.consensus.telemetry.record(
+                    "proposal", self.config.node_id, peer_addr, "Sending block proposal",
+                    proposal_id=prop_req.proposal_id, domain=prop_req.target_domain,
+                )
                 res = stub.ProposeDefederation(prop_req, timeout=1.0)
                 if res.accepted:
                     logger.info(f"[{self.config.node_id}] Peer {peer_addr} accepted proposal")
