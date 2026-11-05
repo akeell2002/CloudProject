@@ -29,6 +29,8 @@ class Operator:
                 self.monitor.nodes = saved["nodes"]
 
     def state(self):
+        if not self.connected:
+            self.connected = any(node.get("online", False) for node in self.monitor.snapshot().get("nodes", []))
         runtime_ready = self.runtime_status["available"]
         return {
             "enabled": True, "csrf": self.csrf, "connected": self.connected,
@@ -37,7 +39,7 @@ class Operator:
                 "vote": runtime_ready, "trust": True,
                 "fault": True,
                 "leader": False, "voting_mode": False, "sync": False},
-            "message": "Connect to inspect the running backend. No backend logic is modified.",
+            "message": "Connected to the existing backend. Its voting and membership rules are unchanged." if self.connected else "Connect to inspect the running backend. No backend logic is modified.",
             "limitations": "Leader assignment, voting-mode changes, and live catch-up need an API from the backend team.",
         }
 

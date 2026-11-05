@@ -1330,3 +1330,43 @@ main {
     transition:none!important
   }
 }
+
+.incident-selector-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 4px;
+  margin-bottom: 12px;
+}
+.incident-history-label {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+.incident-history-select {
+  font-size: 11px;
+  flex: 1;
+  padding: 4px 8px;
+  background: #141f29;
+  border: 1px solid #2d3b47;
+  color: #d1e4ed;
+  border-radius: 4px;
+}
+.vote-card.quarantined {
+  background: #2c202a;
+  border-color: #69404b;
+}
+.vote-card.quarantined .vote-icon {
+  color: var(--red);
+}
+.vote-card.quarantined .vote-state {
+  color: var(--red);
+}
+.vote-card.offline {
+  opacity: 0.45;
+}

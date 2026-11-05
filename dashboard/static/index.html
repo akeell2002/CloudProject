@@ -33,7 +33,6 @@
       <div class="panel-heading"><div><span class="eyebrow">OPERATOR CONSOLE</span><h2 id="controls-title">Consortium Controls</h2></div></div>
       <div class="control-body">
         <p id="controls-state" class="control-hint">Connected · Actions use real node identities</p>
-        <button id="connect-controls" class="action-button primary" style="display: none;">Connect backend</button>
         <label for="control-node">Target / Acting Node</label>
         <select id="control-node"><option value="">Waiting for nodes</option></select>
         <p id="controlled-node-status" class="control-hint"></p>
@@ -122,9 +121,11 @@
         <p class="panel-footnote">Select a server to inspect its status and its own peer reputation ledger.</p>
       </section>
       <section id="incident-panel" class="panel incident-panel" aria-labelledby="incident-title">
-        <div class="panel-heading"><div><span class="eyebrow">02 / CONSENSUS</span><h2 id="incident-title">Threat &amp; voting</h2></div><span id="incident-state" class="pill neutral">MONITORING</span></div>
-        <label class="field-label" for="proposal-select">Observed proposal</label>
-        <select id="proposal-select"><option value="">No proposals observed</option></select>
+        <div class="panel-heading"><div><span class="eyebrow">02 / CONSENSUS ENGINE</span><h2 id="incident-title">Threat &amp; voting</h2></div><span id="incident-state" class="pill neutral">FLEET IDLE</span></div>
+        <div class="incident-selector-bar">
+          <label class="incident-history-label" for="proposal-select">Proposal history:</label>
+          <select id="proposal-select" class="incident-history-select"><option value="">No proposals observed</option></select>
+        </div>
         <div id="incident-content"></div>
       </section>
     </div>
