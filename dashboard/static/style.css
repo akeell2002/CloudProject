@@ -1370,3 +1370,20 @@ main {
 .vote-card.offline {
   opacity: 0.45;
 }
+
+.vote-card {
+  transition: transform 0.25s ease, border-color 0.25s ease, background 0.25s ease, box-shadow 0.25s ease;
+}
+.vote-card.voting-now {
+  transform: translateY(-2px);
+  box-shadow: 0 0 12px rgba(72, 209, 204, 0.35);
+  border-color: var(--cyan);
+}
+.ban-item {
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+.ban-item:hover {
+  border-color: var(--cyan);
+  background: rgba(255, 255, 255, 0.03);
+}

@@ -39,8 +39,7 @@
   if (typeof document === "undefined") return;
   const $ = function (id) { return document.getElementById(id); };
   let data = {nodes: [], events: [], bans: [], updated_at: null};
-  let selectedProposal = "";
-  let selectedObserver = "";
+  let selectedDomain = "";
   let selectedNode = "";
   let fetching = false;
   let networkKey = "";
@@ -49,6 +48,9 @@
   let controls = {enabled: false, connected: false, runtime: {}};
   let actionBusy = false;
   let controlledNode = "";
+  let initialLoadDone = false;
+  const seenDomains = new Set();
+  let liveVoteAnim = null;
   const points = [[65, 11], [88, 37], [79, 74], [51, 74], [42, 37]];
   const securityKinds = ["threat", "blocked", "invalid", "proposal", "vote", "commit"];
   const reasonNames = {1: "Spam", 2: "Bot activity", 3: "Phishing", 4: "Suspicious file", 5: "Hate speech"};
@@ -69,13 +71,15 @@
     return box;
   }
   function onlineNodes() { return data.nodes.filter(function (node) { return node.online; }); }
+
   function proposals() {
-    const map = new Map();
+    const byDomain = new Map();
     (data.nodes || []).forEach(function (node) {
       if (!node.online || !node.proposals) return;
       node.proposals.forEach(function (p) {
-        if (!map.has(p.proposal_id)) {
-          map.set(p.proposal_id, {
+        const key = p.domain || p.proposal_id;
+        if (!byDomain.has(key)) {
+          byDomain.set(key, {
             proposal_id: p.proposal_id,
             domain: p.domain,
             proposer: p.proposer || "fednode-0",
@@ -83,22 +87,33 @@
             quorum: p.quorum || 4,
             created_at: p.created_at || 0,
             committed: Boolean(p.committed),
-            approvals: new Set(p.approvals || []),
+            approvals: new Set(),
             rejections: new Set(),
-            invalid: new Set()
+            invalid: new Set(),
+            quarantined: new Set()
           });
         }
-        const entry = map.get(p.proposal_id);
+        const entry = byDomain.get(key);
+        if ((p.created_at || 0) >= entry.created_at) {
+          entry.created_at = p.created_at || entry.created_at;
+          entry.proposal_id = p.proposal_id;
+          entry.proposer = p.proposer || entry.proposer;
+        }
         if (p.committed) entry.committed = true;
-        if (p.approvals) p.approvals.forEach(function (v) { entry.approvals.add(v); });
+        // Prefer proposer's verified approvals or honest nodes' approvals
+        const isFaulty = String(node.state).startsWith("BYZANTINE_") || node.quarantined;
+        if (!isFaulty && p.approvals) {
+          p.approvals.forEach(function (v) { entry.approvals.add(v); });
+        }
       });
     });
 
     (data.events || []).forEach(function (e) {
-      if (!e.proposal_id) return;
-      if (!map.has(e.proposal_id) && e.domain) {
-        map.set(e.proposal_id, {
-          proposal_id: e.proposal_id,
+      if (!e.domain && !e.proposal_id) return;
+      const key = e.domain || e.proposal_id;
+      if (!byDomain.has(key) && e.domain && ["proposal", "vote", "commit"].includes(e.kind)) {
+        byDomain.set(key, {
+          proposal_id: e.proposal_id || key,
           domain: e.domain,
           proposer: e.observer || e.source || "fednode-0",
           reason: e.reason || 4,
@@ -107,29 +122,89 @@
           committed: false,
           approvals: new Set(),
           rejections: new Set(),
-          invalid: new Set()
+          invalid: new Set(),
+          quarantined: new Set()
         });
       }
-      const entry = map.get(e.proposal_id);
+      const entry = byDomain.get(key);
       if (!entry) return;
+      if ((e.timestamp || 0) > entry.created_at) entry.created_at = e.timestamp;
       if (e.kind === "commit") entry.committed = true;
       if (e.decision === "APPROVE") entry.approvals.add(e.source);
       else if (e.decision === "REJECT") entry.rejections.add(e.source);
       else if (e.decision === "INVALID") entry.invalid.add(e.source);
+      else if (e.decision === "QUARANTINED") entry.quarantined.add(e.source);
     });
 
     const bannedDomains = new Set((data.bans || []).map(function (b) { return b.domain; }));
-    map.forEach(function (entry) {
+    byDomain.forEach(function (entry) {
       if (bannedDomains.has(entry.domain)) {
         entry.committed = true;
       }
+      entry.rejections.forEach(function (v) { entry.approvals.delete(v); });
+      entry.invalid.forEach(function (v) { entry.approvals.delete(v); });
+      entry.quarantined.forEach(function (v) { entry.approvals.delete(v); });
+      (data.nodes || []).forEach(function (n) {
+        if (n.quarantined) {
+          entry.approvals.delete(n.node_id);
+          entry.quarantined.add(n.node_id);
+        } else if (n.state === "BYZANTINE_LIAR") {
+          entry.approvals.delete(n.node_id);
+          entry.rejections.add(n.node_id);
+        } else if (n.state === "BYZANTINE_FORGER") {
+          entry.approvals.delete(n.node_id);
+          entry.invalid.add(n.node_id);
+        } else if (n.state === "BYZANTINE_SILENT" || !n.online) {
+          entry.approvals.delete(n.node_id);
+        }
+      });
     });
 
-    return Array.from(map.values()).sort(function (a, b) {
-      if (a.committed !== b.committed) return a.committed ? 1 : -1;
+    return Array.from(byDomain.values()).sort(function (a, b) {
       return b.created_at - a.created_at;
     });
   }
+
+  function startLiveVoteAnimation(proposal) {
+    if (liveVoteAnim && liveVoteAnim.timer) {
+      clearInterval(liveVoteAnim.timer);
+    }
+    const proposer = proposal.proposer || "fednode-0";
+    const order = [proposer];
+    (data.nodes || []).forEach(function (n) {
+      if (n.node_id !== proposer) {
+        if (proposal.approvals.has(n.node_id) ||
+            proposal.rejections.has(n.node_id) ||
+            proposal.invalid.has(n.node_id) ||
+            proposal.quarantined.has(n.node_id) ||
+            n.quarantined) {
+          order.push(n.node_id);
+        }
+      }
+    });
+    liveVoteAnim = {
+      domain: proposal.domain,
+      proposer: proposer,
+      order: order,
+      step: 0,
+      maxSteps: order.length
+    };
+    liveVoteAnim.timer = setInterval(function () {
+      if (!liveVoteAnim) return;
+      liveVoteAnim.step += 1;
+      incidentKey = "";
+      networkKey = "";
+      try {
+        renderIncident();
+        renderNetwork();
+      } catch (_) {}
+      if (liveVoteAnim && liveVoteAnim.step >= liveVoteAnim.maxSteps) {
+        clearInterval(liveVoteAnim.timer);
+        liveVoteAnim.timer = null;
+      }
+    }, 520);
+  }
+
   function openNode(nodeId) {
     selectedNode = nodeId;
     renderNodeDetails();
@@ -212,7 +287,16 @@
     svg.append(line);
   }
   function renderNetwork() {
-    const latest = data.events[data.events.length - 1];
+    let latest = data.events[data.events.length - 1];
+    if (liveVoteAnim && liveVoteAnim.step < liveVoteAnim.maxSteps) {
+      const voter = liveVoteAnim.order[liveVoteAnim.step];
+      latest = {
+        source: voter,
+        target: liveVoteAnim.step === 0 ? "consortium" : liveVoteAnim.proposer,
+        kind: liveVoteAnim.step === 0 ? "proposal" : "vote",
+        timestamp: Date.now()
+      };
+    }
     const positions = data.nodes.map(function (node, index) {
       const point = data.nodes.length <= 5 ? points[index] :
         [65 + 23 * Math.cos(2 * Math.PI * index / data.nodes.length - Math.PI / 2),
@@ -271,20 +355,6 @@
       $("service-type").textContent = route.target.kind === "service" ? "DESTINATION" : "SOURCE";
       transmission(svg, route, Date.now() - latest.timestamp < 8000);
     }
-    [["active", true], ["inactive", false]].forEach(function (group) {
-      const nodes = data.nodes.filter(function (node) { return Boolean(node.online) === group[1]; });
-      $(group[0] + "-group-count").textContent = nodes.length;
-      const list = $(group[0] + "-servers");
-      list.replaceChildren();
-      nodes.forEach(function (node) {
-        const fault = node.online && (node.quarantined || String(node.state).startsWith("BYZANTINE"));
-        const button = el("button", "server-tag" + (!node.online ? " offline" : fault ? " fault" : ""), node.node_id);
-        button.title = node.online ? node.state : "Unreachable at the last check";
-        button.addEventListener("click", function () { openNode(node.node_id); });
-        list.append(button);
-      });
-      if (!nodes.length) list.append(el("span", "empty-inline", group[1] ? "No servers reachable" : "All servers reachable"));
-    });
   }
   function updateOptions(select, options) {
     if (!select || !select.options) return;
@@ -296,21 +366,27 @@
   }
   function renderIncident() {
     const all = proposals();
-    const select = $("proposal-select");
-    if (!all.some(function (p) { return p.proposal_id === selectedProposal; })) {
-      selectedProposal = all.length ? all[0].proposal_id : "";
-    }
-    if (select) {
-      updateOptions(select, all.length ? all.map(function (p) {
-        return [(p.committed ? "✓ " : "⏳ ") + p.domain + (p.committed ? " · Banned" : " · Voting in progress"), p.proposal_id];
-      }) : [["No proposals observed", ""]]);
-      select.value = selectedProposal;
-      select.disabled = !all.length;
+    if (!initialLoadDone) {
+      all.forEach(function (p) { seenDomains.add(p.domain); });
+      initialLoadDone = true;
+    } else if (all.length && !seenDomains.has(all[0].domain)) {
+      seenDomains.add(all[0].domain);
+      selectedDomain = all[0].domain;
+      startLiveVoteAnimation(all[0]);
     }
 
-    const proposal = all.find(function (p) { return p.proposal_id === selectedProposal; }) || all[0];
+    if (!selectedDomain || !all.some(function (p) { return p.domain === selectedDomain; })) {
+      selectedDomain = all.length ? all[0].domain : "";
+    }
+    const proposal = all.find(function (p) { return p.domain === selectedDomain; }) || all[0];
+
+    const isAnimating = Boolean(liveVoteAnim && proposal && liveVoteAnim.domain === proposal.domain && liveVoteAnim.step < liveVoteAnim.maxSteps);
+    const animStep = isAnimating ? liveVoteAnim.step : -1;
+
     const nextKey = JSON.stringify([
-      proposal ? [proposal.proposal_id, proposal.committed, Array.from(proposal.approvals).sort()] : null,
+      proposal ? [proposal.domain, proposal.committed, Array.from(proposal.approvals).sort(),
+                  Array.from(proposal.rejections).sort(), Array.from(proposal.invalid).sort()] : null,
+      animStep,
       data.nodes.map(function (n) { return [n.node_id, n.online, n.quarantined, n.state]; })
     ]);
     if (nextKey === incidentKey) return;
@@ -319,24 +395,48 @@
     const content = $("incident-content");
     content.replaceChildren();
     const state = $("incident-state");
-    $("incident-panel").classList.toggle("has-threat", Boolean(proposal && !proposal.committed));
 
     if (!proposal) {
+      $("incident-panel").classList.remove("has-threat");
       const latestThreat = data.events.slice().reverse().find(function (e) { return e.kind === "threat"; });
       state.className = "pill " + (latestThreat ? "danger" : "neutral");
       state.textContent = latestThreat ? "THREAT DETECTED" : "FLEET IDLE";
       content.append(empty(latestThreat ? "!" : "◇", latestThreat ? latestThreat.domain || latestThreat.source : "Consensus Engine Idle",
         latestThreat ? latestThreat.message + " Voting proposal will start shortly." :
-        "Incoming malicious ActivityPub posts trigger automated Byzantine consensus voting across all nodes here."));
+        "Trigger a phishing or malware attack on the left to watch live 3-phase Byzantine consensus voting across all 5 nodes."));
       return;
     }
 
-    state.className = "pill " + (proposal.committed ? "success" : "danger");
-    state.textContent = proposal.committed ? "QUORUM REACHED · BANNED" : "VOTING IN PROGRESS";
+    const revealedSet = isAnimating
+      ? new Set(liveVoteAnim.order.slice(0, liveVoteAnim.step + 1))
+      : new Set((data.nodes || []).map(function (n) { return n.node_id; }));
+    const activeVoter = isAnimating ? liveVoteAnim.order[liveVoteAnim.step] : null;
+
+    const visibleApprovals = Array.from(proposal.approvals).filter(function (id) { return revealedSet.has(id); }).length;
+    const quorumNeeded = proposal.quorum || 4;
+    const isFinalCommitted = !isAnimating && (proposal.committed || visibleApprovals >= quorumNeeded);
+
+    $("incident-panel").classList.toggle("has-threat", isAnimating || !isFinalCommitted);
+
+    if (isAnimating && liveVoteAnim.step === 0) {
+      state.className = "pill danger";
+      state.textContent = "PHASE 1 · PROPOSING BLOCK";
+    } else if (isAnimating) {
+      state.className = "pill danger";
+      state.textContent = "PHASE 2 · LIVE VOTING (" + visibleApprovals + "/" + quorumNeeded + ")";
+    } else if (isFinalCommitted) {
+      state.className = "pill success";
+      state.textContent = "PHASE 3 · QUORUM REACHED & BANNED";
+    } else {
+      state.className = "pill danger";
+      state.textContent = "QUORUM FAILED (" + visibleApprovals + "/" + quorumNeeded + ")";
+    }
 
     const inner = el("div", "incident-content-inner");
     inner.append(
-      el("span", "threat-eyebrow", proposal.committed ? "CONSORTIUM DEFEDERATION (COMMITTED)" : "ACTIVE BYZANTINE VOTING ROUND"),
+      el("span", "threat-eyebrow",
+        isAnimating ? "LIVE BYZANTINE VOTING ROUND IN PROGRESS" :
+        isFinalCommitted ? "CONSORTIUM DEFEDERATION (COMMITTED)" : "CONSENSUS THRESHOLD NOT REACHED"),
       el("h3", "threat-domain", proposal.domain)
     );
 
@@ -345,15 +445,12 @@
     });
     inner.append(el("div", "evidence", evidence ? evidence.message : reasonNames[proposal.reason] || "Domain moderation proposal"));
 
-    const approvalCount = proposal.approvals.size;
-    const quorumNeeded = proposal.quorum || 4;
-    const isQuorum = approvalCount >= quorumNeeded || proposal.committed;
-    const displayApprovals = proposal.committed ? Math.max(approvalCount, quorumNeeded) : approvalCount;
-
     const status = el("div", "decision-status");
     status.append(
-      el("span", "", isQuorum ? "Quorum threshold achieved" : "Consensus approvals"),
-      el("strong", "", displayApprovals + " / " + quorumNeeded + " needed")
+      el("span", "",
+        isAnimating ? "Collecting signed ballots from peers…" :
+        isFinalCommitted ? "Quorum threshold achieved" : "Insufficient honest approvals"),
+      el("strong", "", visibleApprovals + " / " + quorumNeeded + " needed")
     );
     inner.append(status);
 
@@ -362,7 +459,7 @@
     progress.setAttribute("aria-label", "Recorded approvals");
     progress.setAttribute("aria-valuemin", "0");
     progress.setAttribute("aria-valuemax", String(quorumNeeded));
-    const currentProgress = proposal.committed ? quorumNeeded : Math.min(approvalCount, quorumNeeded);
+    const currentProgress = Math.min(visibleApprovals, quorumNeeded);
     progress.setAttribute("aria-valuenow", String(currentProgress));
     const fill = el("div", "progress-fill");
     fill.style.width = Math.min(100, (currentProgress / quorumNeeded) * 100) + "%";
@@ -375,38 +472,46 @@
       let decision = "WAITING";
       let title = "Awaiting ballot in current consensus round";
 
-      if (proposal.approvals.has(id)) {
+      if (!revealedSet.has(id)) {
+        if (!node.online) {
+          decision = "OFFLINE";
+          title = "Node unreachable";
+        } else {
+          decision = "WAITING";
+          title = "Verifying origin signature and auditing threat score…";
+        }
+      } else if (proposal.approvals.has(id)) {
         decision = "APPROVE";
-        title = "Signed and verified approval ballot";
+        title = "Signed and verified Ed25519 approval ballot";
       } else if (proposal.rejections && proposal.rejections.has(id)) {
         decision = "REJECT";
-        title = "Rogue / dissenting vote";
+        title = "Byzantine LIAR: cast dissenting REJECT ballot";
       } else if (proposal.invalid && proposal.invalid.has(id)) {
         decision = "INVALID";
-        title = "Signature verification failed";
-      } else if (node.quarantined) {
+        title = "Byzantine FORGER: ballot rejected due to invalid signature";
+      } else if ((proposal.quarantined && proposal.quarantined.has(id)) || node.quarantined) {
         decision = "QUARANTINED";
-        title = "Quarantined: reputation below 30, vote excluded";
+        title = "Quarantined (score < 30): ballot excluded from quorum";
       } else if (!node.online) {
         decision = "OFFLINE";
-        title = "Node unreachable";
-      } else if (proposal.committed) {
-        decision = "WAITING";
-        title = "Quorum reached before ballot arrived";
+        title = "Node offline / killed";
+      } else if (String(node.state) === "BYZANTINE_SILENT") {
+        decision = "OFFLINE";
+        title = "Byzantine SILENT: dropped gRPC proposal";
       }
 
       const names = {
         APPROVE: "Approved",
         REJECT: "Rejected",
-        INVALID: "Invalid",
+        INVALID: "Forged",
         QUARANTINED: "Excluded",
-        OFFLINE: "Offline",
-        WAITING: "Waiting"
+        OFFLINE: "Dropped",
+        WAITING: "Waiting…"
       };
 
-      const card = el("div", "vote-card " + decision.toLowerCase());
+      const card = el("div", "vote-card " + decision.toLowerCase() + (activeVoter === id ? " voting-now" : ""));
       card.append(
-        el("span", "vote-icon", decision === "APPROVE" ? "✓" : ["INVALID", "REJECT", "QUARANTINED"].includes(decision) ? "×" : "…"),
+        el("span", "vote-icon", decision === "APPROVE" ? "✓" : ["INVALID", "REJECT", "QUARANTINED", "OFFLINE"].includes(decision) ? "×" : "…"),
         el("span", "vote-name", id),
         el("span", "vote-state", names[decision] || decision)
       );
@@ -416,9 +521,11 @@
     inner.append(votes);
 
     inner.append(el("p", "observation",
-      proposal.committed
+      isAnimating
+        ? "⚡ Step " + (liveVoteAnim.step + 1) + " of " + liveVoteAnim.maxSteps + ": " + activeVoter + " broadcasting signed cryptographic ballot…"
+        : isFinalCommitted
         ? "✓ Quorum Proof verified (N=5, f=1, Q=4). Defederation rule committed to SQLite WAL and in-memory firewall across active nodes."
-        : "⚡ Live 3-phase BFT voting round. Nodes verify message origin signature and cryptographic hash before signing approval."));
+        : "⚠ Quorum threshold (Q=" + quorumNeeded + ") was not met. Domain remains unblocked due to insufficient honest votes."));
 
     content.append(inner);
   }
@@ -463,6 +570,11 @@
         el("div", "ban-nodes", ban.applied_on.join(" · ") || "No current confirmations"));
       if (ban.last_known_on.length) text.append(el("div", "ban-nodes", "Last known: " + ban.last_known_on.join(" · ")));
       row.append(el("span", "ban-icon", "⊘"), text);
+      row.addEventListener("click", function () {
+        selectedDomain = ban.domain;
+        incidentKey = "";
+        renderIncident();
+      });
       list.append(row);
     });
     if (!bans.length) list.append(el("div", "ban-empty", query ? "No domains match your search." : "No reported domain blocks."));
@@ -470,8 +582,8 @@
   function render() {
     const active = onlineNodes().length;
     const allProposals = proposals();
-    const committed = new Set(allProposals.filter(function (p) { return p.committed; }).map(function (p) { return p.proposal_id; }));
-    const pending = new Set(allProposals.filter(function (p) { return !p.committed && !committed.has(p.proposal_id); }).map(function (p) { return p.proposal_id; }));
+    const committed = new Set(allProposals.filter(function (p) { return p.committed; }).map(function (p) { return p.domain; }));
+    const pending = new Set(allProposals.filter(function (p) { return !p.committed && !committed.has(p.domain); }).map(function (p) { return p.domain; }));
     $("active-count").textContent = active;
     $("inactive-count").textContent = data.nodes.length - active;
     $("total-label").textContent = "/ " + data.nodes.length + " configured";
@@ -529,14 +641,14 @@
     const options = data.nodes.map(function (node) {
       return [node.node_id + (node.online ? "" : " · offline"), node.node_id];
     });
-    ["control-node", "trust-peer"].forEach(function (id) {
-      const select = $(id);
-      if (!select) return;
+    const select = $("control-node");
+    if (select) {
       const previous = select.value;
       updateOptions(select, options.length ? options : [["No configured nodes", ""]]);
       if (options.some(function (o) { return o[1] === previous; })) select.value = previous;
-    });
-    const selected = $("control-node") ? $("control-node").value : "";
+    }
+    const selected = select ? select.value : "";
+    if ($("trust-peer")) $("trust-peer").value = selected || "fednode-0";
     const node = data.nodes.find(function (item) { return item.node_id === selected; });
     if (controlledNode !== selected && node) {
       controlledNode = selected;
@@ -544,30 +656,18 @@
     }
     if ($("controlled-node-status")) {
       $("controlled-node-status").textContent = node ? (node.online ? "Online" : "Offline") +
-        " · " + (node.quarantined ? "Quarantine reported by " + (node.quarantined_by || []).join(", ") : node.state) : "";
+        " · " + (node.quarantined ? "Quarantined (score < 30)" : node.state) : "";
     }
     if ($("controls-state")) {
       $("controls-state").textContent = controls.connected ? "Connected · Actions use real node identities" : controls.message || "Connecting…";
     }
-    if ($("runtime-status")) {
-      $("runtime-status").textContent = controls.runtime.message || "Runtime ready";
-    }
-    if ($("source-node") && $("traffic-source")) {
-      $("source-node").disabled = $("traffic-source").value !== "internal";
-    }
     const buttons = document.querySelectorAll(".control-body button");
     buttons.forEach(function (button) {
-      const runtimeAction = ["stop-node", "revive-node"].includes(button.id);
-      button.disabled = actionBusy || !controls.enabled || (!controls.connected) ||
-        (runtimeAction && !controls.runtime.available);
+      button.disabled = actionBusy || !controls.enabled || !controls.connected;
     });
-    if ($("stop-node")) $("stop-node").disabled = actionBusy || !node || !node.online || !controls.runtime.available;
-    if ($("revive-node")) $("revive-node").disabled = actionBusy || !node || !controls.runtime.available;
+    if ($("stop-node")) $("stop-node").disabled = actionBusy || !node || !node.online;
+    if ($("revive-node")) $("revive-node").disabled = actionBusy || !node || node.online;
     if ($("apply-settings")) $("apply-settings").disabled = actionBusy || !controls.connected || !node;
-    if ($("trust-form")) {
-      const tb = $("trust-form").querySelector("button");
-      if (tb) tb.disabled = actionBusy || !controls.connected;
-    }
   }
   async function runAction(body) {
     if (actionBusy) return;
@@ -589,6 +689,10 @@
         return "HTTP " + r.http_status + " / " + (r.status || "unknown");
       }).filter(function (item, index, all) { return all.indexOf(item) === index; }).join(", ");
       if (value.outcomes && body.action === "trust") result.textContent += " in " + value.outcomes.length + " ledger(s)";
+      if (body.action === "inject" && value.domain) {
+        seenDomains.delete(value.domain);
+        selectedDomain = value.domain;
+      }
     } catch (error) {
       result.className = "action-result failure-result";
       result.textContent = error.name === "TimeoutError" ? "Action timed out. Refresh and inspect actual node state before retrying." : error.message;
@@ -601,74 +705,45 @@
   function actor() { return $("control-node") ? $("control-node").value : "fednode-0"; }
   function traffic(scenario) {
     return runAction({action: "inject", node: actor(), scenario: scenario,
-      source: $("traffic-source") ? $("traffic-source").value : "external",
-      source_node: $("source-node") ? $("source-node").value : "",
-      domain: $("traffic-domain") ? $("traffic-domain").value.trim() : "",
+      source: "external", source_node: "", domain: "",
       content: $("traffic-content") ? $("traffic-content").value : ""});
   }
-  if ($("connect-controls")) {
-    $("connect-controls").addEventListener("click", function () {
-      runAction({action: "connect", leader: $("leader-node") ? $("leader-node").value : "fednode-0"});
-    });
-  }
-  if ($("control-node")) $("control-node").addEventListener("change", function () { renderControls(); });
-  if ($("traffic-source")) $("traffic-source").addEventListener("change", renderControls);
+  if ($("control-node")) $("control-node").addEventListener("change", renderControls);
   document.querySelectorAll("[data-scenario]").forEach(function (button) {
     button.addEventListener("click", function () { traffic(button.dataset.scenario); });
   });
   if ($("send-custom")) $("send-custom").addEventListener("click", function () { traffic("custom"); });
-  if ($("proposal-form")) {
-    $("proposal-form").addEventListener("submit", function (event) {
-      event.preventDefault();
-      runAction({action: "propose", node: actor(), domain: $("proposal-domain").value.trim(),
-        justification: $("proposal-justification").value.trim()});
-    });
-  }
-  ["approve", "reject"].forEach(function (decision) {
-    const btn = $(decision + "-vote");
-    if (btn) {
-      btn.addEventListener("click", function () {
-        runAction({action: "vote", node: actor(), receiver: selectedObserver,
-          proposal_id: selectedProposal, decision: decision.toUpperCase()});
-      });
-    }
-  });
-  if ($("elect-leader")) {
-    $("elect-leader").addEventListener("click", function () {
-      runAction({action: "leader", leader: $("leader-node") ? $("leader-node").value : "fednode-0"});
-    });
-  }
   if ($("apply-settings")) {
     $("apply-settings").addEventListener("click", function () {
       runAction({action: "settings", node: actor(), fault: $("fault-mode").value});
     });
   }
-  ["stop", "revive", "sync"].forEach(function (action) {
+  ["stop", "revive"].forEach(function (action) {
     const btn = $(action + "-node");
     if (btn) {
       btn.addEventListener("click", function () { runAction({action: action, node: actor()}); });
     }
   });
+  if ($("quarantine-peer")) {
+    $("quarantine-peer").addEventListener("click", function () {
+      if ($("trust-score")) $("trust-score").value = "20";
+      runAction({action: "trust", node: "fednode-0", peer: actor(), score: 20, scope: "all"});
+    });
+  }
+  if ($("restore-peer")) {
+    $("restore-peer").addEventListener("click", function () {
+      if ($("trust-score")) $("trust-score").value = "100";
+      runAction({action: "trust", node: "fednode-0", peer: actor(), score: 100, scope: "all"});
+    });
+  }
   if ($("trust-form")) {
     $("trust-form").addEventListener("submit", function (event) {
       event.preventDefault();
-      runAction({action: "trust", node: actor(), peer: $("trust-peer").value,
-        score: Number($("trust-score").value), scope: $("trust-scope").value});
-    });
-  }
-  if ($("scale-form")) {
-    $("scale-form").addEventListener("submit", function (event) {
-      event.preventDefault();
-      runAction({action: "scale", replicas: Number($("replica-count").value), leader: $("leader-node") ? $("leader-node").value : "fednode-0"});
-    });
-  }
-  if ($("select-runtime")) {
-    $("select-runtime").addEventListener("click", function () {
-      runAction({action: "runtime", runtime: $("runtime-kind").value});
+      runAction({action: "trust", node: "fednode-0", peer: actor(),
+        score: Number($("trust-score").value), scope: "all"});
     });
   }
   $("refresh").addEventListener("click", refresh);
-  $("proposal-select").addEventListener("change", function () { selectedProposal = this.value; selectedObserver = ""; renderIncident(); renderControls(); });
   $("event-filter").addEventListener("change", renderEvents);
   $("ban-search").addEventListener("input", renderBans);
   $("close-dialog").addEventListener("click", function () { $("node-dialog").close(); });

@@ -33,12 +33,12 @@
       <div class="panel-heading"><div><span class="eyebrow">OPERATOR CONSOLE</span><h2 id="controls-title">Consortium Controls</h2></div></div>
       <div class="control-body">
         <p id="controls-state" class="control-hint">Connected · Actions use real node identities</p>
-        <label for="control-node">Target / Acting Node</label>
+        <label for="control-node">Selected Node</label>
         <select id="control-node"><option value="">Waiting for nodes</option></select>
         <p id="controlled-node-status" class="control-hint"></p>
 
         <!-- 1. ActivityPub Traffic & Attack Simulator -->
-        <details open><summary>ActivityPub traffic simulator</summary>
+        <details open><summary>1. Attack &amp; traffic simulator</summary>
           <input type="hidden" id="traffic-source" value="external">
           <input type="hidden" id="source-node" value="">
           <input type="hidden" id="traffic-domain" value="">
@@ -47,41 +47,42 @@
             <button data-scenario="phishing" class="action-button">Send phishing burst</button>
             <button data-scenario="malware" class="action-button danger-action">Send malware-link text</button>
           </div>
-          <p class="control-hint">Posts target the selected node. Malicious posts (score &ge; 0.60) automatically trigger BFT consensus and consortium-wide ban.</p>
+          <p class="control-hint">Sends ActivityPub payload to selected node. Malicious posts (score &ge; 0.60) trigger live BFT voting.</p>
           <label for="traffic-content">Custom post text</label><textarea id="traffic-content" rows="2" maxlength="2000" placeholder="Type custom post to test threat classification..."></textarea>
           <button id="send-custom" class="action-button">Send custom post</button>
         </details>
 
         <!-- 2. Byzantine Fault Injection & Chaos Lab -->
-        <details open><summary>Byzantine fault injection</summary>
-          <label for="fault-mode">Fault mode of selected node</label>
+        <details open><summary>2. Byzantine fault &amp; node state</summary>
+          <label for="fault-mode">Behavior of selected node</label>
           <select id="fault-mode">
             <option value="NONE">Honest (Normal BFT)</option>
             <option value="SILENT">Silent (Drops all gRPC requests)</option>
-            <option value="LIAR">Liar (Rejects legitimate threats)</option>
+            <option value="LIAR">Liar (Votes REJECT on threats)</option>
             <option value="FORGER">Forger (Corrupts ballot signature)</option>
           </select>
-          <button id="apply-settings" class="action-button primary">Apply Byzantine mode</button>
+          <button id="apply-settings" class="action-button primary">Apply behavior mode</button>
           <div class="button-pair" style="margin-top: 10px;">
             <button id="stop-node" class="action-button danger-action">Kill node</button>
             <button id="revive-node" class="action-button">Revive node</button>
           </div>
-          <p class="control-hint">Simulate rogue or crashed nodes. With N=5, consortium tolerates f=1 Byzantine fault and still reaches Q=4 quorum.</p>
+          <p class="control-hint">With N=5, consortium tolerates f=1 rogue or offline node and still reaches Q=4 quorum.</p>
         </details>
 
         <!-- 3. Dynamic Reputation & Quarantine -->
-        <details open><summary>Trust &amp; quarantine</summary>
+        <details open><summary>3. Reputation &amp; quarantine</summary>
           <form id="trust-form">
-            <label for="trust-peer">Peer to adjust</label><select id="trust-peer"></select>
-            <label for="trust-score">Trust score (0–100)</label><input id="trust-score" type="number" min="0" max="100" step="1" value="100" required>
-            <label for="trust-scope">Apply in</label>
-            <select id="trust-scope">
-              <option value="all">All reachable nodes' ledgers</option>
-              <option value="selected">Selected node's ledger only</option>
-            </select>
-            <button class="action-button">Apply trust score</button>
+            <input type="hidden" id="trust-peer" value="fednode-0">
+            <input type="hidden" id="trust-scope" value="all">
+            <label for="trust-score">Trust score for selected node (0–100)</label>
+            <input id="trust-score" type="number" min="0" max="100" step="1" value="100" required>
+            <div class="button-pair" style="margin-top: 8px;">
+              <button type="button" id="quarantine-peer" class="action-button danger-action">Quarantine (20)</button>
+              <button type="button" id="restore-peer" class="action-button">Restore (100)</button>
+            </div>
+            <button type="submit" class="action-button primary">Apply custom score</button>
           </form>
-          <p class="control-hint">Scores below 30 automatically quarantine the peer and exclude its votes from quorum accumulation.</p>
+          <p class="control-hint">Scores below 30 quarantine the node and exclude its ballots from quorum.</p>
         </details>
 
         <div id="action-result" class="action-result" role="status" aria-live="polite">Actions and backend responses appear here.</div>
@@ -114,18 +115,10 @@
           <div id="message-label" class="message-label">No observed transmissions yet</div>
         </div>
         <div class="network-legend"><span><i class="dot green"></i>Active</span><span><i class="dot gray"></i>Inactive</span><span><i class="dot red"></i>Flagged / fault</span><span>★ Leader</span><span>→ Message direction</span></div>
-        <div class="server-groups">
-          <div><h3><i class="dot green"></i>Active servers <span id="active-group-count">0</span></h3><div id="active-servers" class="server-list"></div></div>
-          <div class="inactive-group"><h3><i class="dot gray"></i>Inactive servers <span id="inactive-group-count">0</span></h3><div id="inactive-servers" class="server-list"></div></div>
-        </div>
-        <p class="panel-footnote">Select a server to inspect its status and its own peer reputation ledger.</p>
+        <p class="panel-footnote">Click any node in the mesh to inspect its status and peer reputation ledger.</p>
       </section>
       <section id="incident-panel" class="panel incident-panel" aria-labelledby="incident-title">
-        <div class="panel-heading"><div><span class="eyebrow">02 / CONSENSUS ENGINE</span><h2 id="incident-title">Threat &amp; voting</h2></div><span id="incident-state" class="pill neutral">FLEET IDLE</span></div>
-        <div class="incident-selector-bar">
-          <label class="incident-history-label" for="proposal-select">Proposal history:</label>
-          <select id="proposal-select" class="incident-history-select"><option value="">No proposals observed</option></select>
-        </div>
+        <div class="panel-heading"><div><span class="eyebrow">02 / CONSENSUS ENGINE</span><h2 id="incident-title">Live Threat &amp; Voting</h2></div><span id="incident-state" class="pill neutral">FLEET IDLE</span></div>
         <div id="incident-content"></div>
       </section>
     </div>
@@ -140,7 +133,7 @@
         <div class="panel-heading"><div><span class="eyebrow">04 / ENFORCEMENT</span><h2 id="banned-title">Banned domains</h2></div><span id="banned-badge" class="count-badge">0</span></div>
         <label class="sr-only" for="ban-search">Search banned domains</label><input id="ban-search" type="search" placeholder="Search domains…" autocomplete="off">
         <div id="banned-list" class="banned-list"></div>
-        <p class="panel-footnote">A reported block is local to the listed nodes. Unreachable nodes show last-known coverage.</p>
+        <p class="panel-footnote">Click a banned domain to view its consensus vote record. Unreachable nodes show last-known coverage.</p>
       </section>
     </div>
     </div>

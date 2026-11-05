@@ -219,11 +219,23 @@ class Operator:
             node_id = body.get("node")
             self.node(node_id)
             if action in ("stop", "revive"):
-                message = self.runtime.lifecycle(node_id, action)
-                if self.runtime.kind == "kubernetes" and action == "revive":
-                    self.runtime.ensure_forward(int(node_id.rsplit("-", 1)[1]))
+                if self.runtime_status.get("available"):
+                    message = self.runtime.lifecycle(node_id, action)
+                    if self.runtime.kind == "kubernetes" and action == "revive":
+                        self.runtime.ensure_forward(int(node_id.rsplit("-", 1)[1]))
+                    self.monitor.refresh()
+                    return {"message": message + ". Existing node persistence/recovery behavior is unchanged."}
+                target_node = self.node(node_id)
+                is_stop = (action == "stop")
+                req = Request(
+                    f"{target_node['address']}/fault",
+                    data=json.dumps({"mode": "SILENT" if is_stop else "NONE", "offline": is_stop}).encode(),
+                    headers={"Content-Type": "application/json"}
+                )
+                with self.opener.open(req, timeout=3) as resp:
+                    resp.read()
                 self.monitor.refresh()
-                return {"message": message + ". Existing node persistence/recovery behavior is unchanged."}
+                return {"message": f"[{node_id}] {'Node killed (offline)' if is_stop else 'Node revived and syncing missed bans'}"}
             if action == "settings":
                 if "automatic_voting" in body:
                     raise RuntimeError("Voting-mode changes require a backend API from your team")

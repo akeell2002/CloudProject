@@ -38,6 +38,10 @@ class ActivityPubHTTPHandler(BaseHTTPRequestHandler):
     service: Optional[FedConsensusService] = None
 
     def do_GET(self):
+        if self.service and getattr(self.service, "simulated_offline", False):
+            self.send_response(503)
+            self.end_headers()
+            return
         if self.path == "/telemetry":
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -60,6 +64,10 @@ class ActivityPubHTTPHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if self.path == "/inbox":
+            if self.service and getattr(self.service, "simulated_offline", False):
+                self.send_response(503)
+                self.end_headers()
+                return
             content_length = int(self.headers.get("Content-Length", 0))
             post_data = self.rfile.read(content_length).decode("utf-8")
 
@@ -90,8 +98,18 @@ class ActivityPubHTTPHandler(BaseHTTPRequestHandler):
             except Exception:
                 req_json = {}
             mode = req_json.get("mode", "NONE").upper().strip()
+            offline = req_json.get("offline")
             if self.service:
-                self.service.set_byzantine_mode(mode)
+                if offline is True:
+                    self.service.simulated_offline = True
+                    self.service.set_byzantine_mode("SILENT")
+                elif offline is False:
+                    self.service.simulated_offline = False
+                    self.service.set_byzantine_mode(mode)
+                    if self.service.catchup:
+                        threading.Thread(target=self.service.catchup.sync_with_consortium, daemon=True).start()
+                else:
+                    self.service.set_byzantine_mode(mode)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()

@@ -14,6 +14,7 @@ from node.ingress.firewall import FirewallFilter
 from node.engine.consensus import ConsensusEngine
 from node.engine.leader import LeaderManager
 from node.engine.catchup import CatchupEngine
+from node.crypto.ed25519 import sign_message
 
 logger = logging.getLogger("fedconsensus.service")
 
@@ -68,11 +69,39 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
         if self.byzantine_mode == "LIAR" and vote_req:
             logger.warning(f"[{self.config.node_id}] Byzantine LIAR injecting REJECT ballot!")
             vote_req.decision = pb2.VOTE_REJECT
+            reject_meta = {
+                "proposal_id": request.proposal_id,
+                "sequence_number": request.sequence_number,
+                "epoch": request.epoch,
+                "target_domain": request.target_domain,
+                "decision": "REJECT"
+            }
+            vote_req.voter_signature = sign_message(self.config.private_key_hex, reject_meta)
+            with self.consensus._lock:
+                prop_state = self.consensus.active_proposals.get(request.proposal_id)
+                if prop_state:
+                    prop_state.approved_votes.pop(self.config.node_id, None)
+            self.consensus.telemetry.record(
+                "vote", self.config.node_id, request.proposer_id,
+                "Cast a dissenting REJECT ballot (Byzantine LIAR)",
+                proposal_id=request.proposal_id, domain=request.target_domain,
+                decision="REJECT",
+            )
 
         # Byzantine FORGER: tamper with digital signature
         if self.byzantine_mode == "FORGER" and vote_req:
             logger.warning(f"[{self.config.node_id}] Byzantine FORGER corrupting ballot signature!")
             vote_req.voter_signature = "bad_signature_000000000000000000000000000000000000000000000000"
+            with self.consensus._lock:
+                prop_state = self.consensus.active_proposals.get(request.proposal_id)
+                if prop_state:
+                    prop_state.approved_votes.pop(self.config.node_id, None)
+            self.consensus.telemetry.record(
+                "invalid", self.config.node_id, request.proposer_id,
+                "Injected forged ballot signature (Byzantine FORGER)",
+                proposal_id=request.proposal_id, domain=request.target_domain,
+                decision="INVALID",
+            )
 
         # If proposal accepted and vote created, process locally
         if accepted and vote_req:
