@@ -4,14 +4,17 @@ echo =======================================================
 echo    FEDCONSENSUS: LAUNCHING 5-NODE DOCKER FLEET
 echo =======================================================
 
-docker-compose down
-docker-compose build
-docker-compose up -d
+docker compose down
+if errorlevel 1 exit /b 1
+docker compose build
+if errorlevel 1 exit /b 1
+docker compose up -d
+if errorlevel 1 exit /b 1
 
 echo.
 echo Cluster is booting! Checking container health...
 timeout /t 3 /nobreak >nul
-docker-compose ps
+docker compose ps
 
 echo.
 echo Test endpoints:

@@ -6,3 +6,5 @@ __pycache__/
 *.db-wal
 *.db-shm
 data/
+.operator-state.json
+.operator-state.tmp

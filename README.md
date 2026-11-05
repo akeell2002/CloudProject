@@ -3,10 +3,10 @@
 **Operator dashboard:** from this project directory, run
 `python -m dashboard.server` and open http://127.0.0.1:8090.
 It is also included in `docker compose up --build -d`.
-See [dashboard/README.md](dashboard/README.md) for setup, telemetry, and the
-clearly labelled guided demo. Rebuild updated node containers to enable live
-votes and activity. The dashboard is read-only; it does not repair the existing
-consensus transport or proof-validation limitations.
+See [dashboard/README.md](dashboard/README.md) for live UI controls and setup.
+Demo mode has been removed. The dashboard uses existing backend interfaces and
+runtime commands; it does not rewrite the backend's voting, trust, or membership
+logic. Missing backend APIs are explicitly marked unavailable in the UI.
 
 [![Course](https://img.shields.io/badge/Course-CSC3104%20Cloud%20%26%20Distributed%20Computing-blue.svg)](https://www.gla.ac.uk/)
 [![Institution](https://img.shields.io/badge/Institution-University%20of%20Glasgow%20%2F%20SIT-red.svg)](https://www.singaporetech.edu.sg/)

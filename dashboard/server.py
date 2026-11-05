@@ -1,7 +1,8 @@
-"""Read-only local dashboard. Start with: python -m dashboard.server"""
+"""Local live operator dashboard. Start with: python -m dashboard.server"""
 import argparse
 import json
 import os
+import secrets
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -10,6 +11,7 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import ProxyHandler, Request, build_opener
+from dashboard.control import Operator
 
 STATIC = Path(__file__).parent / "static"
 
@@ -141,6 +143,15 @@ class ClusterMonitor:
                 entry = bans.setdefault(domain, {"domain": domain, "applied_on": [], "last_known_on": []})
                 entry["applied_on" if node["online"] and node["telemetry_available"]
                       else "last_known_on"].append(node["node_id"])
+        for node in observations:
+            observers = [
+                observer["node_id"] for observer in observations if observer["online"]
+                for rep in observer.get("reputations", [])
+                if rep["peer_id"] == node["node_id"] and
+                    (rep["trust_score"] < 30 or not rep["is_active"])
+            ]
+            node["quarantined_by"] = observers
+            node["quarantined"] = bool(observers)
         # shortcut: retain the latest 300 observations in memory; add durable history if required.
         events = sorted(self._events.values(), key=lambda e: e.get("timestamp", 0))[-300:]
         self._events = {event["id"]: event for event in events}
@@ -159,7 +170,7 @@ class ClusterMonitor:
         self._executor.shutdown(wait=True, cancel_futures=True)
 
 
-def make_handler(monitor):
+def make_handler(monitor, operator=None):
     class DashboardHandler(SimpleHTTPRequestHandler):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, directory=str(STATIC), **kwargs)
@@ -175,18 +186,57 @@ def make_handler(monitor):
 
         def do_GET(self):
             route = urlsplit(self.path).path
-            if route == "/api/cluster":
-                body = json.dumps(monitor.snapshot()).encode("utf-8")
+            if route in ("/api/cluster", "/api/controls"):
+                if urlsplit("http://" + self.headers.get("Host", "")).hostname not in ("127.0.0.1", "localhost", "::1"):
+                    return self.send_error(403, "Operator UI requires a localhost address")
+                data = monitor.snapshot() if route == "/api/cluster" else (
+                    operator.state() if operator else {"enabled": False, "message": "Controls unavailable"})
+                body = json.dumps(data).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
-            elif route in ("/", "/index.html", "/style.css", "/app.js", "/demo.js"):
+            elif route in ("/", "/index.html", "/style.css", "/app.js"):
                 self.path = "/index.html" if route == "/" else route
                 super().do_GET()
             else:
                 self.send_error(404)
+
+        def do_POST(self):
+            def respond(status, data):
+                body = json.dumps(data).encode()
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            if self.path != "/api/actions" or not operator:
+                return respond(404, {"error": "Unknown action route"})
+            host = self.headers.get("Host", "")
+            origin = self.headers.get("Origin")
+            if (urlsplit("http://" + host).hostname not in ("localhost", "127.0.0.1", "::1")
+                or (origin and urlsplit(origin).netloc != host)
+                or not secrets.compare_digest(self.headers.get("X-CSRF-Token", ""), operator.csrf)):
+                return respond(403, {"error": "Use this dashboard's local controls"})
+            if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
+                return respond(415, {"error": "Expected application/json"})
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                if not 0 < length <= 16384:
+                    return respond(413, {"error": "Action request is too large"})
+                request = json.loads(self.rfile.read(length))
+                if not isinstance(request, dict):
+                    raise ValueError("Expected a JSON object")
+                result = operator.handle(request)
+                return respond(200, result)
+            except (ValueError, KeyError, TypeError) as error:
+                return respond(400, {"error": str(error)})
+            except RuntimeError as error:
+                return respond(409, {"error": str(error)})
+            except OSError:
+                return respond(503, {"error": "Local runtime or state storage is unavailable"})
 
         def log_message(self, *_):
             pass
@@ -199,8 +249,9 @@ def main():
     parser.add_argument("--port", type=int, default=8090)
     args = parser.parse_args()
     monitor = ClusterMonitor(configured_nodes())
+    operator = Operator(monitor)
     monitor.refresh()
-    server = ThreadingHTTPServer((args.host, args.port), make_handler(monitor))
+    server = ThreadingHTTPServer((args.host, args.port), make_handler(monitor, operator))
     stop = threading.Event()
 
     def poll():
@@ -219,6 +270,7 @@ def main():
         worker.join()
         server.server_close()
         monitor.close()
+        operator.close()
 
 
 if __name__ == "__main__":

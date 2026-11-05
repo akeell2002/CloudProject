@@ -6,7 +6,6 @@
   <meta name="color-scheme" content="dark">
   <title>FedConsensus · Federation monitor</title>
   <link rel="stylesheet" href="/style.css">
-  <script src="/demo.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body>
@@ -18,10 +17,7 @@
     <span class="workspace-label">CONSORTIUM / OVERVIEW</span>
     <div class="top-actions">
       <span id="connection" class="connection"><i></i>Connecting</span>
-      <div class="mode-switch" role="group" aria-label="Data source">
-        <button id="live-mode" class="selected" aria-pressed="true">Live cluster</button>
-        <button id="demo-mode" aria-pressed="false">Guided demo</button>
-      </div>
+      <span class="pill success">LIVE LAB</span>
     </div>
   </header>
   <main>
@@ -31,11 +27,74 @@
       <div class="heading-actions"><span id="updated" class="muted mono">Waiting for first update</span>
       <button id="refresh" class="icon-button" aria-label="Refresh cluster" title="Refresh cluster">↻</button></div>
     </div>
-    <div id="demo-banner" class="notice demo-notice" hidden>
-      <span><strong>DEMO MODE</strong> Illustrative events and votes. Your real servers are unaffected.</span>
-      <button id="replay" class="text-button">Replay scenario ↻</button>
-    </div>
     <div id="live-notice" class="notice" role="status" hidden></div>
+    <div class="console-layout">
+    <aside class="panel controls-panel" aria-labelledby="controls-title">
+      <div class="panel-heading"><div><span class="eyebrow">OPERATOR CONSOLE</span><h2 id="controls-title">Take control</h2></div></div>
+      <div class="control-body">
+        <p id="controls-state" class="control-hint">Connecting to controls…</p>
+        <button id="connect-controls" class="action-button primary">Connect backend</button>
+        <label for="control-node">Act as node</label>
+        <select id="control-node"><option value="">Waiting for nodes</option></select>
+        <p id="controlled-node-status" class="control-hint"></p>
+        <details open><summary>ActivityPub traffic</summary>
+          <label for="traffic-source">Source</label>
+          <select id="traffic-source"><option value="external">External lab server</option><option value="internal">A participating node</option></select>
+          <label for="source-node">Sending node</label><select id="source-node"></select>
+          <label for="traffic-domain">Sender domain (optional)</label><input id="traffic-domain" placeholder="Auto-generated lab domain" maxlength="253">
+          <div class="quick-actions">
+            <button data-scenario="benign" class="action-button">Post benign note</button>
+            <button data-scenario="phishing" class="action-button">Send phishing burst</button>
+            <button data-scenario="malware" class="action-button danger-action">Send malware-link text</button>
+            <button data-scenario="false_flag" class="action-button">False-flag signature test</button>
+          </div>
+          <p class="control-hint">False-flag testing is unavailable until the backend team exposes origin-signature injection.</p>
+          <p class="control-hint">Posts go to your selected node. Internal posts are sent from the selected container/pod. Actor domains remain claimed identities. Links are never executed.</p>
+          <label for="traffic-content">Custom post text</label><textarea id="traffic-content" rows="2" maxlength="2000" placeholder="Text to inspect"></textarea>
+          <button id="send-custom" class="action-button">Send custom post</button>
+        </details>
+        <details open><summary>Custom domain proposal</summary>
+          <form id="proposal-form">
+            <label for="proposal-domain">Target domain</label><input id="proposal-domain" required placeholder="suspicious.lab.example" maxlength="253">
+            <label for="proposal-justification">Justification</label><textarea id="proposal-justification" rows="2" required maxlength="1000" placeholder="Why should this domain be blocked?"></textarea>
+            <button class="action-button primary">Broadcast signed proposal</button>
+          </form>
+          <p class="control-hint">Custom proposals require explicit peer votes. Select a proposal in the voting panel.</p>
+          <div class="button-pair"><button id="approve-vote" class="action-button">Vote approve</button><button id="reject-vote" class="action-button danger-action">Vote reject</button></div>
+        </details>
+        <details><summary>Node role &amp; fault controls</summary>
+          <label for="leader-node">Leader</label><select id="leader-node"></select>
+          <button id="elect-leader" class="action-button">Assign leader</button>
+          <p class="control-hint">Leader assignment and voting-mode changes need an API from the backend team. These controls remain disabled.</p>
+          <label for="voting-mode">Voting mode of selected node</label><select id="voting-mode"><option value="automatic">Automatic for verified threats</option><option value="manual">Manual voting</option></select>
+          <label for="fault-mode">Fault mode of selected node</label><select id="fault-mode"><option value="NONE">Honest</option><option value="SILENT">Silent</option><option value="LIAR">Liar: reject threats</option><option value="FORGER">Forger: corrupt ballot signature</option></select>
+          <button id="apply-settings" class="action-button">Apply node settings</button>
+          <div class="button-pair"><button id="stop-node" class="action-button danger-action">Kill / stop node</button><button id="revive-node" class="action-button">Revive node</button></div>
+          <button id="sync-node" class="action-button">Sync missed decisions</button>
+        </details>
+        <details><summary>Trust &amp; quarantine</summary>
+          <form id="trust-form">
+            <label for="trust-peer">Peer to adjust</label><select id="trust-peer"></select>
+            <label for="trust-score">Trust score</label><input id="trust-score" type="number" min="0" max="100" step="1" value="100" required>
+            <label for="trust-scope">Apply in</label><select id="trust-scope"><option value="all">All reachable nodes' ledgers</option><option value="selected">Selected node's ledger only</option></select>
+            <button class="action-button">Apply trust score</button>
+          </form>
+          <p class="control-hint">Below 30 excludes the peer's votes in the affected ledger. Restarting does not reset trust.</p>
+        </details>
+        <details><summary>Pods / replicas</summary>
+          <label for="runtime-kind">Runtime</label><select id="runtime-kind"><option value="docker">Docker containers</option><option value="kubernetes">Kubernetes pods</option></select>
+          <button id="select-runtime" class="action-button">Select runtime</button>
+          <p id="runtime-status" class="control-hint"></p>
+          <form id="scale-form">
+            <label for="replica-count">Replicas (1–9)</label><input id="replica-count" type="number" min="1" max="9" step="1" value="5" required>
+            <button class="action-button">Apply replica count</button>
+          </form>
+          <p class="control-hint">Scaling changes real containers/pods only. Backend membership and quorum settings are not rewritten. Volumes are retained. Kubernetes recreates killed StatefulSet pods.</p>
+        </details>
+        <div id="action-result" class="action-result" role="status" aria-live="polite">Actions and backend responses appear here.</div>
+      </div>
+    </aside>
+    <div class="monitor-content">
     <section class="metrics" aria-label="Cluster summary">
       <article class="metric"><span class="metric-label"><i class="dot green"></i>Active servers</span><div><strong id="active-count">—</strong><span id="total-label">/ — configured</span></div><p>Reachable at the last check</p></article>
       <article class="metric"><span class="metric-label"><i class="dot gray"></i>Inactive servers</span><div><strong id="inactive-count">—</strong><span>unreachable</span></div><p>Kept visible for recovery</p></article>
@@ -44,7 +103,7 @@
     </section>
     <div class="overview-grid">
       <section class="panel network-panel" aria-labelledby="network-title">
-        <div class="panel-heading"><div><span class="eyebrow">01 / NETWORK</span><h2 id="network-title">Your server network</h2></div><span class="pill neutral">READ ONLY</span></div>
+        <div class="panel-heading"><div><span class="eyebrow">01 / NETWORK</span><h2 id="network-title">Your server network</h2></div><span class="pill success">LIVE</span></div>
         <div class="network-stage">
           <svg id="network-lines" viewBox="0 0 600 310" preserveAspectRatio="none" aria-hidden="true"></svg>
           <div id="mesh-center" class="mesh-center" aria-hidden="true"><span class="mesh-symbol">⌘</span><strong>CONSORTIUM</strong><span id="mesh-caption">Waiting for nodes</span></div>
@@ -89,7 +148,9 @@
         <p class="panel-footnote">A reported block is local to the listed nodes. Unreachable nodes show last-known coverage.</p>
       </section>
     </div>
-    <footer><span><i class="dot cyan"></i>FedConsensus observatory</span><span id="footer-note">Live observations · refreshes every 2 seconds</span></footer>
+    </div>
+    </div>
+    <footer><span><i class="dot cyan"></i>FedConsensus live lab</span><span id="footer-note">Live observations · refreshes every 2 seconds</span></footer>
   </main>
   <dialog id="node-dialog" aria-labelledby="node-dialog-title">
     <div class="dialog-heading"><div><p class="eyebrow">SERVER DETAILS</p><h2 id="node-dialog-title"></h2></div><button id="close-dialog" class="icon-button" aria-label="Close server details">×</button></div>

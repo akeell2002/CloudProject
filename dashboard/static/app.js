@@ -39,16 +39,16 @@
   if (typeof document === "undefined") return;
   const $ = function (id) { return document.getElementById(id); };
   let data = {nodes: [], events: [], bans: [], updated_at: null};
-  let mode = "live";
-  let demoStart = Date.now();
   let selectedProposal = "";
   let selectedObserver = "";
   let selectedNode = "";
   let fetching = false;
-  let lastFrame = "";
   let networkKey = "";
   let incidentKey = "";
   let lastSender = null;
+  let controls = {enabled: false, connected: false, runtime: {}};
+  let actionBusy = false;
+  let controlledNode = "";
   const points = [[65, 11], [88, 37], [79, 74], [51, 74], [42, 37]];
   const securityKinds = ["threat", "blocked", "invalid", "proposal", "vote", "commit"];
   const reasonNames = {1: "Spam", 2: "Bot activity", 3: "Phishing", 4: "Suspicious file", 5: "Hate speech"};
@@ -102,6 +102,9 @@
     details.append(grid, el("h3", "ledger-heading", node.node_id + "'s peer reputation ledger"),
       el("p", "ledger-note", "These are this node's observations, not a shared trust percentage." +
         (node.online ? "" : " Showing last-known data.")));
+    if ((node.quarantined_by || []).length) {
+      details.append(el("p", "ledger-note", "Quarantine reported by: " + node.quarantined_by.join(", ")));
+    }
     if (!(node.reputations || []).length) {
       details.append(el("p", "ledger-note", "No peer reputation records reported."));
       return;
@@ -163,7 +166,7 @@
     });
     lastSender = rememberSender(data.events, positions, lastSender);
     const nextKey = JSON.stringify([
-      data.nodes.map(function (n) { return [n.node_id, n.online, n.state]; }),
+      data.nodes.map(function (n) { return [n.node_id, n.online, n.state, n.quarantined]; }),
       latest, lastSender, Boolean(latest && Date.now() - latest.timestamp < 8000)
     ]);
     if (nextKey === networkKey) return;
@@ -176,14 +179,14 @@
       svg.append(svgLine(point.x * 6, point.y * 3.1, 390, 155,
         "mesh-line" + (point.node.online ? "" : " offline")));
       const node = point.node;
-      const fault = node.online && String(node.state).startsWith("BYZANTINE");
+      const fault = node.online && (node.quarantined || String(node.state).startsWith("BYZANTINE"));
       const button = el("button", "mesh-node" + (!node.online ? " offline" : fault ? " fault" : ""));
       button.style.left = point.x + "%";
       button.style.top = point.y + "%";
       button.setAttribute("aria-label", "Inspect " + node.node_id + ", " + (node.online ? node.state : "inactive"));
       const circle = el("span", "node-circle", node.node_id.split("-").pop());
       if (node.online && node.state === "LEADER") circle.append(el("span", "node-star", "★"));
-      const role = !node.online ? "INACTIVE" : fault ? "FAULT MODE" :
+      const role = !node.online ? "INACTIVE" : node.quarantined ? "QUARANTINE REPORTED" : fault ? "FAULT MODE" :
         node.state === "LEADER" ? "LEADER" : node.state === "UNKNOWN" ? "ROLE UNKNOWN" : "FOLLOWER";
       button.append(circle, el("span", "node-name", node.node_id), el("span", "node-role", role));
       button.addEventListener("click", function () { openNode(node.node_id); });
@@ -219,7 +222,7 @@
       const list = $(group[0] + "-servers");
       list.replaceChildren();
       nodes.forEach(function (node) {
-        const fault = node.online && String(node.state).startsWith("BYZANTINE");
+        const fault = node.online && (node.quarantined || String(node.state).startsWith("BYZANTINE"));
         const button = el("button", "server-tag" + (!node.online ? " offline" : fault ? " fault" : ""), node.node_id);
         button.title = node.online ? node.state : "Unreachable at the last check";
         button.addEventListener("click", function () { openNode(node.node_id); });
@@ -247,7 +250,8 @@
     }) : [["No proposals observed", ""]]);
     select.value = selectedProposal;
     select.disabled = !unique.length;
-    const observations = all.filter(function (p) { return p.proposal_id === selectedProposal; });
+    const observations = all.filter(function (p) { return p.proposal_id === selectedProposal; })
+      .sort(function (a, b) { return Number(b.observer === b.proposer) - Number(a.observer === a.proposer); });
     let proposal = observations.find(function (p) { return p.observer === selectedObserver; }) || observations[0];
     selectedObserver = proposal ? proposal.observer : "";
     const nextKey = JSON.stringify([proposal, observations.map(function (p) { return p.observer; }),
@@ -379,39 +383,37 @@
     $("ban-count").textContent = data.bans.length;
     $("updated").textContent = "Updated " + time(data.updated_at);
     $("connection").textContent = "";
-    $("connection").append(el("i"), document.createTextNode(mode === "demo" ? "Demo playback" : active ? "Live observations" : "No nodes reachable"));
-    $("connection").classList.toggle("connected", mode === "live" && active > 0);
-    $("demo-banner").hidden = mode !== "demo";
-    $("footer-note").textContent = mode === "demo" ? "Illustrative playback · real cluster unchanged" : "Live observations · refreshes every 2 seconds";
+    $("connection").append(el("i"), document.createTextNode(active ? "Live observations" : "No nodes reachable"));
+    $("connection").classList.toggle("connected", active > 0);
     const notice = $("live-notice");
     const oldNodes = data.nodes.filter(function (n) { return n.online && !n.telemetry_available; }).length;
-    notice.hidden = mode === "demo" || (active > 0 && !oldNodes);
-    notice.textContent = !active ? "No servers are reachable. Start your node cluster, or choose Guided demo to explore the interface." :
+    notice.hidden = active > 0 && !oldNodes;
+    notice.textContent = !active ? "No servers are reachable. Start the cluster with start-cluster.bat." :
       oldNodes + " server(s) are online without telemetry. Rebuild or restart updated nodes to see votes and activity.";
     renderNetwork();
     renderIncident();
     renderEvents();
     renderBans();
+    renderControls();
     if ($("node-dialog").open) renderNodeDetails();
   }
   async function refresh() {
-    if (mode === "demo") {
-      data = window.demoSnapshot(Date.now() - demoStart);
-      render();
-      return;
-    }
     if (fetching) return;
     fetching = true;
     $("refresh").disabled = true;
     try {
-      const response = await fetch("/api/cluster", {cache: "no-store", signal: AbortSignal.timeout(5000)});
+      const responses = await Promise.all([
+        fetch("/api/cluster", {cache: "no-store", signal: AbortSignal.timeout(5000)}),
+        fetch("/api/controls", {cache: "no-store", signal: AbortSignal.timeout(5000)})
+      ]);
+      const response = responses[0];
       if (!response.ok) throw new Error("Dashboard API unavailable");
       const next = await response.json();
-      if (mode !== "live") return;
+      if (responses[1].ok) controls = await responses[1].json();
+      else controls = {enabled: false, connected: false, runtime: {}, message: "Restart the updated dashboard to enable live controls."};
       data = next;
       render();
     } catch (error) {
-      if (mode !== "live") return;
       $("connection").textContent = "Connection lost";
       $("connection").classList.remove("connected");
       $("live-notice").hidden = false;
@@ -421,40 +423,132 @@
       $("refresh").disabled = false;
     }
   }
-  function setMode(next) {
-    mode = next;
-    selectedProposal = "";
-    selectedObserver = "";
-    lastFrame = "";
-    networkKey = "";
-    incidentKey = "";
-    lastSender = null;
-    if (next === "demo") demoStart = Date.now();
-    ["live", "demo"].forEach(function (name) {
-      $(name + "-mode").classList.toggle("selected", name === mode);
-      $(name + "-mode").setAttribute("aria-pressed", String(name === mode));
+  function renderControls() {
+    const options = data.nodes.map(function (node) {
+      return [node.node_id + (node.online ? "" : " · offline"), node.node_id];
     });
-    if (next === "live") {
-      data = {nodes: [], events: [], bans: [], updated_at: null};
-      render();
+    ["control-node", "leader-node", "source-node", "trust-peer"].forEach(function (id) {
+      const select = $(id), previous = select.value;
+      updateOptions(select, options.length ? options : [["No configured nodes", ""]]);
+      if (options.some(function (o) { return o[1] === previous; })) select.value = previous;
+    });
+    const selected = $("control-node").value;
+    const node = data.nodes.find(function (item) { return item.node_id === selected; });
+    if (controlledNode !== selected && node) {
+      controlledNode = selected;
+      $("voting-mode").value = node.automatic_voting === false ? "manual" : "automatic";
+      $("fault-mode").value = String(node.state).startsWith("BYZANTINE_") ? node.state.slice(10) : "NONE";
     }
-    refresh();
+    $("controlled-node-status").textContent = node ? (node.online ? "Online" : "Offline") +
+      " · " + (node.quarantined ? "Quarantine reported by " + (node.quarantined_by || []).join(", ") : node.state) +
+      " · " + (node.automatic_voting === false ? "Manual voting" : "Automatic voting") : "";
+    $("controls-state").textContent = controls.connected ? "Connected · actions use real node identities" : controls.message || "Connecting…";
+    $("runtime-status").textContent = controls.runtime.message || "Runtime unavailable";
+    const caps = controls.capabilities || {};
+    $("source-node").disabled = $("traffic-source").value !== "internal";
+    const buttons = document.querySelectorAll(".control-body button");
+    buttons.forEach(function (button) {
+      const independent = ["connect-controls", "select-runtime"].includes(button.id);
+      const runtimeAction = ["stop-node", "revive-node"].includes(button.id) || button.closest("#scale-form");
+      button.disabled = actionBusy || !controls.enabled || (!independent && !controls.connected) ||
+        (runtimeAction && !controls.runtime.available);
+    });
+    $("approve-vote").disabled ||= !selectedProposal || !node || !node.online;
+    $("reject-vote").disabled ||= !selectedProposal || !node || !node.online;
+    $("stop-node").disabled ||= !node || !node.online;
+    $("revive-node").disabled ||= !node;
+    $("elect-leader").disabled = true;
+    $("elect-leader").title = "Backend leader-assignment API is not exposed";
+    $("voting-mode").disabled = true;
+    $("voting-mode").title = "Backend voting-mode API is not exposed";
+    $("sync-node").disabled = true;
+    $("sync-node").title = "Backend live catch-up trigger is not exposed";
+    $("approve-vote").disabled ||= !caps.vote;
+    $("reject-vote").disabled ||= !caps.vote;
+    $("proposal-form").querySelector("button").disabled ||= !caps.proposal;
+    $("trust-form").querySelector("button").disabled ||= !caps.trust;
+    $("apply-settings").disabled ||= !caps.fault || !/^fednode-[0-4]$/.test(selected);
+    document.querySelector('[data-scenario="false_flag"]').disabled = true;
+    document.querySelector('[data-scenario="false_flag"]').title = "Backend origin-signature injection API is not exposed";
   }
-  $("live-mode").addEventListener("click", function () { setMode("live"); });
-  $("demo-mode").addEventListener("click", function () { setMode("demo"); });
-  $("replay").addEventListener("click", function () { setMode("demo"); });
+  async function runAction(body) {
+    if (actionBusy) return;
+    actionBusy = true;
+    const result = $("action-result");
+    result.className = "action-result busy";
+    result.textContent = "Working: " + body.action + "…";
+    renderControls();
+    try {
+      const response = await fetch("/api/actions", {
+        method: "POST", headers: {"Content-Type": "application/json", "X-CSRF-Token": controls.csrf},
+        body: JSON.stringify(body), signal: AbortSignal.timeout(120000)
+      });
+      const value = await response.json();
+      if (!response.ok) throw new Error(value.error || "Action failed");
+      result.className = "action-result " + (value.accepted === false ? "failure-result" : "success-result");
+      result.textContent = value.message || "Action completed";
+      if (value.inbox_results) result.textContent += " · " + value.inbox_results.map(function (r) {
+        return "HTTP " + r.http_status + " / " + (r.status || "unknown");
+      }).filter(function (item, index, all) { return all.indexOf(item) === index; }).join(", ");
+      if (value.outcomes && body.action === "trust") result.textContent += " in " + value.outcomes.length + " ledger(s)";
+    } catch (error) {
+      result.className = "action-result failure-result";
+      result.textContent = error.name === "TimeoutError" ? "Action timed out. Refresh and inspect actual node state before retrying." : error.message;
+    } finally {
+      actionBusy = false;
+      await refresh();
+      renderControls();
+    }
+  }
+  function actor() { return $("control-node").value; }
+  function traffic(scenario) {
+    return runAction({action: "inject", node: actor(), scenario: scenario,
+      source: $("traffic-source").value, source_node: $("source-node").value,
+      domain: $("traffic-domain").value.trim(), content: $("traffic-content").value});
+  }
+  $("connect-controls").addEventListener("click", function () { runAction({action: "connect", leader: $("leader-node").value || "fednode-0"}); });
+  $("control-node").addEventListener("change", function () { renderControls(); });
+  $("traffic-source").addEventListener("change", renderControls);
+  document.querySelectorAll("[data-scenario]").forEach(function (button) {
+    button.addEventListener("click", function () { traffic(button.dataset.scenario); });
+  });
+  $("send-custom").addEventListener("click", function () { traffic("custom"); });
+  $("proposal-form").addEventListener("submit", function (event) {
+    event.preventDefault();
+    runAction({action: "propose", node: actor(), domain: $("proposal-domain").value.trim(),
+      justification: $("proposal-justification").value.trim()});
+  });
+  ["approve", "reject"].forEach(function (decision) {
+    $(decision + "-vote").addEventListener("click", function () {
+      runAction({action: "vote", node: actor(), receiver: selectedObserver,
+        proposal_id: selectedProposal, decision: decision.toUpperCase()});
+    });
+  });
+  $("elect-leader").addEventListener("click", function () { runAction({action: "leader", leader: $("leader-node").value}); });
+  $("apply-settings").addEventListener("click", function () {
+    runAction({action: "settings", node: actor(), fault: $("fault-mode").value});
+  });
+  ["stop", "revive", "sync"].forEach(function (action) {
+    $(action + "-node").addEventListener("click", function () { runAction({action: action, node: actor()}); });
+  });
+  $("trust-form").addEventListener("submit", function (event) {
+    event.preventDefault();
+    runAction({action: "trust", node: actor(), peer: $("trust-peer").value,
+      score: Number($("trust-score").value), scope: $("trust-scope").value});
+  });
+  $("scale-form").addEventListener("submit", function (event) {
+    event.preventDefault();
+    runAction({action: "scale", replicas: Number($("replica-count").value), leader: $("leader-node").value});
+  });
+  $("select-runtime").addEventListener("click", function () {
+    runAction({action: "runtime", runtime: $("runtime-kind").value});
+  });
   $("refresh").addEventListener("click", refresh);
-  $("proposal-select").addEventListener("change", function () { selectedProposal = this.value; selectedObserver = ""; renderIncident(); });
+  $("proposal-select").addEventListener("change", function () { selectedProposal = this.value; selectedObserver = ""; renderIncident(); renderControls(); });
   $("event-filter").addEventListener("change", renderEvents);
   $("ban-search").addEventListener("input", renderBans);
   $("close-dialog").addEventListener("click", function () { $("node-dialog").close(); });
   $("node-dialog").addEventListener("click", function (event) { if (event.target === this) this.close(); });
   refresh();
-  setInterval(function () {
-    if (mode === "live") refresh();
-    else {
-      const frame = Math.floor((Date.now() - demoStart) / 500);
-      if (frame !== lastFrame) { lastFrame = frame; refresh(); }
-    }
-  }, 2000);
+  setInterval(refresh, 2000);
 })();
