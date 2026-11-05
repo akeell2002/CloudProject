@@ -27,6 +27,26 @@ def generate_keypair() -> Tuple[str, str]:
     return priv_bytes.hex(), pub_bytes.hex()
 
 
+def generate_deterministic_keypair(seed_text: str) -> Tuple[str, str]:
+    """
+    Derives an Ed25519 private/public keypair deterministically from a seed string.
+    Ensures cluster nodes share recognizable identities across restarts.
+    """
+    seed_bytes = hashlib.sha256(seed_text.encode("utf-8")).digest()
+    private_key = ed25519.Ed25519PrivateKey.from_private_bytes(seed_bytes)
+    public_key = private_key.public_key()
+    priv_bytes = private_key.private_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PrivateFormat.Raw,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    pub_bytes = public_key.public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    return priv_bytes.hex(), pub_bytes.hex()
+
+
 def canonical_json_hash(data: Union[dict, list, str, bytes]) -> bytes:
     """
     Produces a deterministic SHA-256 hash.

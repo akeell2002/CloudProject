@@ -82,6 +82,43 @@ class ActivityPubHTTPHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps(response_json).encode("utf-8"))
+        elif self.path == "/fault":
+            content_length = int(self.headers.get("Content-Length", 0))
+            post_data = self.rfile.read(content_length).decode("utf-8") if content_length > 0 else "{}"
+            try:
+                req_json = json.loads(post_data) if post_data else {}
+            except Exception:
+                req_json = {}
+            mode = req_json.get("mode", "NONE").upper().strip()
+            if self.service:
+                self.service.set_byzantine_mode(mode)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "status": "OK",
+                "node_id": self.service.config.node_id if self.service else "unknown",
+                "byzantine_mode": self.service.byzantine_mode if self.service else mode
+            }).encode("utf-8"))
+        elif self.path == "/reputation":
+            content_length = int(self.headers.get("Content-Length", 0))
+            post_data = self.rfile.read(content_length).decode("utf-8") if content_length > 0 else "{}"
+            try:
+                req_json = json.loads(post_data) if post_data else {}
+            except Exception:
+                req_json = {}
+            peer_id = req_json.get("peer_id", "")
+            score = int(req_json.get("score", 100))
+            if self.service and peer_id:
+                self.service.db.set_reputation(peer_id, score)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "status": "OK",
+                "peer_id": peer_id,
+                "score": score
+            }).encode("utf-8"))
         else:
             self.send_response(404)
             self.end_headers()
@@ -147,10 +184,18 @@ class FedNodeRunner:
         # Broadcast proposal in background thread to avoid blocking HTTP worker
         threading.Thread(target=self._broadcast_proposal, args=(prop_req,), daemon=True).start()
 
+    def _is_self_peer(self, peer_addr: str) -> bool:
+        host = peer_addr.split(":")[0]
+        if host == self.config.node_id:
+            return True
+        if host in ("localhost", "127.0.0.1") and f":{self.config.grpc_port}" in peer_addr:
+            return True
+        return False
+
     def _broadcast_proposal(self, prop_req: pb2.ProposeRequest):
         """Broadcasts proposal to all consortium peers via gRPC."""
         for peer_addr in self.config.peers:
-            if f":{self.config.grpc_port}" in peer_addr:
+            if self._is_self_peer(peer_addr):
                 continue  # Skip self
             try:
                 channel = grpc.insecure_channel(peer_addr)
@@ -172,7 +217,7 @@ class FedNodeRunner:
             if self.leader.is_current_leader():
                 hb = self.leader.generate_heartbeat()
                 for peer_addr in self.config.peers:
-                    if f":{self.config.grpc_port}" in peer_addr:
+                    if self._is_self_peer(peer_addr):
                         continue
                     try:
                         channel = grpc.insecure_channel(peer_addr)

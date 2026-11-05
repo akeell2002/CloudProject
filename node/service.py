@@ -1,4 +1,5 @@
 import time
+import threading
 import logging
 from typing import Dict, Any, Optional
 
@@ -76,8 +77,29 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
         # If proposal accepted and vote created, process locally
         if accepted and vote_req:
             proof = self.consensus.handle_vote(vote_req)
-            if proof:
-                self.consensus.commit_defederation(proof)
+            if proof and self.consensus.commit_defederation(proof):
+                self.consensus.telemetry.record(
+                    "commit", self.config.node_id, "firewall",
+                    f"Quorum certificate reached (Q={self.config.quorum_size}); committed ban",
+                    domain=proof.target_domain,
+                )
+                commit_req = pb2.CommitRequest(
+                    proposal_id=proof.proposal_id,
+                    sequence_number=proof.sequence_number,
+                    quorum_proof=proof
+                )
+                threading.Thread(
+                    target=self._broadcast_commit,
+                    args=(commit_req,),
+                    daemon=True
+                ).start()
+
+            if request.proposer_id != self.config.node_id:
+                threading.Thread(
+                    target=self._send_vote_to_proposer,
+                    args=(request.proposer_id, vote_req),
+                    daemon=True
+                ).start()
 
         return pb2.ProposeResponse(
             accepted=accepted,
@@ -95,7 +117,22 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
         proof = self.consensus.handle_vote(request)
         if proof:
             logger.info(f"[{self.config.node_id}] Quorum Certificate minted for {proof.target_domain}!")
-            self.consensus.commit_defederation(proof)
+            if self.consensus.commit_defederation(proof):
+                self.consensus.telemetry.record(
+                    "commit", self.config.node_id, "firewall",
+                    f"Quorum certificate reached (Q={self.config.quorum_size}); committed ban",
+                    domain=proof.target_domain,
+                )
+                commit_req = pb2.CommitRequest(
+                    proposal_id=proof.proposal_id,
+                    sequence_number=proof.sequence_number,
+                    quorum_proof=proof
+                )
+                threading.Thread(
+                    target=self._broadcast_commit,
+                    args=(commit_req,),
+                    daemon=True
+                ).start()
 
         return pb2.VoteResponse(
             acknowledged=True,
@@ -187,3 +224,59 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
             reputations=rep_entries,
             operational_mode=self.config.operational_mode
         )
+
+    # -------------------------------------------------------------
+    # Helper Network Methods for Consensus Automation
+    # -------------------------------------------------------------
+    def _is_self_peer(self, peer_addr: str) -> bool:
+        host = peer_addr.split(":")[0]
+        if host == self.config.node_id:
+            return True
+        if host in ("localhost", "127.0.0.1") and f":{self.config.grpc_port}" in peer_addr:
+            return True
+        return False
+
+    def _find_peer_address(self, peer_id: str) -> Optional[str]:
+        for addr in self.config.peers:
+            host = addr.split(":")[0]
+            if host == peer_id:
+                return addr
+        if peer_id.startswith("fednode-"):
+            try:
+                idx = int(peer_id.split("-")[1])
+                target_port = 50051 + idx
+                for addr in self.config.peers:
+                    if f":{target_port}" in addr:
+                        return addr
+            except Exception:
+                pass
+        return None
+
+    def _send_vote_to_proposer(self, proposer_id: str, vote_req: pb2.VoteRequest):
+        addr = self._find_peer_address(proposer_id)
+        if not addr:
+            logger.warning(f"[{self.config.node_id}] Could not find address for proposer {proposer_id}")
+            return
+        try:
+            channel = grpc.insecure_channel(addr)
+            stub = pb2_grpc.FedConsensusServiceStub(channel)
+            self.consensus.telemetry.record(
+                "vote", self.config.node_id, addr, "Transmitting vote to proposer",
+                proposal_id=vote_req.proposal_id, decision="APPROVE" if vote_req.decision == pb2.VOTE_APPROVE else "REJECT"
+            )
+            stub.CastVote(vote_req, timeout=2.0)
+            logger.info(f"[{self.config.node_id}] Successfully sent vote to proposer {proposer_id} at {addr}")
+        except Exception as e:
+            logger.warning(f"[{self.config.node_id}] Failed to send vote to proposer {proposer_id} at {addr}: {e}")
+
+    def _broadcast_commit(self, commit_req: pb2.CommitRequest):
+        for peer_addr in self.config.peers:
+            if self._is_self_peer(peer_addr):
+                continue
+            try:
+                channel = grpc.insecure_channel(peer_addr)
+                stub = pb2_grpc.FedConsensusServiceStub(channel)
+                stub.CommitDefederation(commit_req, timeout=2.0)
+                logger.info(f"[{self.config.node_id}] Broadcasted commit to {peer_addr}")
+            except Exception as e:
+                logger.debug(f"[{self.config.node_id}] Failed to broadcast commit to {peer_addr}: {e}")

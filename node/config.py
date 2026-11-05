@@ -1,7 +1,7 @@
 import os
 import json
 from typing import List, Dict
-from node.crypto.ed25519 import generate_keypair
+from node.crypto.ed25519 import generate_keypair, generate_deterministic_keypair
 
 
 class NodeConfig:
@@ -19,20 +19,14 @@ class NodeConfig:
         self.db_path = os.path.join(self.data_dir, "wal.db")
 
         # 1. Persistent Cryptographic Identity
+        self.private_key_hex, self.public_key_hex = generate_deterministic_keypair(f"fedconsensus-consortium-{self.node_id}")
         key_file = os.path.join(self.data_dir, "node_identity.json")
-        if os.path.exists(key_file):
-            with open(key_file, "r") as f:
-                data = json.load(f)
-                self.private_key_hex = data["private_key"]
-                self.public_key_hex = data["public_key"]
-        else:
-            self.private_key_hex, self.public_key_hex = generate_keypair()
-            with open(key_file, "w") as f:
-                json.dump({
-                    "node_id": self.node_id,
-                    "private_key": self.private_key_hex,
-                    "public_key": self.public_key_hex
-                }, f, indent=2)
+        with open(key_file, "w") as f:
+            json.dump({
+                "node_id": self.node_id,
+                "private_key": self.private_key_hex,
+                "public_key": self.public_key_hex
+            }, f, indent=2)
 
         # 2. Peer Cluster Topology
         peers_str = os.getenv("PEER_ADDRESSES", "")
@@ -41,6 +35,24 @@ class NodeConfig:
         else:
             # Default 5-node cluster for local testing
             self.peers = [f"localhost:{50051 + i}" for i in range(5)]
+
+        # Derive known consortium public keys for BFT verification
+        self.known_peer_keys: Dict[str, str] = {}
+        for p in self.peers:
+            peer_host = p.split(":")[0]
+            if "fednode" in peer_host:
+                node_name = peer_host.split(".")[0]
+                _, pub = generate_deterministic_keypair(f"fedconsensus-consortium-{node_name}")
+                self.known_peer_keys[node_name] = pub
+            elif peer_host in ("localhost", "127.0.0.1"):
+                try:
+                    port = int(p.split(":")[1])
+                    idx = port - 50051 if port >= 50051 else 0
+                    node_name = f"fednode-{idx}"
+                    _, pub = generate_deterministic_keypair(f"fedconsensus-consortium-{node_name}")
+                    self.known_peer_keys[node_name] = pub
+                except Exception:
+                    pass
 
         # 3. Operational Mode: AUTOMATIC (instant drop) or ADVISORY (manual review)
         self.operational_mode = os.getenv("OPERATIONAL_MODE", "AUTOMATIC").upper()

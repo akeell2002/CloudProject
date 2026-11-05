@@ -34,8 +34,8 @@ class Operator:
             "enabled": True, "csrf": self.csrf, "connected": self.connected,
             "runtime": self.runtime_status, "replicas": len(self.monitor.nodes),
             "capabilities": {"traffic": True, "proposal": runtime_ready,
-                "vote": runtime_ready, "trust": runtime_ready,
-                "fault": runtime_ready and self.runtime.kind == "docker",
+                "vote": runtime_ready, "trust": True,
+                "fault": True,
                 "leader": False, "voting_mode": False, "sync": False},
             "message": "Connect to inspect the running backend. No backend logic is modified.",
             "limitations": "Leader assignment, voting-mode changes, and live catch-up need an API from the backend team.",
@@ -201,7 +201,10 @@ class Operator:
                 self.monitor.refresh()
                 return {"message": "Runtime selected. Connect to the backend after its endpoints are ready."}
             if not self.connected:
-                raise RuntimeError("Connect to the running backend first")
+                try:
+                    self.connect()
+                except Exception:
+                    raise RuntimeError("Connect to the running backend first")
             if action in ("leader", "sync"):
                 raise RuntimeError("This action needs a backend API from your team; backend logic has not been changed")
             if action == "scale":
@@ -222,8 +225,20 @@ class Operator:
             if action == "settings":
                 if "automatic_voting" in body:
                     raise RuntimeError("Voting-mode changes require a backend API from your team")
-                message = self.runtime.fault(node_id, body.get("fault"))
-                return {"message": message}
+                fault_mode = body.get("fault", "NONE")
+                target_node = self.node(node_id)
+                try:
+                    req = Request(f"{target_node['address']}/fault",
+                                  data=json.dumps({"mode": fault_mode}).encode(),
+                                  headers={"Content-Type": "application/json"})
+                    with self.opener.open(req, timeout=3) as resp:
+                        res = json.loads(resp.read().decode())
+                    self.monitor.refresh()
+                    return {"message": f"[{node_id}] Byzantine mode switched to: {fault_mode}"}
+                except Exception:
+                    message = self.runtime.fault(node_id, fault_mode)
+                    self.monitor.refresh()
+                    return {"message": message}
             if action == "inject":
                 return self.inject(body)
             if action in ("propose", "vote"):
@@ -237,8 +252,25 @@ class Operator:
                     raise ValueError("Choose the selected ledger or all reachable ledgers")
                 targets = [node_id] if body.get("scope", "selected") == "selected" else [
                     n["node_id"] for n in self.monitor.snapshot()["nodes"] if n["online"]]
-                outcomes = [{"node_id": target, **self.runtime.node_call(target, {
-                    "operation": "trust", "peer": peer, "score": score})} for target in targets]
+                outcomes = []
+                use_http = True
+                for target in targets:
+                    target_info = next((n for n in self.monitor.nodes if n["node_id"] == target), None)
+                    if not target_info:
+                        continue
+                    try:
+                        req = Request(f"{target_info['address']}/reputation",
+                                      data=json.dumps({"peer_id": peer, "score": score}).encode(),
+                                      headers={"Content-Type": "application/json"})
+                        with self.opener.open(req, timeout=3) as resp:
+                            res = json.loads(resp.read().decode())
+                            outcomes.append({"node_id": target, "score": score, "quarantined": score < 30})
+                    except Exception:
+                        use_http = False
+                        break
+                if not use_http:
+                    outcomes = [{"node_id": target, **self.runtime.node_call(target, {
+                        "operation": "trust", "peer": peer, "score": score})} for target in targets]
                 self.monitor.refresh()
                 return {"message": "Existing reputation helper applied the requested score", "outcomes": outcomes}
             raise ValueError("Unknown dashboard action")

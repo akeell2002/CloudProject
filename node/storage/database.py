@@ -148,6 +148,23 @@ class Database:
             cursor.execute("SELECT 1 FROM active_blocklist WHERE target_domain = ? LIMIT 1;", (domain,))
             return cursor.fetchone() is not None
 
+    def set_reputation(self, peer_id: str, target_score: int):
+        """Sets absolute peer trust score (bounded between 0 and 100)."""
+        now = int(time.time() * 1000)
+        bounded = max(0, min(100, int(target_score)))
+        is_active = 0 if bounded < 30 else 1
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO peer_reputation (peer_id, trust_score, violations_count, is_active, last_updated)
+                VALUES (?, ?, 0, ?, ?)
+                ON CONFLICT(peer_id) DO UPDATE SET
+                    trust_score = ?,
+                    is_active = ?,
+                    last_updated = ?;
+            """, (peer_id, bounded, is_active, now, bounded, is_active, now))
+            conn.commit()
+
     def update_reputation(self, peer_id: str, score_delta: int, is_violation: bool = False):
         """Adjusts peer trust score (bounded between 0 and 100)."""
         now = int(time.time() * 1000)

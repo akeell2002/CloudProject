@@ -412,6 +412,9 @@
       if (responses[1].ok) controls = await responses[1].json();
       else controls = {enabled: false, connected: false, runtime: {}, message: "Restart the updated dashboard to enable live controls."};
       data = next;
+      if (controls.enabled && !controls.connected && data.nodes && data.nodes.some(function (n) { return n.online; })) {
+        runAction({action: "connect", leader: "fednode-0"});
+      }
       render();
     } catch (error) {
       $("connection").textContent = "Connection lost";
@@ -428,24 +431,31 @@
       return [node.node_id + (node.online ? "" : " · offline"), node.node_id];
     });
     ["control-node", "leader-node", "source-node", "trust-peer"].forEach(function (id) {
-      const select = $(id), previous = select.value;
+      const select = $(id);
+      if (!select) return;
+      const previous = select.value;
       updateOptions(select, options.length ? options : [["No configured nodes", ""]]);
       if (options.some(function (o) { return o[1] === previous; })) select.value = previous;
     });
-    const selected = $("control-node").value;
+    const selected = $("control-node") ? $("control-node").value : "";
     const node = data.nodes.find(function (item) { return item.node_id === selected; });
     if (controlledNode !== selected && node) {
       controlledNode = selected;
-      $("voting-mode").value = node.automatic_voting === false ? "manual" : "automatic";
-      $("fault-mode").value = String(node.state).startsWith("BYZANTINE_") ? node.state.slice(10) : "NONE";
+      if ($("fault-mode")) $("fault-mode").value = String(node.state).startsWith("BYZANTINE_") ? node.state.slice(10) : "NONE";
     }
-    $("controlled-node-status").textContent = node ? (node.online ? "Online" : "Offline") +
-      " · " + (node.quarantined ? "Quarantine reported by " + (node.quarantined_by || []).join(", ") : node.state) +
-      " · " + (node.automatic_voting === false ? "Manual voting" : "Automatic voting") : "";
-    $("controls-state").textContent = controls.connected ? "Connected · actions use real node identities" : controls.message || "Connecting…";
-    $("runtime-status").textContent = controls.runtime.message || "Runtime unavailable";
-    const caps = controls.capabilities || {};
-    $("source-node").disabled = $("traffic-source").value !== "internal";
+    if ($("controlled-node-status")) {
+      $("controlled-node-status").textContent = node ? (node.online ? "Online" : "Offline") +
+        " · " + (node.quarantined ? "Quarantine reported by " + (node.quarantined_by || []).join(", ") : node.state) : "";
+    }
+    if ($("controls-state")) {
+      $("controls-state").textContent = controls.connected ? "Connected · Actions use real node identities" : controls.message || "Connecting…";
+    }
+    if ($("runtime-status")) {
+      $("runtime-status").textContent = controls.runtime.message || "Runtime ready";
+    }
+    if ($("source-node") && $("traffic-source")) {
+      $("source-node").disabled = $("traffic-source").value !== "internal";
+    }
     const buttons = document.querySelectorAll(".control-body button");
     buttons.forEach(function (button) {
       const independent = ["connect-controls", "select-runtime"].includes(button.id);
@@ -453,23 +463,13 @@
       button.disabled = actionBusy || !controls.enabled || (!independent && !controls.connected) ||
         (runtimeAction && !controls.runtime.available);
     });
-    $("approve-vote").disabled ||= !selectedProposal || !node || !node.online;
-    $("reject-vote").disabled ||= !selectedProposal || !node || !node.online;
-    $("stop-node").disabled ||= !node || !node.online;
-    $("revive-node").disabled ||= !node;
-    $("elect-leader").disabled = true;
-    $("elect-leader").title = "Backend leader-assignment API is not exposed";
-    $("voting-mode").disabled = true;
-    $("voting-mode").title = "Backend voting-mode API is not exposed";
-    $("sync-node").disabled = true;
-    $("sync-node").title = "Backend live catch-up trigger is not exposed";
-    $("approve-vote").disabled ||= !caps.vote;
-    $("reject-vote").disabled ||= !caps.vote;
-    $("proposal-form").querySelector("button").disabled ||= !caps.proposal;
-    $("trust-form").querySelector("button").disabled ||= !caps.trust;
-    $("apply-settings").disabled ||= !caps.fault || !/^fednode-[0-4]$/.test(selected);
-    document.querySelector('[data-scenario="false_flag"]').disabled = true;
-    document.querySelector('[data-scenario="false_flag"]').title = "Backend origin-signature injection API is not exposed";
+    if ($("stop-node")) $("stop-node").disabled = actionBusy || !node || !node.online || !controls.runtime.available;
+    if ($("revive-node")) $("revive-node").disabled = actionBusy || !node || !controls.runtime.available;
+    if ($("apply-settings")) $("apply-settings").disabled = actionBusy || !controls.connected || !node;
+    if ($("trust-form")) {
+      const tb = $("trust-form").querySelector("button");
+      if (tb) tb.disabled = actionBusy || !controls.connected;
+    }
   }
   async function runAction(body) {
     if (actionBusy) return;
@@ -500,49 +500,75 @@
       renderControls();
     }
   }
-  function actor() { return $("control-node").value; }
+  function actor() { return $("control-node") ? $("control-node").value : "fednode-0"; }
   function traffic(scenario) {
     return runAction({action: "inject", node: actor(), scenario: scenario,
-      source: $("traffic-source").value, source_node: $("source-node").value,
-      domain: $("traffic-domain").value.trim(), content: $("traffic-content").value});
+      source: $("traffic-source") ? $("traffic-source").value : "external",
+      source_node: $("source-node") ? $("source-node").value : "",
+      domain: $("traffic-domain") ? $("traffic-domain").value.trim() : "",
+      content: $("traffic-content") ? $("traffic-content").value : ""});
   }
-  $("connect-controls").addEventListener("click", function () { runAction({action: "connect", leader: $("leader-node").value || "fednode-0"}); });
-  $("control-node").addEventListener("change", function () { renderControls(); });
-  $("traffic-source").addEventListener("change", renderControls);
+  if ($("connect-controls")) {
+    $("connect-controls").addEventListener("click", function () {
+      runAction({action: "connect", leader: $("leader-node") ? $("leader-node").value : "fednode-0"});
+    });
+  }
+  if ($("control-node")) $("control-node").addEventListener("change", function () { renderControls(); });
+  if ($("traffic-source")) $("traffic-source").addEventListener("change", renderControls);
   document.querySelectorAll("[data-scenario]").forEach(function (button) {
     button.addEventListener("click", function () { traffic(button.dataset.scenario); });
   });
-  $("send-custom").addEventListener("click", function () { traffic("custom"); });
-  $("proposal-form").addEventListener("submit", function (event) {
-    event.preventDefault();
-    runAction({action: "propose", node: actor(), domain: $("proposal-domain").value.trim(),
-      justification: $("proposal-justification").value.trim()});
-  });
-  ["approve", "reject"].forEach(function (decision) {
-    $(decision + "-vote").addEventListener("click", function () {
-      runAction({action: "vote", node: actor(), receiver: selectedObserver,
-        proposal_id: selectedProposal, decision: decision.toUpperCase()});
+  if ($("send-custom")) $("send-custom").addEventListener("click", function () { traffic("custom"); });
+  if ($("proposal-form")) {
+    $("proposal-form").addEventListener("submit", function (event) {
+      event.preventDefault();
+      runAction({action: "propose", node: actor(), domain: $("proposal-domain").value.trim(),
+        justification: $("proposal-justification").value.trim()});
     });
+  }
+  ["approve", "reject"].forEach(function (decision) {
+    const btn = $(decision + "-vote");
+    if (btn) {
+      btn.addEventListener("click", function () {
+        runAction({action: "vote", node: actor(), receiver: selectedObserver,
+          proposal_id: selectedProposal, decision: decision.toUpperCase()});
+      });
+    }
   });
-  $("elect-leader").addEventListener("click", function () { runAction({action: "leader", leader: $("leader-node").value}); });
-  $("apply-settings").addEventListener("click", function () {
-    runAction({action: "settings", node: actor(), fault: $("fault-mode").value});
-  });
+  if ($("elect-leader")) {
+    $("elect-leader").addEventListener("click", function () {
+      runAction({action: "leader", leader: $("leader-node") ? $("leader-node").value : "fednode-0"});
+    });
+  }
+  if ($("apply-settings")) {
+    $("apply-settings").addEventListener("click", function () {
+      runAction({action: "settings", node: actor(), fault: $("fault-mode").value});
+    });
+  }
   ["stop", "revive", "sync"].forEach(function (action) {
-    $(action + "-node").addEventListener("click", function () { runAction({action: action, node: actor()}); });
+    const btn = $(action + "-node");
+    if (btn) {
+      btn.addEventListener("click", function () { runAction({action: action, node: actor()}); });
+    }
   });
-  $("trust-form").addEventListener("submit", function (event) {
-    event.preventDefault();
-    runAction({action: "trust", node: actor(), peer: $("trust-peer").value,
-      score: Number($("trust-score").value), scope: $("trust-scope").value});
-  });
-  $("scale-form").addEventListener("submit", function (event) {
-    event.preventDefault();
-    runAction({action: "scale", replicas: Number($("replica-count").value), leader: $("leader-node").value});
-  });
-  $("select-runtime").addEventListener("click", function () {
-    runAction({action: "runtime", runtime: $("runtime-kind").value});
-  });
+  if ($("trust-form")) {
+    $("trust-form").addEventListener("submit", function (event) {
+      event.preventDefault();
+      runAction({action: "trust", node: actor(), peer: $("trust-peer").value,
+        score: Number($("trust-score").value), scope: $("trust-scope").value});
+    });
+  }
+  if ($("scale-form")) {
+    $("scale-form").addEventListener("submit", function (event) {
+      event.preventDefault();
+      runAction({action: "scale", replicas: Number($("replica-count").value), leader: $("leader-node") ? $("leader-node").value : "fednode-0"});
+    });
+  }
+  if ($("select-runtime")) {
+    $("select-runtime").addEventListener("click", function () {
+      runAction({action: "runtime", runtime: $("runtime-kind").value});
+    });
+  }
   $("refresh").addEventListener("click", refresh);
   $("proposal-select").addEventListener("change", function () { selectedProposal = this.value; selectedObserver = ""; renderIncident(); renderControls(); });
   $("event-filter").addEventListener("change", renderEvents);

@@ -52,7 +52,8 @@ class ConsensusEngine:
         self.active_proposals: Dict[str, ProposalState] = {}
         # Peer public keys cache: peer_id -> public_key_hex
         self.peer_public_keys: Dict[str, str] = {
-            self.config.node_id: self.config.public_key_hex
+            self.config.node_id: self.config.public_key_hex,
+            **getattr(self.config, "known_peer_keys", {})
         }
 
     def register_peer_key(self, peer_id: str, public_key_hex: str):

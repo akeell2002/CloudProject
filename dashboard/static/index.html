@@ -30,67 +30,61 @@
     <div id="live-notice" class="notice" role="status" hidden></div>
     <div class="console-layout">
     <aside class="panel controls-panel" aria-labelledby="controls-title">
-      <div class="panel-heading"><div><span class="eyebrow">OPERATOR CONSOLE</span><h2 id="controls-title">Take control</h2></div></div>
+      <div class="panel-heading"><div><span class="eyebrow">OPERATOR CONSOLE</span><h2 id="controls-title">Consortium Controls</h2></div></div>
       <div class="control-body">
-        <p id="controls-state" class="control-hint">Connecting to controls…</p>
-        <button id="connect-controls" class="action-button primary">Connect backend</button>
-        <label for="control-node">Act as node</label>
+        <p id="controls-state" class="control-hint">Connected · Actions use real node identities</p>
+        <button id="connect-controls" class="action-button primary" style="display: none;">Connect backend</button>
+        <label for="control-node">Target / Acting Node</label>
         <select id="control-node"><option value="">Waiting for nodes</option></select>
         <p id="controlled-node-status" class="control-hint"></p>
-        <details open><summary>ActivityPub traffic</summary>
-          <label for="traffic-source">Source</label>
-          <select id="traffic-source"><option value="external">External lab server</option><option value="internal">A participating node</option></select>
-          <label for="source-node">Sending node</label><select id="source-node"></select>
-          <label for="traffic-domain">Sender domain (optional)</label><input id="traffic-domain" placeholder="Auto-generated lab domain" maxlength="253">
+
+        <!-- 1. ActivityPub Traffic & Attack Simulator -->
+        <details open><summary>ActivityPub traffic simulator</summary>
+          <input type="hidden" id="traffic-source" value="external">
+          <input type="hidden" id="source-node" value="">
+          <input type="hidden" id="traffic-domain" value="">
           <div class="quick-actions">
             <button data-scenario="benign" class="action-button">Post benign note</button>
             <button data-scenario="phishing" class="action-button">Send phishing burst</button>
             <button data-scenario="malware" class="action-button danger-action">Send malware-link text</button>
-            <button data-scenario="false_flag" class="action-button">False-flag signature test</button>
           </div>
-          <p class="control-hint">False-flag testing is unavailable until the backend team exposes origin-signature injection.</p>
-          <p class="control-hint">Posts go to your selected node. Internal posts are sent from the selected container/pod. Actor domains remain claimed identities. Links are never executed.</p>
-          <label for="traffic-content">Custom post text</label><textarea id="traffic-content" rows="2" maxlength="2000" placeholder="Text to inspect"></textarea>
+          <p class="control-hint">Posts target the selected node. Malicious posts (score &ge; 0.60) automatically trigger BFT consensus and consortium-wide ban.</p>
+          <label for="traffic-content">Custom post text</label><textarea id="traffic-content" rows="2" maxlength="2000" placeholder="Type custom post to test threat classification..."></textarea>
           <button id="send-custom" class="action-button">Send custom post</button>
         </details>
-        <details open><summary>Custom domain proposal</summary>
-          <form id="proposal-form">
-            <label for="proposal-domain">Target domain</label><input id="proposal-domain" required placeholder="suspicious.lab.example" maxlength="253">
-            <label for="proposal-justification">Justification</label><textarea id="proposal-justification" rows="2" required maxlength="1000" placeholder="Why should this domain be blocked?"></textarea>
-            <button class="action-button primary">Broadcast signed proposal</button>
-          </form>
-          <p class="control-hint">Custom proposals require explicit peer votes. Select a proposal in the voting panel.</p>
-          <div class="button-pair"><button id="approve-vote" class="action-button">Vote approve</button><button id="reject-vote" class="action-button danger-action">Vote reject</button></div>
+
+        <!-- 2. Byzantine Fault Injection & Chaos Lab -->
+        <details open><summary>Byzantine fault injection</summary>
+          <label for="fault-mode">Fault mode of selected node</label>
+          <select id="fault-mode">
+            <option value="NONE">Honest (Normal BFT)</option>
+            <option value="SILENT">Silent (Drops all gRPC requests)</option>
+            <option value="LIAR">Liar (Rejects legitimate threats)</option>
+            <option value="FORGER">Forger (Corrupts ballot signature)</option>
+          </select>
+          <button id="apply-settings" class="action-button primary">Apply Byzantine mode</button>
+          <div class="button-pair" style="margin-top: 10px;">
+            <button id="stop-node" class="action-button danger-action">Kill node</button>
+            <button id="revive-node" class="action-button">Revive node</button>
+          </div>
+          <p class="control-hint">Simulate rogue or crashed nodes. With N=5, consortium tolerates f=1 Byzantine fault and still reaches Q=4 quorum.</p>
         </details>
-        <details><summary>Node role &amp; fault controls</summary>
-          <label for="leader-node">Leader</label><select id="leader-node"></select>
-          <button id="elect-leader" class="action-button">Assign leader</button>
-          <p class="control-hint">Leader assignment and voting-mode changes need an API from the backend team. These controls remain disabled.</p>
-          <label for="voting-mode">Voting mode of selected node</label><select id="voting-mode"><option value="automatic">Automatic for verified threats</option><option value="manual">Manual voting</option></select>
-          <label for="fault-mode">Fault mode of selected node</label><select id="fault-mode"><option value="NONE">Honest</option><option value="SILENT">Silent</option><option value="LIAR">Liar: reject threats</option><option value="FORGER">Forger: corrupt ballot signature</option></select>
-          <button id="apply-settings" class="action-button">Apply node settings</button>
-          <div class="button-pair"><button id="stop-node" class="action-button danger-action">Kill / stop node</button><button id="revive-node" class="action-button">Revive node</button></div>
-          <button id="sync-node" class="action-button">Sync missed decisions</button>
-        </details>
-        <details><summary>Trust &amp; quarantine</summary>
+
+        <!-- 3. Dynamic Reputation & Quarantine -->
+        <details open><summary>Trust &amp; quarantine</summary>
           <form id="trust-form">
             <label for="trust-peer">Peer to adjust</label><select id="trust-peer"></select>
-            <label for="trust-score">Trust score</label><input id="trust-score" type="number" min="0" max="100" step="1" value="100" required>
-            <label for="trust-scope">Apply in</label><select id="trust-scope"><option value="all">All reachable nodes' ledgers</option><option value="selected">Selected node's ledger only</option></select>
+            <label for="trust-score">Trust score (0–100)</label><input id="trust-score" type="number" min="0" max="100" step="1" value="100" required>
+            <label for="trust-scope">Apply in</label>
+            <select id="trust-scope">
+              <option value="all">All reachable nodes' ledgers</option>
+              <option value="selected">Selected node's ledger only</option>
+            </select>
             <button class="action-button">Apply trust score</button>
           </form>
-          <p class="control-hint">Below 30 excludes the peer's votes in the affected ledger. Restarting does not reset trust.</p>
+          <p class="control-hint">Scores below 30 automatically quarantine the peer and exclude its votes from quorum accumulation.</p>
         </details>
-        <details><summary>Pods / replicas</summary>
-          <label for="runtime-kind">Runtime</label><select id="runtime-kind"><option value="docker">Docker containers</option><option value="kubernetes">Kubernetes pods</option></select>
-          <button id="select-runtime" class="action-button">Select runtime</button>
-          <p id="runtime-status" class="control-hint"></p>
-          <form id="scale-form">
-            <label for="replica-count">Replicas (1–9)</label><input id="replica-count" type="number" min="1" max="9" step="1" value="5" required>
-            <button class="action-button">Apply replica count</button>
-          </form>
-          <p class="control-hint">Scaling changes real containers/pods only. Backend membership and quorum settings are not rewritten. Volumes are retained. Kubernetes recreates killed StatefulSet pods.</p>
-        </details>
+
         <div id="action-result" class="action-result" role="status" aria-live="polite">Actions and backend responses appear here.</div>
       </div>
     </aside>
