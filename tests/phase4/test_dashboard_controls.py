@@ -1,4 +1,5 @@
 """Operator adapters exercise existing APIs; they do not patch backend source."""
+import os, sys; sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 import io
 import json
 import tempfile

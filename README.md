@@ -1,12 +1,9 @@
 # FedConsensus: Byzantine-Resilient Consensus for Federated Social Moderation
 
 **Operator dashboard:** from this project directory, run
-`python -m dashboard.server` and open http://127.0.0.1:8090.
-It is also included in `docker compose up --build -d`.
+`docker compose up --build -d` and open http://127.0.0.1:8090 (or run `python -m dashboard.server --port 8091`).
 See [dashboard/README.md](dashboard/README.md) for live UI controls and setup.
-Demo mode has been removed. The dashboard uses existing backend interfaces and
-runtime commands; it does not rewrite the backend's voting, trust, or membership
-logic. Missing backend APIs are explicitly marked unavailable in the UI.
+The live Operator Console provides end-to-end observability and interactive testing for external & internal ActivityPub threat injection, automated 3-phase BFT voting (`Q = N - f`), O(1) RAM firewall inspection, Byzantine fault injection (`Silent`, `Liar`, `Forger`), crash/revive `CatchupSync` self-healing, and unlimited Kubernetes StatefulSet scaling.
 
 [![Course](https://img.shields.io/badge/Course-CSC3104%20Cloud%20%26%20Distributed%20Computing-blue.svg)](https://www.gla.ac.uk/)
 [![Institution](https://img.shields.io/badge/Institution-University%20of%20Glasgow%20%2F%20SIT-red.svg)](https://www.singaporetech.edu.sg/)
@@ -289,12 +286,13 @@ CloudProject/
 │   └── Dockerfile                  # Container specification for FedNode
 │
 ├── dashboard/                      # Observability & Chaos Testing Studio
-│   ├── README.md                   # Operator dashboard guide, limits & local instructions
-│   ├── server.py                   # Read-only cluster monitor & HTTP telemetry server
+│   ├── README.md                   # Operator dashboard guide & live controls reference
+│   ├── server.py                   # Cluster telemetry monitor & HTTP API server
+│   ├── control.py                  # Live operator actions, internal/external traffic & K8s scaling
+│   ├── runtime.py                  # Docker Compose & Kubernetes StatefulSet runtime adapter
 │   ├── static/                     # Real-time web UI frontend
-│   │   ├── index.html              # Operator web UI layout (Live Cluster & Guided Demo)
-│   │   ├── app.js                  # Real-time network graph, node inspection & live event stream
-│   │   ├── demo.js                 # Browser-local interactive guided demo simulation
+│   │   ├── index.html              # Operator web UI layout & live controls
+│   │   ├── app.js                  # Real-time network mesh, live BFT vote animation & RAM inspector
 │   │   └── style.css               # Modern dark-mode dashboard styling
 │   ├── requirements.txt            # Python dependencies for dashboard
 │   └── Dockerfile                  # Container specification for dashboard
@@ -331,8 +329,8 @@ CloudProject/
 │   │   ├── test_cli_verify.py          # fedctl terminal diagnostic management CLI
 │   │   ├── test_k8s_verify.py          # Kubernetes StatefulSet, headless svc & PVC manifests
 │   │   ├── test_dashboard_verify.py    # Telemetry bounding, polling resilience & security checks
+│   │   ├── test_dashboard_controls.py  # Operator console actions, CSRF & runtime controls test
 │   │   ├── test_dashboard_node_verify.py # Node /telemetry endpoint integration test
-│   │   ├── test_dashboard_demo.cjs     # Guided demo mechanics & timing assertions (Node.js)
 │   │   ├── test_dashboard_routes.cjs   # Network routes & persistent sender labels (Node.js)
 │   │   └── test_phase4_verification.py # Phase 4 comprehensive cloud infrastructure suite
 │   └── end_to_end_testing/         # End-to-End BFT Quorum, Byzantine Masking & Chaos Lifecycles
@@ -392,8 +390,9 @@ python tests/phase4/test_cli_verify.py
 python tests/phase4/test_k8s_verify.py
 
 # Phase 4: Operator Dashboard Test Suite
-python -B -m unittest discover -s tests/phase4 -p "test_dashboard_verify.py"
-node tests/phase4/test_dashboard_demo.cjs
+python tests/phase4/test_dashboard_verify.py
+python tests/phase4/test_dashboard_controls.py
+python tests/phase4/test_dashboard_node_verify.py
 node tests/phase4/test_dashboard_routes.cjs
 
 # End-to-End Chaos Verification Suites

@@ -43,6 +43,7 @@ def node_snapshot(service):
             {
                 "proposal_id": p.proposal_id,
                 "domain": p.target_domain,
+                "proposer": getattr(p.request, "proposer_id", "") if getattr(p, "request", None) else service.config.node_id,
                 "reason": p.reason,
                 "epoch": p.epoch,
                 "sequence": p.sequence_number,

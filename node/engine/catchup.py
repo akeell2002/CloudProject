@@ -27,8 +27,8 @@ class CatchupEngine:
         self.db = database
         self.firewall = firewall
         self.peer_public_keys: Dict[str, str] = peer_public_keys or {
-            self.config.node_id: self.config.public_key_hex,
-            **getattr(self.config, "known_peer_keys", {})
+            **getattr(self.config, "known_peer_keys", {}),
+            self.config.node_id: self.config.public_key_hex
         }
 
     def register_peer_key(self, peer_id: str, public_key_hex: str):

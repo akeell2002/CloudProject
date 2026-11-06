@@ -33,56 +33,63 @@
       <div class="panel-heading"><div><span class="eyebrow">OPERATOR CONSOLE</span><h2 id="controls-title">Consortium Controls</h2></div></div>
       <div class="control-body">
         <p id="controls-state" class="control-hint">Connected · Actions use real node identities</p>
-        <label for="control-node">Selected Node</label>
+        <label for="control-node">Target / Receiving Node</label>
         <select id="control-node"><option value="">Waiting for nodes</option></select>
         <p id="controlled-node-status" class="control-hint"></p>
 
         <!-- 1. ActivityPub Traffic & Attack Simulator -->
         <details open><summary>1. Attack &amp; traffic simulator</summary>
-          <input type="hidden" id="traffic-source" value="external">
-          <input type="hidden" id="source-node" value="">
+          <label for="traffic-source">Attack Sender (Who is sending?)</label>
+          <select id="traffic-source">
+            <option value="external">External Server (Internet)</option>
+            <option value="fednode-1">Internal Node: fednode-1</option>
+            <option value="fednode-2">Internal Node: fednode-2</option>
+            <option value="fednode-3">Internal Node: fednode-3</option>
+            <option value="fednode-4">Internal Node: fednode-4</option>
+          </select>
+          <input type="hidden" id="source-node" value="fednode-1">
           <input type="hidden" id="traffic-domain" value="">
           <div class="quick-actions">
             <button data-scenario="benign" class="action-button">Post benign note</button>
             <button data-scenario="phishing" class="action-button">Send phishing burst</button>
             <button data-scenario="malware" class="action-button danger-action">Send malware-link text</button>
           </div>
-          <p class="control-hint">Sends ActivityPub payload to selected node. Malicious posts (score &ge; 0.60) trigger live BFT voting.</p>
+          <p class="control-hint">Sends ActivityPub payload to Target Node. Malicious posts (score &ge; 0.60) automatically trigger BFT voting.</p>
           <label for="traffic-content">Custom post text</label><textarea id="traffic-content" rows="2" maxlength="2000" placeholder="Type custom post to test threat classification..."></textarea>
           <button id="send-custom" class="action-button">Send custom post</button>
         </details>
 
-        <!-- 2. Byzantine Fault Injection & Chaos Lab -->
-        <details open><summary>2. Byzantine fault &amp; node state</summary>
-          <label for="fault-mode">Behavior of selected node</label>
+        <!-- 2. Byzantine Fault & Crash Recovery -->
+        <details open><summary>2. Chaos lab (Faults &amp; self-healing)</summary>
+          <label for="fault-mode">Simulate voting behavior of Target Node</label>
           <select id="fault-mode">
-            <option value="NONE">Honest (Normal BFT)</option>
-            <option value="SILENT">Silent (Drops all gRPC requests)</option>
-            <option value="LIAR">Liar (Votes REJECT on threats)</option>
-            <option value="FORGER">Forger (Corrupts ballot signature)</option>
+            <option value="NONE">Honest (Verifies &amp; votes normally)</option>
+            <option value="SILENT">Silent (Drops all gRPC messages)</option>
+            <option value="LIAR">Liar (Votes REJECT on real threats)</option>
+            <option value="FORGER">Forger (Corrupts Ed25519 signature)</option>
           </select>
-          <button id="apply-settings" class="action-button primary">Apply behavior mode</button>
+          <button id="apply-settings" class="action-button primary">Apply voting behavior</button>
           <div class="button-pair" style="margin-top: 10px;">
-            <button id="stop-node" class="action-button danger-action">Kill node</button>
-            <button id="revive-node" class="action-button">Revive node</button>
+            <button id="stop-node" class="action-button danger-action">Kill node (Crash)</button>
+            <button id="revive-node" class="action-button">Revive (Self-heal)</button>
           </div>
-          <p class="control-hint">With N=5, consortium tolerates f=1 rogue or offline node and still reaches Q=4 quorum.</p>
+          <input type="hidden" id="trust-peer" value="fednode-0">
+          <input type="hidden" id="trust-scope" value="all">
+          <input type="hidden" id="trust-score" value="100">
+          <button type="button" id="restore-peer" class="action-button" style="margin-top: 8px;">Reset node reputation (100)</button>
+          <p id="bft-tolerance-hint" class="control-hint">Trust scores update automatically (-50 on forgery/attack, &lt;30 = auto-quarantined).</p>
         </details>
 
-        <!-- 3. Dynamic Reputation & Quarantine -->
-        <details open><summary>3. Reputation &amp; quarantine</summary>
-          <form id="trust-form">
-            <input type="hidden" id="trust-peer" value="fednode-0">
-            <input type="hidden" id="trust-scope" value="all">
-            <label for="trust-score">Trust score for selected node (0–100)</label>
-            <input id="trust-score" type="number" min="0" max="100" step="1" value="100" required>
-            <div class="button-pair" style="margin-top: 8px;">
-              <button type="button" id="quarantine-peer" class="action-button danger-action">Quarantine (20)</button>
-              <button type="button" id="restore-peer" class="action-button">Restore (100)</button>
-            </div>
-            <button type="submit" class="action-button primary">Apply custom score</button>
-          </form>
-          <p class="control-hint">Scores below 30 quarantine the node and exclude its ballots from quorum.</p>
+        <!-- 3. K8s Autoscaling & New Organisations -->
+        <details open><summary>3. K8s autoscaling &amp; organisations</summary>
+          <label for="org-domain">Onboard new organisation domain</label>
+          <input id="org-domain" type="text" placeholder="e.g. ntu.social or oxford.social" maxlength="100">
+          <button type="button" id="add-org-node" class="action-button primary">+ Add organisation node</button>
+          <div class="button-pair" style="margin-top: 8px;">
+            <button type="button" id="autoscale-up" class="action-button">⚡ Auto-scale (+2)</button>
+            <button type="button" id="reset-scale" class="action-button danger-action">Reset to 5 nodes</button>
+          </div>
+          <p class="control-hint">New K8s StatefulSet pods auto-sync historical bans via gRPC CatchupSync into their O(1) RAM Firewall.</p>
         </details>
 
         <div id="action-result" class="action-result" role="status" aria-live="polite">Actions and backend responses appear here.</div>
@@ -114,7 +121,7 @@
           <div id="network-nodes"></div>
           <div id="message-label" class="message-label">No observed transmissions yet</div>
         </div>
-        <div class="network-legend"><span><i class="dot green"></i>Active</span><span><i class="dot gray"></i>Inactive</span><span><i class="dot red"></i>Flagged / fault</span><span>★ Leader</span><span>→ Message direction</span></div>
+        <div class="network-legend"><span><i class="dot green"></i>Active</span><span><i class="dot gray"></i>Inactive</span><span><i class="dot red"></i>Flagged / fault</span><span>★ Active proposer</span><span>→ Message direction</span></div>
         <p class="panel-footnote">Click any node in the mesh to inspect its status and peer reputation ledger.</p>
       </section>
       <section id="incident-panel" class="panel incident-panel" aria-labelledby="incident-title">

@@ -9,7 +9,9 @@
       try {
         const address = new URL(/^https?:\/\//.test(endpoint) ? endpoint : "http://" + endpoint);
         return positions.find(function (p) {
-          return address.hostname === p.node.node_id || address.host === new URL(p.node.address).host;
+          return address.hostname === p.node.node_id ||
+            address.hostname === p.node.node_id + ".lab.example" ||
+            address.host === new URL(p.node.address).host;
         });
       } catch (_) { return undefined; }
     }
@@ -41,6 +43,7 @@
   let data = {nodes: [], events: [], bans: [], updated_at: null};
   let selectedDomain = "";
   let selectedNode = "";
+  let selectedNodeTab = "status";
   let fetching = false;
   let networkKey = "";
   let incidentKey = "";
@@ -71,8 +74,38 @@
     return box;
   }
   function onlineNodes() { return data.nodes.filter(function (node) { return node.online; }); }
+  function activeCoordinator() {
+    const all = proposals();
+    if (liveVoteAnim && liveVoteAnim.proposer) {
+      const animNode = data.nodes.find(function (n) { return n.node_id === liveVoteAnim.proposer && n.online; });
+      if (animNode) return animNode.node_id;
+    }
+    if (selectedDomain) {
+      const sel = all.find(function (p) { return p.domain === selectedDomain; });
+      if (sel && sel.proposer) {
+        const selNode = data.nodes.find(function (n) { return n.node_id === sel.proposer && n.online; });
+        if (selNode) return selNode.node_id;
+      }
+    }
+    if (all.length && all[0].proposer) {
+      const latestNode = data.nodes.find(function (n) { return n.node_id === all[0].proposer && n.online; });
+      if (latestNode) return latestNode.node_id;
+    }
+    const reported = data.nodes.find(function (n) { return n.online && n.state === "LEADER"; });
+    if (reported) return reported.node_id;
+    const firstOnline = data.nodes.find(function (n) { return n.online && !n.quarantined && !String(n.state).startsWith("BYZANTINE"); });
+    return firstOnline ? firstOnline.node_id : "";
+  }
+
+  function bftParams() {
+    const n = Math.max((data.nodes || []).length, 1);
+    const f = Math.floor((n - 1) / 3);
+    const q = n - f;
+    return {n: n, f: f, q: q};
+  }
 
   function proposals() {
+    const bft = bftParams();
     const byDomain = new Map();
     (data.nodes || []).forEach(function (node) {
       if (!node.online || !node.proposals) return;
@@ -82,13 +115,13 @@
           byDomain.set(key, {
             proposal_id: p.proposal_id,
             domain: p.domain,
-            proposer: p.proposer || "fednode-0",
+            proposer: p.proposer || "", 
             reason: p.reason,
             epoch: p.epoch || 1,
             sequence: p.sequence || 1,
             threat_score: p.threat_score || 0.85,
             latency_ms: p.latency_ms || 0,
-            quorum: p.quorum || 4,
+            quorum: bft.q,
             created_at: p.created_at || 0,
             committed: Boolean(p.committed),
             approvals: new Set(),
@@ -101,7 +134,7 @@
         if ((p.created_at || 0) >= entry.created_at) {
           entry.created_at = p.created_at || entry.created_at;
           entry.proposal_id = p.proposal_id;
-          entry.proposer = p.proposer || entry.proposer;
+          if (p.proposer) entry.proposer = p.proposer;
         }
         if (p.epoch) entry.epoch = Math.max(entry.epoch || 1, p.epoch);
         if (p.sequence) entry.sequence = Math.max(entry.sequence || 1, p.sequence);
@@ -131,7 +164,7 @@
           sequence: 1,
           threat_score: e.score || 0.85,
           latency_ms: 0,
-          quorum: 4,
+          quorum: bft.q,
           created_at: e.timestamp || 0,
           committed: false,
           approvals: new Set(),
@@ -142,6 +175,11 @@
       }
       const entry = byDomain.get(key);
       if (!entry) return;
+      if (e.kind === "proposal" && e.source && /^fednode-\d+$/.test(e.source)) {
+        entry.proposer = e.source;
+      } else if (e.kind === "threat" && e.target && /^fednode-\d+$/.test(e.target) && !entry.proposer) {
+        entry.proposer = e.target;
+      }
       if (e.score) entry.threat_score = e.score;
       if (e.kind === "commit" && entry.created_at && e.timestamp >= entry.created_at && !entry.latency_ms) {
         entry.latency_ms = Math.max(12, Math.min(280, e.timestamp - entry.created_at));
@@ -156,9 +194,18 @@
 
     const bannedDomains = new Set((data.bans || []).map(function (b) { return b.domain; }));
     byDomain.forEach(function (entry) {
+      if (!entry.proposer) entry.proposer = "fednode-0";
+      entry.quorum = bft.q;
       if (bannedDomains.has(entry.domain)) {
         entry.committed = true;
       }
+      // Include online virtual/scaled nodes that are honest & unquarantined in approvals
+      (data.nodes || []).forEach(function (n) {
+        const isFaulty = String(n.state).startsWith("BYZANTINE_") || n.quarantined || !n.online;
+        if (!isFaulty && entry.committed) {
+          entry.approvals.add(n.node_id);
+        }
+      });
       entry.rejections.forEach(function (v) { entry.approvals.delete(v); });
       entry.invalid.forEach(function (v) { entry.approvals.delete(v); });
       entry.quarantined.forEach(function (v) { entry.approvals.delete(v); });
@@ -234,11 +281,74 @@
     $("node-dialog-title").textContent = node.node_id;
     const details = $("node-details");
     details.replaceChildren();
+
+    const localDomains = Array.isArray(node.blocked_domains) ? node.blocked_domains : [];
+    const localSet = new Set(localDomains);
+    const clusterDomains = (data.bans || []).map(function (b) { return b.domain; });
+    const allDomains = Array.from(new Set(clusterDomains.concat(localDomains)));
+    const missingCount = clusterDomains.filter(function (d) { return !localSet.has(d); }).length;
+
+    const tabs = el("div", "dialog-tabs");
+    const statusBtn = el("button", "dialog-tab" + (selectedNodeTab === "status" ? " active" : ""), "Status & Reputation");
+    const ramLabel = "Banned Domains · RAM (" + localDomains.length + "/" + allDomains.length + ")" + (missingCount > 0 ? " ⚠" : "");
+    const ramBtn = el("button", "dialog-tab" + (selectedNodeTab === "ram" ? " active" : "") + (missingCount > 0 ? " out-of-sync" : ""), ramLabel);
+    statusBtn.type = "button";
+    ramBtn.type = "button";
+    statusBtn.addEventListener("click", function () { selectedNodeTab = "status"; renderNodeDetails(); });
+    ramBtn.addEventListener("click", function () { selectedNodeTab = "ram"; renderNodeDetails(); });
+    tabs.append(statusBtn, ramBtn);
+    details.append(tabs);
+
+    if (selectedNodeTab === "ram") {
+      const syncBanner = el("div", "ram-sync-banner " + (missingCount === 0 && node.online ? "synced" : "behind"));
+      syncBanner.append(
+        el("strong", "", missingCount === 0 && node.online
+          ? "✓ Local O(1) RAM Firewall In Sync with Consortium (Seq #" + (node.last_sequence || 0) + ")"
+          : !node.online
+          ? "⚠ Node Offline · Missing " + missingCount + " Consortium Ban(s) in Local RAM"
+          : "↻ Syncing " + missingCount + " Missed Ban(s) via gRPC CatchupSync…"),
+        el("p", "", "When revived or newly scaled up, this node queries peers via gRPC CatchupSync, verifies 4/5 Ed25519 Quorum Certificate signatures, commits to SQLite WAL, and populates its local O(1) RAM Firewall.")
+      );
+      details.append(syncBanner);
+
+      if (!allDomains.length) {
+        details.append(el("p", "ledger-note", "No domains are currently blocked in this node's RAM Firewall or the consortium."));
+        return;
+      }
+      const scrollBox = el("div", "dialog-scroll-box");
+      const ramTable = el("table");
+      const ramHead = el("thead");
+      const ramHeader = el("tr");
+      ["Domain", "Local O(1) RAM State", "Verification Source"].forEach(function (t) { ramHeader.append(el("th", "", t)); });
+      ramHead.append(ramHeader);
+      const ramBody = el("tbody");
+      allDomains.forEach(function (domain) {
+        const inRam = localSet.has(domain);
+        const tr = el("tr", inRam ? "" : "attack-row");
+        const stateCell = el("td");
+        stateCell.append(el("span", "ram-pill " + (inRam ? "active" : "missing"),
+          inRam ? "✓ Active in RAM" : "× Missing (Offline)"));
+        tr.append(
+          el("td", "mono", domain),
+          stateCell,
+          el("td", "", inRam ? "SQLite WAL + Ed25519 QC" : "Awaiting CatchupSync")
+        );
+        ramBody.append(tr);
+      });
+      ramTable.append(ramHead, ramBody);
+      scrollBox.append(ramTable);
+      details.append(scrollBox);
+      return;
+    }
+
     const grid = el("div", "detail-grid");
+    const orgLabel = node.org ? node.org + " (" + node.address + ")" : node.address;
     [
       ["Connection", node.online ? "Active / reachable" : "Inactive / unreachable"],
-      ["Reported role", node.online ? node.state : node.last_known_state || "Unknown"],
-      ["Endpoint", node.address],
+      ["Reported role", !node.online ? (node.last_known_state || "Offline") :
+        String(node.state).startsWith("BYZANTINE") ? node.state :
+        node.node_id === activeCoordinator() ? "PROPOSER / LEADER ★" : "PEER VALIDATOR"],
+      ["Organisation / Endpoint", orgLabel],
       ["Last committed sequence", node.last_sequence === undefined ? "Unknown" : node.last_sequence],
       ["Epoch", node.epoch === undefined ? "Unknown" : node.epoch],
       ["Last seen", time(node.last_seen)]
@@ -257,6 +367,7 @@
       details.append(el("p", "ledger-note", "No peer reputation records reported."));
       return;
     }
+    const repScrollBox = el("div", "dialog-scroll-box");
     const table = el("table");
     const head = el("thead");
     const header = el("tr");
@@ -271,7 +382,8 @@
       body.append(row);
     });
     table.append(head, body);
-    details.append(table);
+    repScrollBox.append(table);
+    details.append(repScrollBox);
   }
   function svgLine(x1, y1, x2, y2, className) {
     const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
@@ -364,9 +476,10 @@
       return {node: node, x: point[0], y: point[1]};
     });
     lastSender = rememberSender(data.events, positions, lastSender);
+    const coordId = activeCoordinator();
     const nextKey = JSON.stringify([
-      data.nodes.map(function (n) { return [n.node_id, n.online, n.state, n.quarantined]; }),
-      latest, lastSender, Boolean(latest && Date.now() - latest.timestamp < 8000)
+      data.nodes.map(function (n) { return [n.node_id, n.online, n.state, n.quarantined, n.org]; }),
+      coordId, latest, lastSender, Boolean(latest && Date.now() - latest.timestamp < 8000)
     ]);
     if (nextKey === networkKey) return;
     networkKey = nextKey;
@@ -390,10 +503,11 @@
       button.style.left = point.x + "%";
       button.style.top = point.y + "%";
       button.setAttribute("aria-label", "Inspect " + node.node_id + ", " + (node.online ? node.state : "inactive"));
+      const isCoord = node.online && !fault && node.node_id === coordId;
       const circle = el("span", "node-circle", node.node_id.split("-").pop());
-      if (node.online && node.state === "LEADER") circle.append(el("span", "node-star", "★"));
+      if (isCoord) circle.append(el("span", "node-star", "★"));
       const role = !node.online ? "INACTIVE" : node.quarantined ? "QUARANTINE REPORTED" : fault ? "FAULT MODE" :
-        node.state === "LEADER" ? "LEADER" : node.state === "UNKNOWN" ? "ROLE UNKNOWN" : "FOLLOWER";
+        isCoord ? "PROPOSER ★" : node.org ? node.org.toUpperCase() : "PEER";
       button.append(circle, el("span", "node-name", node.node_id), el("span", "node-role", role));
       button.addEventListener("click", function () { openNode(node.node_id); });
       layer.append(button);
@@ -470,7 +584,7 @@
       state.textContent = latestThreat ? "THREAT DETECTED" : "FLEET IDLE";
       content.append(empty(latestThreat ? "!" : "◇", latestThreat ? latestThreat.domain || latestThreat.source : "Consensus Engine Idle",
         latestThreat ? latestThreat.message + " Voting proposal will start shortly." :
-        "Trigger a phishing or malware attack on the left to watch live 3-phase Byzantine consensus voting across all 5 nodes."));
+        "Trigger a phishing or malware attack on the left to watch live 3-phase Byzantine consensus voting across all " + bftParams().n + " nodes."));
       return;
     }
 
@@ -479,8 +593,9 @@
       : new Set((data.nodes || []).map(function (n) { return n.node_id; }));
     const activeVoter = isAnimating ? liveVoteAnim.order[liveVoteAnim.step] : null;
 
+    const bft = bftParams();
     const visibleApprovals = Array.from(proposal.approvals).filter(function (id) { return revealedSet.has(id); }).length;
-    const quorumNeeded = proposal.quorum || 4;
+    const quorumNeeded = bft.q;
     const isFinalCommitted = !isAnimating && (proposal.committed || visibleApprovals >= quorumNeeded);
 
     $("incident-panel").classList.toggle("has-threat", isAnimating || !isFinalCommitted);
@@ -519,7 +634,7 @@
       ["⏱ BFT Commit Time", isAnimating ? "Voting live…" : isFinalCommitted ? latencyMs + " ms (< 300ms SLA)" : "Stalled (No Quorum)", isFinalCommitted ? "spec-ok" : ""],
       ["🎯 Threat Score", scoreVal + " (≥ 0.60 Trigger)", "spec-danger"],
       ["🔐 Cryptographic QC", "Ed25519 · Epoch " + (proposal.epoch || 1) + " · Seq #" + (proposal.sequence || 1), ""],
-      ["💾 Enforcement", isFinalCommitted ? "SQLite WAL + O(1) RAM (< 1 µs)" : "Awaiting 4/4 Quorum", isFinalCommitted ? "spec-ok" : ""]
+      ["💾 Enforcement", isFinalCommitted ? "SQLite WAL + O(1) RAM (< 1 µs)" : "Awaiting " + quorumNeeded + "/" + bft.n + " Quorum", isFinalCommitted ? "spec-ok" : ""]
     ].forEach(function (item) {
       const box = el("div", "bft-spec-item " + item[2]);
       box.append(el("span", "bft-spec-label", item[0]), el("strong", "bft-spec-val", item[1]));
@@ -606,8 +721,8 @@
       isAnimating
         ? "⚡ Step " + (liveVoteAnim.step + 1) + " of " + liveVoteAnim.maxSteps + ": " + activeVoter + " broadcasting signed cryptographic ballot…"
         : isFinalCommitted
-        ? "✓ Quorum Proof verified in " + latencyMs + " ms (N=5, f=1, Q=4). Defederation rule committed to SQLite WAL and in-memory firewall across active nodes."
-        : "⚠ Quorum threshold (Q=" + quorumNeeded + ") was not met. Domain remains unblocked due to insufficient honest votes."));
+        ? "✓ Quorum Proof verified in " + latencyMs + " ms (N=" + bft.n + ", f=" + bft.f + ", Q=" + quorumNeeded + "). Defederation rule committed to SQLite WAL and O(1) RAM Firewall across active nodes."
+        : "⚠ Quorum threshold (Q=" + quorumNeeded + " of " + bft.n + ") was not met. Domain remains unblocked due to insufficient honest votes."));
 
     if (isFinalCommitted) {
       const fwTestBtn = el("button", "action-button firewall-test-btn", "🛡️ Test Perimeter Firewall Drop (Re-send from " + proposal.domain + ")");
@@ -688,17 +803,24 @@
     const allProposals = proposals();
     const committed = new Set(allProposals.filter(function (p) { return p.committed; }).map(function (p) { return p.domain; }));
     const pending = new Set(allProposals.filter(function (p) { return !p.committed && !committed.has(p.domain); }).map(function (p) { return p.domain; }));
+    const bft = bftParams();
     $("active-count").textContent = active;
     $("inactive-count").textContent = data.nodes.length - active;
     $("total-label").textContent = "/ " + data.nodes.length + " configured";
     $("threat-count").textContent = pending.size;
     $("ban-count").textContent = data.bans.length;
-    const leaderNode = data.nodes.find(function (n) { return n.online && n.state === "LEADER"; });
+    if ($("threat-subtext")) {
+      $("threat-subtext").textContent = "Quorum rule: Q = " + bft.q + "/" + bft.n + " (N=" + bft.n + ", f=" + bft.f + ")";
+    }
+    if ($("bft-tolerance-hint")) {
+      $("bft-tolerance-hint").textContent = "With N=" + bft.n + ", consortium tolerates f=" + bft.f + " rogue/offline node(s) and requires Q=" + bft.q + " votes.";
+    }
+    const coordId = activeCoordinator();
     const maxEpoch = data.nodes.reduce(function (m, n) { return Math.max(m, n.epoch || 1); }, 1);
     if ($("active-subtext")) {
-      $("active-subtext").textContent = leaderNode
-        ? "Epoch " + maxEpoch + " · Leader: " + leaderNode.node_id + " ★"
-        : "Epoch " + maxEpoch + " · Leader election in progress…";
+      $("active-subtext").textContent = coordId
+        ? "Epoch " + maxEpoch + " · Active Proposer: " + coordId + " ★"
+        : "Epoch " + maxEpoch + " · Awaiting online proposer…";
     }
     if ($("ban-subtext")) {
       const committedList = allProposals.filter(function (p) { return p.committed; });
@@ -759,7 +881,8 @@
   }
   function renderControls() {
     const options = data.nodes.map(function (node) {
-      return [node.node_id + (node.online ? "" : " · offline"), node.node_id];
+      const label = node.node_id + (node.org ? " (" + node.org + ")" : "") + (node.online ? "" : " · offline");
+      return [label, node.node_id];
     });
     const select = $("control-node");
     if (select) {
@@ -768,6 +891,20 @@
       if (options.some(function (o) { return o[1] === previous; })) select.value = previous;
     }
     const selected = select ? select.value : "";
+    const trafficSource = $("traffic-source");
+    if (trafficSource) {
+      const prevOrigin = trafficSource.value;
+      const originOptions = [["External Server (Internet)", "external"]];
+      data.nodes.forEach(function (n) {
+        if (n.node_id !== selected) {
+          originOptions.push(["Internal Node: " + n.node_id + " (sends to " + (selected || "target") + ")", n.node_id]);
+        }
+      });
+      updateOptions(trafficSource, originOptions);
+      if (originOptions.some(function (o) { return o[1] === prevOrigin; })) {
+        trafficSource.value = prevOrigin;
+      }
+    }
     if ($("trust-peer")) $("trust-peer").value = selected || "fednode-0";
     const node = data.nodes.find(function (item) { return item.node_id === selected; });
     if (controlledNode !== selected && node) {
@@ -813,6 +950,9 @@
         seenDomains.delete(value.domain);
         selectedDomain = value.domain;
       }
+      if (body.action === "add_org" && $("org-domain")) {
+        $("org-domain").value = "";
+      }
     } catch (error) {
       result.className = "action-result failure-result";
       result.textContent = error.name === "TimeoutError" ? "Action timed out. Refresh and inspect actual node state before retrying." : error.message;
@@ -824,15 +964,36 @@
   }
   function actor() { return $("control-node") ? $("control-node").value : "fednode-0"; }
   function traffic(scenario) {
+    const rawOrigin = $("traffic-source") ? $("traffic-source").value : "external";
+    const isInternal = rawOrigin !== "external";
+    const sourceType = isInternal ? "internal" : "external";
+    const sourceNode = isInternal ? (rawOrigin === "internal" ? ($("source-node") ? $("source-node").value : "fednode-1") : rawOrigin) : "";
     return runAction({action: "inject", node: actor(), scenario: scenario,
-      source: "external", source_node: "", domain: "",
+      source: sourceType, source_node: sourceNode, domain: "",
       content: $("traffic-content") ? $("traffic-content").value : ""});
   }
   if ($("control-node")) $("control-node").addEventListener("change", renderControls);
+  if ($("traffic-source")) $("traffic-source").addEventListener("change", renderControls);
   document.querySelectorAll("[data-scenario]").forEach(function (button) {
     button.addEventListener("click", function () { traffic(button.dataset.scenario); });
   });
   if ($("send-custom")) $("send-custom").addEventListener("click", function () { traffic("custom"); });
+  if ($("add-org-node")) {
+    $("add-org-node").addEventListener("click", function () {
+      const org = $("org-domain") ? $("org-domain").value.trim() : "";
+      runAction({action: "add_org", org: org || "ntu.social"});
+    });
+  }
+  if ($("autoscale-up")) {
+    $("autoscale-up").addEventListener("click", function () {
+      runAction({action: "autoscale", delta: 2});
+    });
+  }
+  if ($("reset-scale")) {
+    $("reset-scale").addEventListener("click", function () {
+      runAction({action: "reset_scale"});
+    });
+  }
   if ($("apply-settings")) {
     $("apply-settings").addEventListener("click", function () {
       runAction({action: "settings", node: actor(), fault: $("fault-mode").value});

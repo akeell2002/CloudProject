@@ -1,4 +1,5 @@
 """Dashboard checks use only stdlib: python -m unittest discover -s tests/phase4 -p test_dashboard_verify.py"""
+import os, sys; sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 import json
 import threading
 import unittest
