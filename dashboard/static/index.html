@@ -107,7 +107,7 @@
         <div class="panel-heading"><div><span class="eyebrow">01 / NETWORK</span><h2 id="network-title">Your server network</h2></div><span class="pill success">LIVE</span></div>
         <div class="network-stage">
           <svg id="network-lines" viewBox="0 0 600 310" preserveAspectRatio="none" aria-hidden="true"></svg>
-          <div id="mesh-center" class="mesh-center" aria-hidden="true"><span class="mesh-symbol">⌘</span><strong>CONSORTIUM</strong><span id="mesh-caption">Waiting for nodes</span></div>
+          <div id="mesh-center" class="mesh-center" aria-hidden="true"><span class="mesh-symbol">⌘</span><strong>P2P gRPC MESH</strong><span id="mesh-caption">Shared-Nothing</span></div>
           <div id="external-sender" class="external-sender" role="group" aria-label="External server: waiting for traffic">
             <span class="sender-icon" aria-hidden="true">▤</span>
             <span id="sender-type" class="sender-type">EXTERNAL SERVER</span>
@@ -121,7 +121,7 @@
           <div id="network-nodes"></div>
           <div id="message-label" class="message-label">No observed transmissions yet</div>
         </div>
-        <div class="network-legend"><span><i class="dot green"></i>Active</span><span><i class="dot gray"></i>Inactive</span><span><i class="dot red"></i>Flagged / fault</span><span>★ Active proposer</span><span>→ Message direction</span></div>
+        <div class="network-legend"><span><i class="dot green"></i>Active</span><span><i class="dot gray"></i>Inactive</span><span><i class="dot red"></i>Flagged / fault</span><span>★ Active proposer</span><span>⚡ Local RAM Firewall</span><span>💾 Local SQLite DB</span></div>
         <p class="panel-footnote">Click any node in the mesh to inspect its status and peer reputation ledger.</p>
       </section>
       <section id="incident-panel" class="panel incident-panel" aria-labelledby="incident-title">

@@ -303,11 +303,11 @@
       const syncBanner = el("div", "ram-sync-banner " + (missingCount === 0 && node.online ? "synced" : "behind"));
       syncBanner.append(
         el("strong", "", missingCount === 0 && node.online
-          ? "✓ Local O(1) RAM Firewall In Sync with Consortium (Seq #" + (node.last_sequence || 0) + ")"
+          ? "✓ " + node.node_id + "'s Local RAM Firewall: In Sync (Seq #" + (node.last_sequence || 0) + ")"
           : !node.online
-          ? "⚠ Node Offline · Missing " + missingCount + " Consortium Ban(s) in Local RAM"
-          : "↻ Syncing " + missingCount + " Missed Ban(s) via gRPC CatchupSync…"),
-        el("p", "", "When revived or newly scaled up, this node queries peers via gRPC CatchupSync, verifies 4/5 Ed25519 Quorum Certificate signatures, commits to SQLite WAL, and populates its local O(1) RAM Firewall.")
+          ? "⚠ " + node.node_id + " Offline · " + missingCount + " Ban(s) Missing in Local RAM"
+          : "↻ " + node.node_id + " Syncing " + missingCount + " Missed Ban(s) via gRPC CatchupSync…"),
+        el("p", "", node.node_id + " stores its persistent ledger in its own isolated SQLite database (/data/wal.db). Its RAM firewall is an in-memory hash set (< 1 µs lookup) that instantly drops incoming requests from banned domains at /inbox.")
       );
       details.append(syncBanner);
 
@@ -347,11 +347,13 @@
       ["Connection", node.online ? "Active / reachable" : "Inactive / unreachable"],
       ["Reported role", !node.online ? (node.last_known_state || "Offline") :
         String(node.state).startsWith("BYZANTINE") ? node.state :
-        node.node_id === activeCoordinator() ? "PROPOSER / LEADER ★" : "PEER VALIDATOR"],
+        node.node_id === activeCoordinator() ? "PROPOSER ★" : "PEER VALIDATOR"],
       ["Organisation / Endpoint", orgLabel],
-      ["Last committed sequence", node.last_sequence === undefined ? "Unknown" : node.last_sequence],
-      ["Epoch", node.epoch === undefined ? "Unknown" : node.epoch],
-      ["Last seen", time(node.last_seen)]
+      ["Architecture", "Shared-Nothing · Zero central DB"],
+      ["Local Database (Storage)", "Isolated SQLite WAL (/data/wal.db)"],
+      ["Perimeter Defense (Ingress)", "Local in-memory RAM cache (< 1 µs O(1))"],
+      ["Last committed sequence", node.last_sequence === undefined ? "Unknown" : "Seq #" + node.last_sequence],
+      ["Epoch", node.epoch === undefined ? "Unknown" : "Epoch " + node.epoch]
     ].forEach(function (item) {
       const field = el("div", "detail-item");
       field.append(el("span", "", item[0]), el("strong", "", item[1]));
@@ -508,14 +510,23 @@
       if (isCoord) circle.append(el("span", "node-star", "★"));
       const role = !node.online ? "INACTIVE" : node.quarantined ? "QUARANTINE REPORTED" : fault ? "FAULT MODE" :
         isCoord ? "PROPOSER ★" : node.org ? node.org.toUpperCase() : "PEER";
-      button.append(circle, el("span", "node-name", node.node_id), el("span", "node-role", role));
+      const specs = el("div", "node-specs");
+      specs.append(
+        el("span", "node-spec-tag fw", "⚡ RAM"),
+        el("span", "node-spec-tag db", "💾 DB")
+      );
+      button.append(circle, el("span", "node-name", node.node_id), el("span", "node-role", role), specs);
       button.addEventListener("click", function () { openNode(node.node_id); });
       layer.append(button);
     });
     $("mesh-caption").textContent = onlineNodes().length + " / " + data.nodes.length + " reachable";
     const label = $("message-label");
     label.classList.toggle("attack", Boolean(latest && isAttack(latest)));
-    label.textContent = latest ? "Latest: " + latest.source + " → " + latest.target + " · " + latest.kind :
+    let cleanSource = latest ? latest.source : "";
+    let cleanTarget = latest ? latest.target : "";
+    if (cleanTarget === "firewall") cleanTarget = "Local O(1) RAM Firewall";
+    if (cleanTarget === "consortium") cleanTarget = "P2P gRPC Consortium";
+    label.textContent = latest ? "Latest: " + cleanSource + " → " + cleanTarget + " · " + latest.kind :
       "No observed transmissions yet";
     label.title = latest ? label.textContent + " · " + time(latest.timestamp) : label.textContent;
     const route = networkRoute(latest, positions);
@@ -528,12 +539,15 @@
     $("sender-status").textContent = !lastSender ? "Waiting for traffic" :
       lastSender.attack ? "Last message flagged" : "Last message received";
     sender.setAttribute("aria-label", lastSender ? "Last sender: " + lastSender.source.label : "External server: waiting for traffic");
-    serviceEndpoint.hidden = !route || (route.source.kind !== "service" && route.target.kind !== "service");
+    
+    // Do not show central bubble for local RAM firewall or consortium broadcasts; keep P2P gRPC mesh visible
+    const isLocalService = route && (route.target.label === "firewall" || route.target.label === "consortium");
+    serviceEndpoint.hidden = !route || (route.source.kind !== "service" && route.target.kind !== "service") || isLocalService;
     $("mesh-center").hidden = !serviceEndpoint.hidden;
     if (route) {
       const endpoint = route.target.kind === "service" ? route.target : route.source;
-      $("service-label").textContent = endpoint.label;
-      $("service-type").textContent = route.target.kind === "service" ? "DESTINATION" : "SOURCE";
+      $("service-label").textContent = endpoint.label === "firewall" ? "LOCAL RAM" : endpoint.label;
+      $("service-type").textContent = route.target.kind === "service" ? "LOCAL DESTINATION" : "SOURCE";
       transmission(svg, route, Date.now() - latest.timestamp < 8000);
     }
   }

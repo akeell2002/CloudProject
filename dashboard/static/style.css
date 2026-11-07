@@ -1551,3 +1551,31 @@ main {
 .dialog-scroll-box table {
   margin: 0;
 }
+
+.node-specs {
+  display: flex;
+  gap: 3px;
+  margin-top: 3px;
+}
+.node-spec-tag {
+  font: 700 7.5px var(--mono);
+  padding: 1px 4px;
+  border-radius: 3px;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+.node-spec-tag.fw {
+  background: #112620;
+  color: var(--green);
+  border: 1px solid #234c3d;
+}
+.node-spec-tag.db {
+  background: #10212b;
+  color: var(--cyan);
+  border: 1px solid #1f424e;
+}
+.mesh-node.offline .node-spec-tag {
+  background: #161d24;
+  color: #6d7b87;
+  border-color: #2b3641;
+}
