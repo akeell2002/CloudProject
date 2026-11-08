@@ -15,7 +15,8 @@ from node.ingress.firewall import FirewallFilter
 from node.engine.consensus import ConsensusEngine
 from node.engine.leader import LeaderManager
 from node.engine.catchup import CatchupEngine
-from node.crypto.ed25519 import sign_message
+import json
+from node.crypto.ed25519 import sign_message, verify_signature
 
 logger = logging.getLogger("fedconsensus.service")
 
@@ -79,6 +80,112 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
             return pb2.ProposeResponse(accepted=False, reason="Node is in CENSOR mode", node_id=self.config.node_id)
 
         logger.info(f"[{self.config.node_id}] Received proposal for: {request.target_domain}")
+
+        # Follower-to-Leader threat escalation:
+        # When active Epoch Leader receives a proposal/threat report from a follower peer
+        if self.leader.is_current_leader() and request.proposer_id != self.config.node_id:
+            reporter_id = request.proposer_id
+            reporter_pubkey = self.consensus.peer_public_keys.get(reporter_id) or self.config.known_peer_keys.get(reporter_id)
+            if reporter_id != "operator-fedctl" and not reporter_pubkey:
+                return pb2.ProposeResponse(
+                    accepted=False,
+                    reason=f"Proposal rejected: {reporter_id} is not an authorized consortium peer",
+                    node_id=self.config.node_id
+                )
+
+            # Verify reporter signature
+            vote_meta = {
+                "proposal_id": request.proposal_id,
+                "sequence_number": request.sequence_number,
+                "epoch": request.epoch,
+                "target_domain": request.target_domain,
+                "decision": "APPROVE"
+            }
+            sign_meta = {
+                "proposal_id": request.proposal_id,
+                "sequence_number": request.sequence_number,
+                "epoch": request.epoch,
+                "target_domain": request.target_domain,
+                "reason": request.reason,
+                "threat_score": round(request.threat_score, 3)
+            }
+            is_valid_sig = False
+            if reporter_id == "operator-fedctl":
+                is_valid_sig = True
+            elif reporter_pubkey:
+                if verify_signature(reporter_pubkey, vote_meta, request.proposer_signature):
+                    is_valid_sig = True
+                elif verify_signature(reporter_pubkey, sign_meta, request.proposer_signature):
+                    is_valid_sig = True
+
+            if not is_valid_sig:
+                self.reputation.penalize_forgery(reporter_id)
+                return pb2.ProposeResponse(
+                    accepted=False,
+                    reason="Proposal rejected: Invalid reporter signature",
+                    node_id=self.config.node_id
+                )
+
+            # Verify threat threshold
+            if request.threat_score < 0.60:
+                return pb2.ProposeResponse(
+                    accepted=False,
+                    reason=f"Threat score {request.threat_score} is below threshold 0.60",
+                    node_id=self.config.node_id
+                )
+
+            # Botnet burst audit
+            if request.reason == pb2.REASON_BOTNET:
+                burst_proven = False
+                if request.evidence_payload:
+                    try:
+                        ev = json.loads(request.evidence_payload)
+                        if ev.get("burst_count", 0) >= 5:
+                            burst_proven = True
+                    except Exception:
+                        pass
+                if not burst_proven and request.threat_score < 0.60:
+                    return pb2.ProposeResponse(
+                        accepted=False,
+                        reason="Botnet claim rejected: Insufficient burst evidence",
+                        node_id=self.config.node_id
+                    )
+
+            if self.firewall.is_blocked(request.target_domain):
+                return pb2.ProposeResponse(
+                    accepted=True,
+                    reason="Domain already defederated",
+                    node_id=self.config.node_id
+                )
+
+            with self.consensus._lock:
+                existing_prop = next((p for p in self.consensus.active_proposals.values() if p.target_domain == request.target_domain and not p.is_committed), None)
+            if existing_prop and existing_prop.request:
+                return pb2.ProposeResponse(
+                    accepted=True,
+                    reason="Proposal already in progress",
+                    node_id=self.config.node_id
+                )
+
+            # Leader adopts the threat: creates and broadcasts the leader proposal
+            leader_prop = self.consensus.create_proposal(
+                target_domain=request.target_domain,
+                reason=request.reason,
+                evidence_payload=request.evidence_payload,
+                origin_http_signature=request.origin_http_signature,
+                threat_score=request.threat_score
+            )
+            self.leader.clear_censorship_watch(request.target_domain)
+            threading.Thread(
+                target=self._broadcast_proposal,
+                args=(leader_prop,),
+                daemon=True
+            ).start()
+            return pb2.ProposeResponse(
+                accepted=True,
+                reason="Leader accepted threat report and broadcasted proposal",
+                node_id=self.config.node_id
+            )
 
         # Follower audits the proposal
         accepted, reason, vote_req = self.consensus.handle_proposal(request)
@@ -355,6 +462,22 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
             logger.info(f"[{self.config.node_id}] Successfully sent vote to proposer {proposer_id} at {addr}")
         except Exception as e:
             logger.warning(f"[{self.config.node_id}] Failed to send vote to proposer {proposer_id} at {addr}: {e}")
+
+    def _broadcast_proposal(self, prop_req: pb2.ProposeRequest):
+        targets = [p for p in self.config.peers if not self._is_self_peer(p)]
+        def _send(peer_addr):
+            try:
+                stub = self._get_stub(peer_addr)
+                self.consensus.telemetry.record(
+                    "proposal", self.config.node_id, peer_addr, "Sending block proposal",
+                    proposal_id=prop_req.proposal_id, domain=prop_req.target_domain,
+                )
+                res = stub.ProposeDefederation(prop_req, timeout=1.5)
+                if res and res.accepted:
+                    logger.info(f"[{self.config.node_id}] Peer {peer_addr} accepted proposal")
+            except Exception as e:
+                logger.debug(f"[{self.config.node_id}] Failed to send proposal to {peer_addr}: {e}")
+        list(self._rpc_executor.map(_send, targets))
 
     def _broadcast_commit(self, commit_req: pb2.CommitRequest):
         targets = [p for p in self.config.peers if not self._is_self_peer(p)]

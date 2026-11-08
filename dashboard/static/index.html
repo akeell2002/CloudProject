@@ -80,17 +80,7 @@
           <p id="bft-tolerance-hint" class="control-hint">Trust scores update automatically (-50 on forgery/attack, &lt;30 = auto-quarantined).</p>
         </details>
 
-        <!-- 3. K8s Autoscaling & New Organisations -->
-        <details open><summary>3. K8s autoscaling &amp; organisations</summary>
-          <label for="org-domain">Onboard new organisation domain</label>
-          <input id="org-domain" type="text" placeholder="e.g. ntu.social or oxford.social" maxlength="100">
-          <button type="button" id="add-org-node" class="action-button primary">+ Add organisation node</button>
-          <div class="button-pair" style="margin-top: 8px;">
-            <button type="button" id="autoscale-up" class="action-button">⚡ Auto-scale (+2)</button>
-            <button type="button" id="reset-scale" class="action-button danger-action">Reset to 5 nodes</button>
-          </div>
-          <p class="control-hint">New K8s StatefulSet pods auto-sync historical bans via gRPC CatchupSync into their O(1) RAM Firewall.</p>
-        </details>
+
 
         <div id="action-result" class="action-result" role="status" aria-live="polite">Actions and backend responses appear here.</div>
       </div>

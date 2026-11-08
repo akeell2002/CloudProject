@@ -141,8 +141,8 @@ class CatchupEngine:
                 if verify_signature(pubkey, vote_meta, sig.signature):
                     valid_voters.add(sig.voter_id)
                 else:
-                    # Flaw 13: Candidate threat score matching
-                    for candidate_score in (0.85, 0.95, 0.92, 0.91, 0.90, 0.89, 0.88, 0.80, 0.75, 0.70, 0.65, 0.60):
+                    # Candidate threat score matching (including 1.0, Item 3)
+                    for candidate_score in (1.0, 0.95, 0.92, 0.91, 0.90, 0.89, 0.88, 0.85, 0.80, 0.75, 0.70, 0.65, 0.60):
                         prop_meta = {
                             "proposal_id": proof.proposal_id,
                             "sequence_number": proof.sequence_number,
@@ -229,6 +229,16 @@ class CatchupEngine:
                                         domain=rec.target_domain,
                                     )
                         total_replayed += count
+
+                    # Item 7: Sync peer reputation/quarantine status to eliminate epoch split-brain
+                    try:
+                        status_res = stub.GetStatus(pb2.StatusRequest(caller_id=self.config.node_id), timeout=1.0)
+                        if status_res and status_res.reputations:
+                            for rep_entry in status_res.reputations:
+                                if rep_entry.trust_score < 30 or not rep_entry.is_active:
+                                    self.db.set_reputation(rep_entry.peer_id, rep_entry.trust_score)
+                    except Exception:
+                        pass
             except Exception:
                 continue
         return total_replayed

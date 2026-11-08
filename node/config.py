@@ -104,6 +104,17 @@ class NodeConfig:
             except Exception:
                 pass
 
+    def add_peer(self, peer_addr: str):
+        """Dynamically onboards a new consortium peer into cluster topology."""
+        if peer_addr not in self.peers:
+            self.peers.append(peer_addr)
+            peer_host = peer_addr.split(":")[0]
+            node_name = peer_host.split(".")[0]
+            if node_name not in self.known_peer_keys:
+                consortium_secret = os.getenv("CONSORTIUM_SECRET", "fedconsensus-consortium")
+                _, pub = generate_deterministic_keypair(f"{consortium_secret}-{node_name}")
+                self.known_peer_keys[node_name] = pub
+
     @property
     def total_nodes(self) -> int:
         return max(len(self.peers), 1)

@@ -12,6 +12,7 @@ from typing import List, Optional
 import grpc
 from proto import fedconsensus_pb2 as pb2
 from proto import fedconsensus_pb2_grpc as pb2_grpc
+from node.crypto.ed25519 import sign_message
 
 from node.config import NodeConfig
 from node.storage.database import Database
@@ -156,6 +157,31 @@ class ActivityPubHTTPHandler(BaseHTTPRequestHandler):
                 "peer_id": peer_id,
                 "score": score
             }).encode("utf-8"))
+        elif self.path == "/peers":
+            if not self._is_internal_operator():
+                self.send_response(403)
+                self.end_headers()
+                return
+            content_length = int(self.headers.get("Content-Length", 0))
+            post_data = self.rfile.read(content_length).decode("utf-8") if content_length > 0 else "{}"
+            try:
+                req_json = json.loads(post_data) if post_data else {}
+            except Exception:
+                req_json = {}
+            peer_addr = req_json.get("peer_address", "")
+            if self.service and peer_addr:
+                self.service.config.add_peer(peer_addr)
+                p_host = peer_addr.split(":")[0].split(".")[0]
+                if p_host in self.service.config.known_peer_keys:
+                    self.service.consensus.register_peer_key(p_host, self.service.config.known_peer_keys[p_host])
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "status": "OK",
+                "total_nodes": self.service.config.total_nodes if self.service else 5,
+                "quorum": self.service.config.quorum_size if self.service else 4
+            }).encode("utf-8"))
         else:
             self.send_response(404)
             self.end_headers()
@@ -227,18 +253,14 @@ class FedNodeRunner:
             logger.warning(f"[{self.config.node_id}] Leader is in CENSOR Byzantine mode; dropping proposal for {domain}!")
             return
 
-        # Flaw 5: Extract or generate authentic origin_http_signature
+        # Item 9: Extract authentic origin_http_signature if provided; no fabricated fallback
         origin_sig = payload.get("origin_http_signature", "")
         if isinstance(origin_sig, dict):
             origin_sig_str = json.dumps(origin_sig)
-        elif isinstance(origin_sig, str) and origin_sig:
+        elif isinstance(origin_sig, str):
             origin_sig_str = origin_sig
         else:
-            from node.crypto.ed25519 import generate_deterministic_keypair
-            from node.crypto.http_sig import create_origin_http_signature
-            domain_privkey, _ = generate_deterministic_keypair(f"origin-domain-{domain}")
-            sig_dict = create_origin_http_signature(domain, payload, domain_privkey)
-            origin_sig_str = json.dumps(sig_dict)
+            origin_sig_str = ""
 
         # Flaw 2 & Patch A1: Check if this node is current Epoch Leader
         if self.leader.is_current_leader():
@@ -262,15 +284,29 @@ class FedNodeRunner:
             ).start()
 
     def _forward_threat_to_leader(self, domain: str, payload: dict, origin_sig_str: str, assessment: ThreatAssessment):
-        """Forwards a follower-detected threat to the current Epoch Leader, or proposes to peers while watching for censorship."""
+        """Forwards a follower-detected threat to the current Epoch Leader without illegal bypass (Items 4 & 5)."""
         expected_leader = self.leader.get_leader_for_epoch(self.leader.current_epoch)
         leader_addr = self.service._find_peer_address(expected_leader)
-        prop_req = self.consensus.create_proposal(
+        vote_meta = {
+            "proposal_id": f"forward-{self.leader.current_epoch}-{self.config.node_id}-{domain}",
+            "sequence_number": self.consensus._sequence_counter,
+            "epoch": self.leader.current_epoch,
+            "target_domain": domain,
+            "decision": "APPROVE"
+        }
+        prop_sig = sign_message(self.config.private_key_hex, vote_meta)
+        prop_req = pb2.ProposeRequest(
+            proposal_id=vote_meta["proposal_id"],
+            sequence_number=vote_meta["sequence_number"],
+            epoch=vote_meta["epoch"],
             target_domain=domain,
             reason=assessment.dominant_reason_code,
             evidence_payload=json.dumps(payload),
             origin_http_signature=origin_sig_str,
-            threat_score=assessment.score
+            threat_score=assessment.score,
+            proposer_id=self.config.node_id,
+            proposer_signature=prop_sig,
+            timestamp=int(time.time() * 1000)
         )
         if leader_addr and not self._is_self_peer(leader_addr):
             try:
@@ -279,15 +315,13 @@ class FedNodeRunner:
                     proposal_id=prop_req.proposal_id, domain=prop_req.target_domain,
                 )
                 res = self._get_stub(leader_addr).ProposeDefederation(prop_req, timeout=1.0)
-                if res.accepted:
+                if res and res.accepted:
                     self.leader.clear_censorship_watch(domain)
-                    self._broadcast_proposal(prop_req, exclude_addr=leader_addr)
                     return
             except Exception:
                 pass
-        # If Leader is in CENSOR mode (accepted=False) or SILENT/unreachable, watch_censorship will impeach in 3s
-        # while still broadcasting proposal to remaining honest peers so quorum can form:
-        self._broadcast_proposal(prop_req, exclude_addr=leader_addr)
+        # If Leader is in CENSOR mode (accepted=False) or unreachable, censorship watch will expire in 3s
+        # and cleanly impeach the leader without premature follower broadcast race conditions!
 
     def _is_self_peer(self, peer_addr: str) -> bool:
         host = peer_addr.split(":")[0]
@@ -297,6 +331,18 @@ class FedNodeRunner:
         if host in ("localhost", "127.0.0.1") and f":{self.config.grpc_port}" in peer_addr:
             return True
         return False
+
+    def _peer_id_from_addr(self, peer_addr: str) -> str:
+        host = peer_addr.split(":")[0]
+        if host.startswith("fednode-"):
+            return host.split(".")[0]
+        if host in ("localhost", "127.0.0.1"):
+            try:
+                port = int(peer_addr.split(":")[1])
+                return f"fednode-{port - 50051}"
+            except Exception:
+                pass
+        return host
 
     def _broadcast_proposal(self, prop_req: pb2.ProposeRequest, exclude_addr: Optional[str] = None):
         """Broadcasts proposal to all consortium peers via gRPC in parallel."""
@@ -400,17 +446,22 @@ class FedNodeRunner:
                     threading.Thread(target=self._broadcast_proposal, args=(prop_req,), daemon=True).start()
 
             # Retry pending uncommitted proposals (heals 2-nodes-down partitions once a peer revives)
+            now_t = time.time()
             with self.consensus._lock:
-                pending = [
-                    p for p in self.consensus.active_proposals.values()
-                    if not p.is_committed and p.request is not None and p.request.proposer_id == self.config.node_id
-                ]
+                pending = []
+                for p in list(self.consensus.active_proposals.values()):
+                    if self.firewall.is_blocked(p.target_domain):
+                        p.is_committed = True
+                        continue
+                    if not p.is_committed and p.request is not None and p.request.proposer_id == self.config.node_id:
+                        if (now_t - p.created_at) < 20.0:
+                            pending.append(p)
             for prop in pending:
                 for peer_addr in self.config.peers:
                     if self._is_self_peer(peer_addr):
                         continue
-                    peer_host = peer_addr.split(":")[0]
-                    if peer_host in prop.approved_votes:
+                    peer_id = self._peer_id_from_addr(peer_addr)
+                    if peer_id in prop.approved_votes:
                         continue
                     try:
                         self._get_stub(peer_addr).ProposeDefederation(prop.request, timeout=0.8)

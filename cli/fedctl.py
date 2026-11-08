@@ -85,8 +85,7 @@ def cmd_propose(args):
         "sequence_number": 999,
         "epoch": 1,
         "target_domain": args.domain,
-        "reason": reason_code,
-        "threat_score": 0.95
+        "decision": "APPROVE"
     }
     signature = sign_message(priv, meta)
 

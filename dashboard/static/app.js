@@ -199,13 +199,7 @@
       if (bannedDomains.has(entry.domain)) {
         entry.committed = true;
       }
-      // Include online virtual/scaled nodes that are honest & unquarantined in approvals
-      (data.nodes || []).forEach(function (n) {
-        const isFaulty = String(n.state).startsWith("BYZANTINE_") || n.quarantined || !n.online;
-        if (!isFaulty && entry.committed) {
-          entry.approvals.add(n.node_id);
-        }
-      });
+
       entry.rejections.forEach(function (v) { entry.approvals.delete(v); });
       entry.invalid.forEach(function (v) { entry.approvals.delete(v); });
       entry.quarantined.forEach(function (v) { entry.approvals.delete(v); });
@@ -964,9 +958,7 @@
         seenDomains.delete(value.domain);
         selectedDomain = value.domain;
       }
-      if (body.action === "add_org" && $("org-domain")) {
-        $("org-domain").value = "";
-      }
+
     } catch (error) {
       result.className = "action-result failure-result";
       result.textContent = error.name === "TimeoutError" ? "Action timed out. Refresh and inspect actual node state before retrying." : error.message;
@@ -992,22 +984,7 @@
     button.addEventListener("click", function () { traffic(button.dataset.scenario); });
   });
   if ($("send-custom")) $("send-custom").addEventListener("click", function () { traffic("custom"); });
-  if ($("add-org-node")) {
-    $("add-org-node").addEventListener("click", function () {
-      const org = $("org-domain") ? $("org-domain").value.trim() : "";
-      runAction({action: "add_org", org: org || "ntu.social"});
-    });
-  }
-  if ($("autoscale-up")) {
-    $("autoscale-up").addEventListener("click", function () {
-      runAction({action: "autoscale", delta: 2});
-    });
-  }
-  if ($("reset-scale")) {
-    $("reset-scale").addEventListener("click", function () {
-      runAction({action: "reset_scale"});
-    });
-  }
+
   if ($("apply-settings")) {
     $("apply-settings").addEventListener("click", function () {
       runAction({action: "settings", node: actor(), fault: $("fault-mode").value});
