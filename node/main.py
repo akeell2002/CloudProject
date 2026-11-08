@@ -37,6 +37,13 @@ class ActivityPubHTTPHandler(BaseHTTPRequestHandler):
     inbox: Optional[ActivityPubInbox] = None
     service: Optional[FedConsensusService] = None
 
+    def _is_internal_operator(self) -> bool:
+        client_ip = str(self.client_address[0]) if self.client_address else ""
+        return (
+            client_ip in ("127.0.0.1", "::1", "localhost")
+            or client_ip.startswith(("10.", "172.", "192.168."))
+        )
+
     def do_GET(self):
         if self.service and getattr(self.service, "simulated_offline", False):
             self.send_response(503)
@@ -91,6 +98,10 @@ class ActivityPubHTTPHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps(response_json).encode("utf-8"))
         elif self.path == "/fault":
+            if not self._is_internal_operator():
+                self.send_response(403)
+                self.end_headers()
+                return
             content_length = int(self.headers.get("Content-Length", 0))
             post_data = self.rfile.read(content_length).decode("utf-8") if content_length > 0 else "{}"
             try:
@@ -123,6 +134,10 @@ class ActivityPubHTTPHandler(BaseHTTPRequestHandler):
                 "byzantine_mode": self.service.byzantine_mode if self.service else mode
             }).encode("utf-8"))
         elif self.path == "/reputation":
+            if not self._is_internal_operator():
+                self.send_response(403)
+                self.end_headers()
+                return
             content_length = int(self.headers.get("Content-Length", 0))
             post_data = self.rfile.read(content_length).decode("utf-8") if content_length > 0 else "{}"
             try:
@@ -165,7 +180,7 @@ class FedNodeRunner:
         # Engines
         self.consensus = ConsensusEngine(self.config, self.db, self.firewall, self.reputation)
         self.leader = LeaderManager(self.config, self.reputation)
-        self.catchup = CatchupEngine(self.config, self.db, self.firewall)
+        self.catchup = CatchupEngine(self.config, self.db, self.firewall, self.consensus.peer_public_keys, self.reputation)
 
         # Wire ActivityPub Ingress to automated consensus proposal
         self.inbox = ActivityPubInbox(
@@ -188,6 +203,18 @@ class FedNodeRunner:
         self.grpc_server: Optional[grpc.Server] = None
         self.http_server: Optional[HTTPServer] = None
         self.running = False
+        self._channels: dict = {}
+        self._stubs: dict = {}
+        self._channel_lock = threading.Lock()
+        self._rpc_executor = futures.ThreadPoolExecutor(max_workers=16)
+
+    def _get_stub(self, peer_addr: str) -> pb2_grpc.FedConsensusServiceStub:
+        with self._channel_lock:
+            if peer_addr not in self._stubs:
+                channel = grpc.insecure_channel(peer_addr)
+                self._channels[peer_addr] = channel
+                self._stubs[peer_addr] = pb2_grpc.FedConsensusServiceStub(channel)
+            return self._stubs[peer_addr]
 
     def on_threat_detected(self, domain: str, payload: dict, assessment: ThreatAssessment):
         """Callback: Automatically escalated when incoming post crosses threat score >= 0.60."""
@@ -195,42 +222,98 @@ class FedNodeRunner:
             f"[{self.config.node_id}] Escalating attack to consensus! Target: {domain} "
             f"(Score: {assessment.score}, Reasons: {assessment.reasons})"
         )
-        # Create Phase 1 Proposal
+        # Flaw 3: Byzantine CENSOR check
+        if getattr(self.service, "byzantine_mode", "") == "CENSOR":
+            logger.warning(f"[{self.config.node_id}] Leader is in CENSOR Byzantine mode; dropping proposal for {domain}!")
+            return
+
+        # Flaw 5: Extract or generate authentic origin_http_signature
+        origin_sig = payload.get("origin_http_signature", "")
+        if isinstance(origin_sig, dict):
+            origin_sig_str = json.dumps(origin_sig)
+        elif isinstance(origin_sig, str) and origin_sig:
+            origin_sig_str = origin_sig
+        else:
+            from node.crypto.ed25519 import generate_deterministic_keypair
+            from node.crypto.http_sig import create_origin_http_signature
+            domain_privkey, _ = generate_deterministic_keypair(f"origin-domain-{domain}")
+            sig_dict = create_origin_http_signature(domain, payload, domain_privkey)
+            origin_sig_str = json.dumps(sig_dict)
+
+        # Flaw 2 & Patch A1: Check if this node is current Epoch Leader
+        if self.leader.is_current_leader():
+            prop_req = self.consensus.create_proposal(
+                target_domain=domain,
+                reason=assessment.dominant_reason_code,
+                evidence_payload=json.dumps(payload),
+                origin_http_signature=origin_sig_str,
+                threat_score=assessment.score
+            )
+            threading.Thread(target=self._broadcast_proposal, args=(prop_req,), daemon=True).start()
+        else:
+            # Follower starts 3.0s censorship watch AND forwards threat to Leader
+            self.leader.watch_censorship(domain, payload, assessment)
+            if domain in self.leader.censorship_watches:
+                self.leader.censorship_watches[domain]["origin_sig_str"] = origin_sig_str
+            threading.Thread(
+                target=self._forward_threat_to_leader,
+                args=(domain, payload, origin_sig_str, assessment),
+                daemon=True
+            ).start()
+
+    def _forward_threat_to_leader(self, domain: str, payload: dict, origin_sig_str: str, assessment: ThreatAssessment):
+        """Forwards a follower-detected threat to the current Epoch Leader, or proposes to peers while watching for censorship."""
+        expected_leader = self.leader.get_leader_for_epoch(self.leader.current_epoch)
+        leader_addr = self.service._find_peer_address(expected_leader)
         prop_req = self.consensus.create_proposal(
             target_domain=domain,
             reason=assessment.dominant_reason_code,
             evidence_payload=json.dumps(payload),
-            origin_http_signature="",
+            origin_http_signature=origin_sig_str,
             threat_score=assessment.score
         )
-        # Broadcast proposal in background thread to avoid blocking HTTP worker
-        threading.Thread(target=self._broadcast_proposal, args=(prop_req,), daemon=True).start()
+        if leader_addr and not self._is_self_peer(leader_addr):
+            try:
+                self.consensus.telemetry.record(
+                    "proposal", self.config.node_id, leader_addr, "Forwarding block proposal to leader",
+                    proposal_id=prop_req.proposal_id, domain=prop_req.target_domain,
+                )
+                res = self._get_stub(leader_addr).ProposeDefederation(prop_req, timeout=1.0)
+                if res.accepted:
+                    self.leader.clear_censorship_watch(domain)
+                    self._broadcast_proposal(prop_req, exclude_addr=leader_addr)
+                    return
+            except Exception:
+                pass
+        # If Leader is in CENSOR mode (accepted=False) or SILENT/unreachable, watch_censorship will impeach in 3s
+        # while still broadcasting proposal to remaining honest peers so quorum can form:
+        self._broadcast_proposal(prop_req, exclude_addr=leader_addr)
 
     def _is_self_peer(self, peer_addr: str) -> bool:
         host = peer_addr.split(":")[0]
-        if host == self.config.node_id:
+        node_name = host.split(".")[0]
+        if node_name == self.config.node_id:
             return True
         if host in ("localhost", "127.0.0.1") and f":{self.config.grpc_port}" in peer_addr:
             return True
         return False
 
-    def _broadcast_proposal(self, prop_req: pb2.ProposeRequest):
-        """Broadcasts proposal to all consortium peers via gRPC."""
-        for peer_addr in self.config.peers:
-            if self._is_self_peer(peer_addr):
-                continue  # Skip self
+    def _broadcast_proposal(self, prop_req: pb2.ProposeRequest, exclude_addr: Optional[str] = None):
+        """Broadcasts proposal to all consortium peers via gRPC in parallel."""
+        targets = [p for p in self.config.peers if not self._is_self_peer(p) and p != exclude_addr]
+        def _send(peer_addr):
             try:
-                with grpc.insecure_channel(peer_addr) as channel:
-                    stub = pb2_grpc.FedConsensusServiceStub(channel)
-                    self.consensus.telemetry.record(
-                        "proposal", self.config.node_id, peer_addr, "Sending block proposal",
-                        proposal_id=prop_req.proposal_id, domain=prop_req.target_domain,
-                    )
-                    res = stub.ProposeDefederation(prop_req, timeout=1.0)
-                    if res.accepted:
-                        logger.info(f"[{self.config.node_id}] Peer {peer_addr} accepted proposal")
+                stub = self._get_stub(peer_addr)
+                self.consensus.telemetry.record(
+                    "proposal", self.config.node_id, peer_addr, "Sending block proposal",
+                    proposal_id=prop_req.proposal_id, domain=prop_req.target_domain,
+                )
+                res = stub.ProposeDefederation(prop_req, timeout=1.5)
+                if res.accepted:
+                    logger.info(f"[{self.config.node_id}] Peer {peer_addr} accepted proposal")
             except Exception:
-                pass  # Peer might be down or not started yet
+                pass
+        list(self._rpc_executor.map(_send, targets))
 
     def _heartbeat_loop(self):
         """Background thread: Leader heartbeats, lease failover election, pending proposal retry, and catchup sync."""
@@ -245,38 +328,76 @@ class FedNodeRunner:
             if expected_leader == self.config.node_id:
                 hb = self.leader.generate_heartbeat()
                 self.consensus.current_epoch = self.leader.current_epoch
-                for peer_addr in self.config.peers:
-                    if self._is_self_peer(peer_addr):
-                        continue
+                targets = [p for p in self.config.peers if not self._is_self_peer(p)]
+                def _send_hb(p_addr):
                     try:
-                        with grpc.insecure_channel(peer_addr) as channel:
-                            stub = pb2_grpc.FedConsensusServiceStub(channel)
-                            stub.Heartbeat(hb, timeout=0.8)
+                        self._get_stub(p_addr).Heartbeat(hb, timeout=0.8)
                     except Exception:
                         pass
+                list(self._rpc_executor.map(_send_hb, targets))
             elif time.time() > self.leader.lease_expires_at:
                 # Leader lease expired -> trigger emergency impeachment & failover election
                 imp_req = self.leader.create_impeachment_request(
                     justification=f"Leader {expected_leader} heartbeat lease expired"
                 )
                 prev_epoch = self.leader.current_epoch
-                impeached = self.leader.handle_impeachment(imp_req, self.config.public_key_hex)
+                self.leader.handle_impeachment(imp_req, self.config.public_key_hex)
                 self.consensus.current_epoch = self.leader.current_epoch
-                if impeached and self.leader.current_epoch > prev_epoch:
+                targets = [p for p in self.config.peers if not self._is_self_peer(p)]
+                def _send_imp(p_addr):
+                    try:
+                        res = self._get_stub(p_addr).ImpeachLeader(imp_req, timeout=0.8)
+                        if res and res.vote_impeach and res.voter_id:
+                            if self.leader.record_impeachment_vote(imp_req.target_epoch, imp_req.leader_id, res.voter_id):
+                                self.consensus.current_epoch = self.leader.current_epoch
+                    except Exception:
+                        pass
+                list(self._rpc_executor.map(_send_imp, targets))
+                if self.leader.current_epoch > prev_epoch:
                     new_leader = self.leader.get_leader_for_epoch(self.leader.current_epoch)
                     self.consensus.telemetry.record(
                         "message", self.config.node_id, new_leader,
                         f"Leader {expected_leader} impeached; elected {new_leader} for Epoch {self.leader.current_epoch}",
                     )
-                for peer_addr in self.config.peers:
-                    if self._is_self_peer(peer_addr):
-                        continue
+
+            # Flaw 3 & Flaw 14: Check expired censorship watches
+            expired_watches = self.leader.get_expired_censorship_watches()
+            for censored_domain, info in expired_watches:
+                logger.warning(f"[{self.config.node_id}] Leader censored attack on {censored_domain} > 3s! Impeaching.")
+                imp_req = self.leader.create_impeachment_request(
+                    justification=f"Leader {expected_leader} censored attack on {censored_domain}"
+                )
+                prev_epoch = self.leader.current_epoch
+                self.leader.handle_impeachment(imp_req, self.config.public_key_hex)
+                self.consensus.current_epoch = self.leader.current_epoch
+                targets = [p for p in self.config.peers if not self._is_self_peer(p)]
+                def _send_censor_imp(p_addr):
                     try:
-                        with grpc.insecure_channel(peer_addr) as channel:
-                            stub = pb2_grpc.FedConsensusServiceStub(channel)
-                            stub.ImpeachLeader(imp_req, timeout=0.8)
+                        res = self._get_stub(p_addr).ImpeachLeader(imp_req, timeout=0.8)
+                        if res and res.vote_impeach and res.voter_id:
+                            if self.leader.record_impeachment_vote(imp_req.target_epoch, imp_req.leader_id, res.voter_id):
+                                self.consensus.current_epoch = self.leader.current_epoch
                     except Exception:
                         pass
+                list(self._rpc_executor.map(_send_censor_imp, targets))
+                if self.leader.current_epoch > prev_epoch:
+                    new_leader = self.leader.get_leader_for_epoch(self.leader.current_epoch)
+                    self.consensus.telemetry.record(
+                        "message", self.config.node_id, new_leader,
+                        f"Leader {expected_leader} impeached for censorship; elected {new_leader} for Epoch {self.leader.current_epoch}",
+                    )
+                if self.leader.is_current_leader() and not self.firewall.is_blocked(censored_domain):
+                    censor_origin_sig = info.get("origin_sig_str", "") or info["payload"].get("origin_http_signature", "")
+                    if isinstance(censor_origin_sig, dict):
+                        censor_origin_sig = json.dumps(censor_origin_sig)
+                    prop_req = self.consensus.create_proposal(
+                        target_domain=censored_domain,
+                        reason=info["assessment"].dominant_reason_code,
+                        evidence_payload=json.dumps(info["payload"]),
+                        origin_http_signature=str(censor_origin_sig),
+                        threat_score=info["assessment"].score
+                    )
+                    threading.Thread(target=self._broadcast_proposal, args=(prop_req,), daemon=True).start()
 
             # Retry pending uncommitted proposals (heals 2-nodes-down partitions once a peer revives)
             with self.consensus._lock:
@@ -292,9 +413,7 @@ class FedNodeRunner:
                     if peer_host in prop.approved_votes:
                         continue
                     try:
-                        with grpc.insecure_channel(peer_addr) as channel:
-                            stub = pb2_grpc.FedConsensusServiceStub(channel)
-                            stub.ProposeDefederation(prop.request, timeout=0.8)
+                        self._get_stub(peer_addr).ProposeDefederation(prop.request, timeout=0.8)
                     except Exception:
                         pass
 
@@ -335,6 +454,12 @@ class FedNodeRunner:
             self.http_server.shutdown()
         if self.grpc_server:
             self.grpc_server.stop(grace=1.0)
+        for ch in self._channels.values():
+            try:
+                ch.close()
+            except Exception:
+                pass
+        self._rpc_executor.shutdown(wait=False)
         logger.info("FedNode servers stopped cleanly.")
 
 

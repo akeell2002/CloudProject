@@ -1,5 +1,6 @@
 import time
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import logging
 from typing import Dict, Any, Optional
 
@@ -43,8 +44,20 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
         self.leader = leader
         self.catchup = catchup
 
-        # Configurable fault mode: NONE, SILENT, LIAR, FORGER
+        # Configurable fault mode: NONE, SILENT, LIAR, FORGER, EQUIVOCATOR, CENSOR
         self.byzantine_mode = self.config.byzantine_mode
+        self._channels: Dict[str, grpc.Channel] = {}
+        self._stubs: Dict[str, pb2_grpc.FedConsensusServiceStub] = {}
+        self._channel_lock = threading.Lock()
+        self._rpc_executor = ThreadPoolExecutor(max_workers=16)
+
+    def _get_stub(self, peer_addr: str) -> pb2_grpc.FedConsensusServiceStub:
+        with self._channel_lock:
+            if peer_addr not in self._stubs:
+                channel = grpc.insecure_channel(peer_addr)
+                self._channels[peer_addr] = channel
+                self._stubs[peer_addr] = pb2_grpc.FedConsensusServiceStub(channel)
+            return self._stubs[peer_addr]
 
     def set_byzantine_mode(self, mode: str):
         """Allows dynamic fault injection from CLI or Dashboard (Phase 4)."""
@@ -60,10 +73,17 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
         if self.byzantine_mode == "SILENT":
             context.abort(grpc.StatusCode.UNAVAILABLE, "Node is in SILENT Byzantine fault mode")
 
+        # Flaw 3: Byzantine CENSOR mode: leader drops proposals
+        if self.byzantine_mode == "CENSOR":
+            logger.warning(f"[{self.config.node_id}] Byzantine CENSOR ignoring proposal for {request.target_domain}!")
+            return pb2.ProposeResponse(accepted=False, reason="Node is in CENSOR mode", node_id=self.config.node_id)
+
         logger.info(f"[{self.config.node_id}] Received proposal for: {request.target_domain}")
 
         # Follower audits the proposal
         accepted, reason, vote_req = self.consensus.handle_proposal(request)
+        if accepted:
+            self.leader.clear_censorship_watch(request.target_domain)
 
         # Byzantine LIAR: refuse to vote for legitimate threats
         if self.byzantine_mode == "LIAR" and vote_req:
@@ -102,6 +122,32 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
                 proposal_id=request.proposal_id, domain=request.target_domain,
                 decision="INVALID",
             )
+
+        # Flaw 9: Byzantine EQUIVOCATOR: send conflicting ballots
+        if self.byzantine_mode == "EQUIVOCATOR" and vote_req:
+            logger.warning(f"[{self.config.node_id}] Byzantine EQUIVOCATOR sending conflicting ballots!")
+            reject_vote = pb2.VoteRequest(
+                proposal_id=request.proposal_id,
+                sequence_number=request.sequence_number,
+                epoch=request.epoch,
+                target_domain=request.target_domain,
+                voter_id=self.config.node_id,
+                decision=pb2.VOTE_REJECT,
+                voter_signature=sign_message(self.config.private_key_hex, {
+                    "proposal_id": request.proposal_id,
+                    "sequence_number": request.sequence_number,
+                    "epoch": request.epoch,
+                    "target_domain": request.target_domain,
+                    "decision": "REJECT"
+                }),
+                timestamp=int(time.time() * 1000)
+            )
+            if request.proposer_id != self.config.node_id:
+                threading.Thread(
+                    target=lambda: (self._send_vote_to_proposer(request.proposer_id, vote_req),
+                                   self._send_vote_to_proposer(request.proposer_id, reject_vote)),
+                    daemon=True
+                ).start()
 
         # If proposal accepted and vote created, process locally
         if accepted and vote_req:
@@ -176,6 +222,8 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
             context.abort(grpc.StatusCode.UNAVAILABLE, "Node is in SILENT Byzantine fault mode")
 
         success = self.consensus.commit_defederation(request.quorum_proof)
+        if success:
+            self.leader.clear_censorship_watch(request.quorum_proof.target_domain)
         return pb2.CommitResponse(
             committed=success,
             message="Committed to SQLite and Firewall" if success else "Commit rejected"
@@ -268,7 +316,8 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
     # -------------------------------------------------------------
     def _is_self_peer(self, peer_addr: str) -> bool:
         host = peer_addr.split(":")[0]
-        if host == self.config.node_id:
+        node_name = host.split(".")[0]
+        if node_name == self.config.node_id:
             return True
         if host in ("localhost", "127.0.0.1") and f":{self.config.grpc_port}" in peer_addr:
             return True
@@ -277,7 +326,8 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
     def _find_peer_address(self, peer_id: str) -> Optional[str]:
         for addr in self.config.peers:
             host = addr.split(":")[0]
-            if host == peer_id:
+            node_name = host.split(".")[0]
+            if node_name == peer_id:
                 return addr
         if peer_id.startswith("fednode-"):
             try:
@@ -296,25 +346,23 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
             logger.warning(f"[{self.config.node_id}] Could not find address for proposer {proposer_id}")
             return
         try:
-            with grpc.insecure_channel(addr) as channel:
-                stub = pb2_grpc.FedConsensusServiceStub(channel)
-                self.consensus.telemetry.record(
-                    "vote", self.config.node_id, addr, "Transmitting vote to proposer",
-                    proposal_id=vote_req.proposal_id, decision="APPROVE" if vote_req.decision == pb2.VOTE_APPROVE else "REJECT"
-                )
-                stub.CastVote(vote_req, timeout=2.0)
-                logger.info(f"[{self.config.node_id}] Successfully sent vote to proposer {proposer_id} at {addr}")
+            stub = self._get_stub(addr)
+            self.consensus.telemetry.record(
+                "vote", self.config.node_id, addr, "Transmitting vote to proposer",
+                proposal_id=vote_req.proposal_id, decision="APPROVE" if vote_req.decision == pb2.VOTE_APPROVE else "REJECT"
+            )
+            stub.CastVote(vote_req, timeout=2.0)
+            logger.info(f"[{self.config.node_id}] Successfully sent vote to proposer {proposer_id} at {addr}")
         except Exception as e:
             logger.warning(f"[{self.config.node_id}] Failed to send vote to proposer {proposer_id} at {addr}: {e}")
 
     def _broadcast_commit(self, commit_req: pb2.CommitRequest):
-        for peer_addr in self.config.peers:
-            if self._is_self_peer(peer_addr):
-                continue
+        targets = [p for p in self.config.peers if not self._is_self_peer(p)]
+        def _send(peer_addr):
             try:
-                with grpc.insecure_channel(peer_addr) as channel:
-                    stub = pb2_grpc.FedConsensusServiceStub(channel)
-                    stub.CommitDefederation(commit_req, timeout=2.0)
-                    logger.info(f"[{self.config.node_id}] Broadcasted commit to {peer_addr}")
+                stub = self._get_stub(peer_addr)
+                stub.CommitDefederation(commit_req, timeout=1.5)
+                logger.info(f"[{self.config.node_id}] Broadcasted commit to {peer_addr}")
             except Exception as e:
                 logger.debug(f"[{self.config.node_id}] Failed to broadcast commit to {peer_addr}: {e}")
+        list(self._rpc_executor.map(_send, targets))

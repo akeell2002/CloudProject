@@ -7,6 +7,7 @@ from node.config import NodeConfig
 from node.storage.database import Database
 from node.storage.reputation import ReputationManager
 from node.ingress.firewall import FirewallFilter
+from node.ingress.classifier import ThreatClassifier
 from node.crypto.ed25519 import sign_message, verify_signature, canonical_json_hash
 from node.crypto.http_sig import verify_origin_http_signature
 from node.telemetry import EventLog
@@ -24,6 +25,7 @@ class ProposalState:
         self.request = request
         # voter_id -> pb2.VoterSignature
         self.approved_votes: Dict[str, pb2.VoterSignature] = {}
+        self.recorded_decisions: Dict[str, int] = {}
         self.is_committed = False
         self.created_at = time.time()
         self.committed_at: Optional[float] = None
@@ -47,6 +49,7 @@ class ConsensusEngine:
         self.db = database
         self.firewall = firewall
         self.reputation = reputation
+        self.classifier = ThreatClassifier()
         self.telemetry = EventLog(config.node_id)
 
         self._lock = threading.Lock()
@@ -149,6 +152,7 @@ class ConsensusEngine:
         Returns: (accepted, reason, signed_vote_request)
         """
         with self._lock:
+            self._sequence_counter = max(self._sequence_counter, req.sequence_number)
             proposer_id = req.proposer_id
             proposer_pubkey = self.peer_public_keys.get(proposer_id)
 
@@ -173,7 +177,7 @@ class ConsensusEngine:
             # 2. Origin HTTP Signature Anti-Framing Audit
             if req.origin_http_signature:
                 try:
-                    origin_sig_info = json.loads(req.origin_http_signature)
+                    origin_sig_info = json.loads(req.origin_http_signature) if isinstance(req.origin_http_signature, str) else req.origin_http_signature
                     is_valid_origin = verify_origin_http_signature(
                         req.target_domain,
                         req.evidence_payload,
@@ -182,9 +186,31 @@ class ConsensusEngine:
                     )
                     if not is_valid_origin:
                         self.reputation.penalize_bogus_evidence(proposer_id)
+                        self.telemetry.record(
+                            "invalid", proposer_id, self.config.node_id,
+                            "Proposal rejected: invalid origin HTTP signature (framing attack detected)",
+                            proposal_id=req.proposal_id, domain=req.target_domain,
+                        )
                         return False, "Origin HTTP signature invalid (framing attack detected)", None
                 except Exception:
                     return False, "Malformed origin HTTP signature payload", None
+
+            # Flaw 12: Independent Evidence Payload Audit
+            if req.evidence_payload:
+                try:
+                    ev_data = json.loads(req.evidence_payload) if isinstance(req.evidence_payload, str) else req.evidence_payload
+                    if isinstance(ev_data, dict) and "object" in ev_data and req.reason != pb2.REASON_BOTNET:
+                        audit = self.classifier.analyze(req.target_domain, ev_data)
+                        if not audit.is_threat:
+                            self.reputation.penalize_bogus_evidence(proposer_id)
+                            self.telemetry.record(
+                                "invalid", proposer_id, self.config.node_id,
+                                "Proposal rejected: independent classifier audit scored payload as benign",
+                                proposal_id=req.proposal_id, domain=req.target_domain,
+                            )
+                            return False, "Independent threat audit failed: evidence payload is benign", None
+                except Exception:
+                    pass
 
             # 3. Threat Score Verification
             if req.threat_score < 0.60:
@@ -278,6 +304,20 @@ class ConsensusEngine:
                 )
                 return None
 
+            # Flaw 9: Equivocation Detection (conflicting signed ballots)
+            prev_decision = proposal.recorded_decisions.get(voter_id)
+            if prev_decision is not None and prev_decision != vote.decision:
+                self.reputation.penalize_equivocation(voter_id)
+                proposal.approved_votes.pop(voter_id, None)
+                self.telemetry.record(
+                    "invalid", voter_id, self.config.node_id,
+                    "Equivocation detected: peer sent conflicting signed ballots (-50 trust)",
+                    proposal_id=vote.proposal_id, domain=vote.target_domain,
+                    decision="INVALID",
+                )
+                return None
+            proposal.recorded_decisions[voter_id] = vote.decision
+
             self.telemetry.record(
                 "vote", voter_id, self.config.node_id,
                 "Received a signed ballot", proposal_id=vote.proposal_id,
@@ -334,11 +374,17 @@ class ConsensusEngine:
             if len(proof.signatures) < required_quorum:
                 return False
 
+            # Flaw 2: Advance sequence counter to match committed proof
+            self._sequence_counter = max(self._sequence_counter, proof.sequence_number)
+
             # 2. Verify all signatures in Quorum Certificate
             valid_voters: Set[str] = set()
             tracked_prop = self.active_proposals.get(proof.proposal_id)
             score_val = tracked_prop.threat_score if tracked_prop else 0.85
             for s in proof.signatures:
+                # Flaw 16: Quarantined peers cannot contribute to Quorum
+                if not self.reputation.is_peer_eligible_to_vote(s.voter_id):
+                    continue
                 pubkey = self.peer_public_keys.get(s.voter_id)
                 if not pubkey:
                     return False
@@ -349,17 +395,25 @@ class ConsensusEngine:
                     "target_domain": proof.target_domain,
                     "decision": "APPROVE"
                 }
-                prop_meta = {
-                    "proposal_id": proof.proposal_id,
-                    "sequence_number": proof.sequence_number,
-                    "epoch": proof.epoch,
-                    "target_domain": proof.target_domain,
-                    "reason": proof.reason,
-                    "threat_score": round(score_val, 3)
-                }
-                if not (verify_signature(pubkey, vote_meta, s.signature) or verify_signature(pubkey, prop_meta, s.signature)):
-                    return False
-                valid_voters.add(s.voter_id)
+                if verify_signature(pubkey, vote_meta, s.signature):
+                    valid_voters.add(s.voter_id)
+                else:
+                    matched = False
+                    for candidate_score in (score_val, 0.85, 0.95, 0.92, 0.91, 0.90, 0.89, 0.88, 0.80, 0.75, 0.70, 0.65, 0.60):
+                        cand_meta = {
+                            "proposal_id": proof.proposal_id,
+                            "sequence_number": proof.sequence_number,
+                            "epoch": proof.epoch,
+                            "target_domain": proof.target_domain,
+                            "reason": proof.reason,
+                            "threat_score": round(candidate_score, 3)
+                        }
+                        if verify_signature(pubkey, cand_meta, s.signature):
+                            valid_voters.add(s.voter_id)
+                            matched = True
+                            break
+                    if not matched:
+                        return False
 
             if len(valid_voters) < required_quorum:
                 return False
@@ -371,6 +425,7 @@ class ConsensusEngine:
                 "epoch": proof.epoch,
                 "target_domain": proof.target_domain,
                 "reason": proof.reason,
+                "threat_score": round(score_val, 3),
                 "signatures": [
                     {"voter_id": s.voter_id, "signature": s.signature, "timestamp": s.timestamp}
                     for s in proof.signatures

@@ -1,3 +1,4 @@
+import threading
 import re
 import time
 from typing import Dict, Any, List
@@ -43,6 +44,7 @@ class ThreatClassifier:
         self.burst_threshold = burst_threshold
         # origin_domain -> list of request timestamps
         self._traffic_history: Dict[str, List[float]] = defaultdict(list)
+        self._lock = threading.Lock()
 
     def analyze(self, domain: str, activity_payload: Dict[str, Any]) -> ThreatAssessment:
         now = time.time()
@@ -51,13 +53,15 @@ class ThreatClassifier:
         dominant_code = 1  # Default REASON_SPAM
 
         # 1. Message Velocity / Burst Rate (Bot detection)
-        history = self._traffic_history[domain]
-        # Prune timestamps older than our sliding window
-        history = [t for t in history if now - t <= self.window_seconds]
-        history.append(now)
-        self._traffic_history[domain] = history
-
-        burst_count = len(history)
+        with self._lock:
+            if len(self._traffic_history) > 1000:
+                stale = [d for d, ts in self._traffic_history.items() if not ts or now - ts[-1] > self.window_seconds]
+                for d in stale:
+                    del self._traffic_history[d]
+            history = [t for t in self._traffic_history[domain] if now - t <= self.window_seconds]
+            history.append(now)
+            self._traffic_history[domain] = history
+            burst_count = len(history)
         if burst_count >= self.burst_threshold:
             velocity_score = min(1.0, 0.40 + (burst_count - self.burst_threshold) * 0.15)
             scores.append(velocity_score)

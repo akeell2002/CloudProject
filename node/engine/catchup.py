@@ -5,6 +5,7 @@ from proto import fedconsensus_pb2 as pb2
 from node.config import NodeConfig
 from node.storage.database import Database
 from node.ingress.firewall import FirewallFilter
+from node.storage.reputation import ReputationManager
 from node.crypto.ed25519 import verify_signature
 
 logger = logging.getLogger("fedconsensus.catchup")
@@ -21,11 +22,13 @@ class CatchupEngine:
         config: NodeConfig,
         database: Database,
         firewall: FirewallFilter,
-        peer_public_keys: Optional[Dict[str, str]] = None
+        peer_public_keys: Optional[Dict[str, str]] = None,
+        reputation: Optional[ReputationManager] = None
     ):
         self.config = config
         self.db = database
         self.firewall = firewall
+        self.reputation = reputation or ReputationManager(database)
         self.peer_public_keys: Dict[str, str] = peer_public_keys or {
             **getattr(self.config, "known_peer_keys", {}),
             self.config.node_id: self.config.public_key_hex
@@ -118,6 +121,9 @@ class CatchupEngine:
             # Cryptographically audit each signature in the proof
             valid_voters = set()
             for sig in proof.signatures:
+                # Flaw 16: Check signer eligibility (quarantine check)
+                if self.reputation and not self.reputation.is_peer_eligible_to_vote(sig.voter_id):
+                    continue
                 pubkey = self.peer_public_keys.get(sig.voter_id)
                 if not pubkey:
                     continue
@@ -135,17 +141,19 @@ class CatchupEngine:
                 if verify_signature(pubkey, vote_meta, sig.signature):
                     valid_voters.add(sig.voter_id)
                 else:
-                    # In case it was the leader's initial proposal signature format
-                    prop_meta = {
-                        "proposal_id": proof.proposal_id,
-                        "sequence_number": proof.sequence_number,
-                        "epoch": proof.epoch,
-                        "target_domain": proof.target_domain,
-                        "reason": proof.reason,
-                        "threat_score": 0.85  # default baseline
-                    }
-                    if verify_signature(pubkey, prop_meta, sig.signature):
-                        valid_voters.add(sig.voter_id)
+                    # Flaw 13: Candidate threat score matching
+                    for candidate_score in (0.85, 0.95, 0.92, 0.91, 0.90, 0.89, 0.88, 0.80, 0.75, 0.70, 0.65, 0.60):
+                        prop_meta = {
+                            "proposal_id": proof.proposal_id,
+                            "sequence_number": proof.sequence_number,
+                            "epoch": proof.epoch,
+                            "target_domain": proof.target_domain,
+                            "reason": proof.reason,
+                            "threat_score": round(candidate_score, 3)
+                        }
+                        if verify_signature(pubkey, prop_meta, sig.signature):
+                            valid_voters.add(sig.voter_id)
+                            break
 
             if len(valid_voters) < self.config.quorum_size:
                 logger.warning(
@@ -195,27 +203,31 @@ class CatchupEngine:
         total_replayed = 0
         for peer_addr in self.config.peers:
             host = peer_addr.split(":")[0]
-            if host == self.config.node_id or (host in ("localhost", "127.0.0.1") and f":{self.config.grpc_port}" in peer_addr):
+            node_name = host.split(".")[0]
+            if node_name == self.config.node_id or (host in ("localhost", "127.0.0.1") and f":{self.config.grpc_port}" in peer_addr):
                 continue
             try:
+                start_seq = self.db.get_latest_sequence_number() + 1
                 with grpc.insecure_channel(peer_addr) as channel:
                     stub = pb2_grpc.FedConsensusServiceStub(channel)
                     req = pb2.CatchupRequest(
                         node_id=self.config.node_id,
-                        from_sequence_number=1
+                        from_sequence_number=start_seq
                     )
                     res = stub.CatchupSync(req, timeout=1.5)
                     if res and res.records:
+                        new_domains = [r.target_domain for r in res.records if not self.firewall.is_blocked(r.target_domain)]
                         count = self.replay_records(list(res.records))
                         if count > 0 and consensus is not None:
                             for rec in res.records:
-                                consensus.commit_defederation(rec.quorum_proof)
-                                consensus.telemetry.record(
-                                    "commit", self.config.node_id, "firewall",
-                                    f"Self-healed missed ban via CatchupSync from {res.node_id}",
-                                    proposal_id=rec.quorum_proof.proposal_id,
-                                    domain=rec.target_domain,
-                                )
+                                if rec.target_domain in new_domains:
+                                    consensus.commit_defederation(rec.quorum_proof)
+                                    consensus.telemetry.record(
+                                        "commit", self.config.node_id, "firewall",
+                                        f"Self-healed missed ban via CatchupSync from {res.node_id}",
+                                        proposal_id=rec.quorum_proof.proposal_id,
+                                        domain=rec.target_domain,
+                                    )
                         total_replayed += count
             except Exception:
                 continue

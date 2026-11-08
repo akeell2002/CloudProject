@@ -1,6 +1,6 @@
 import time
 import threading
-from typing import Dict, Optional, Tuple, Set
+from typing import Dict, Optional, Tuple, Set, Any
 from proto import fedconsensus_pb2 as pb2
 from node.config import NodeConfig
 from node.storage.reputation import ReputationManager
@@ -24,16 +24,43 @@ class LeaderManager:
         self.lease_expires_at = time.time() + self.LEASE_DURATION_SECONDS
         # Track impeachment votes: epoch -> set of accuser node_ids
         self.impeachment_votes: Dict[int, Set[str]] = {}
+        self.censorship_watches: Dict[str, Dict[str, Any]] = {}
+        self.penalized_epochs: Set[int] = set()
 
     def get_leader_for_epoch(self, epoch: int) -> str:
-        """Deterministic round-robin leader selection: leader = peers[epoch % N]."""
-        sorted_peers = sorted(self.config.peers)
-        if not sorted_peers:
-            return self.config.node_id
-        # Use modulo to pick deterministic leader for this term
-        idx = (epoch - 1) % len(sorted_peers)
-        # Handle 'host:port' by mapping to node identifier
-        return f"fednode-{idx}"
+        """Deterministic round-robin leader selection skipping quarantined peers."""
+        n = max(len(self.config.peers), 1)
+        base_idx = (epoch - 1) % n
+        for offset in range(n):
+            candidate = f"fednode-{(base_idx + offset) % n}"
+            if self.reputation.is_peer_eligible_to_vote(candidate):
+                return candidate
+        return f"fednode-{base_idx}"
+
+    def watch_censorship(self, domain: str, payload: dict, assessment):
+        """Follower starts a 3.0s timer waiting for the Leader to propose/commit this domain."""
+        with self._lock:
+            if domain not in self.censorship_watches:
+                self.censorship_watches[domain] = {
+                    "reported_at": time.time(),
+                    "payload": payload,
+                    "assessment": assessment,
+                    "epoch": self.current_epoch
+                }
+
+    def clear_censorship_watch(self, domain: str):
+        with self._lock:
+            self.censorship_watches.pop(domain, None)
+
+    def get_expired_censorship_watches(self) -> list:
+        now = time.time()
+        expired = []
+        with self._lock:
+            for domain, info in list(self.censorship_watches.items()):
+                if now - info["reported_at"] >= self.PROPOSAL_CENSOR_TIMEOUT_SECONDS:
+                    expired.append((domain, info))
+                    del self.censorship_watches[domain]
+        return expired
 
     def is_current_leader(self) -> bool:
         """Returns True if this node is the active leader for the current epoch."""
@@ -83,7 +110,15 @@ class LeaderManager:
                 self.reputation.penalize_forgery(req.leader_id)
                 return False, self.current_epoch
 
-            # 3. Renew follower's local lease timer for this leader
+            # 3. If advancing epoch after impeachment votes, penalize deposed leader once
+            if req.epoch > self.current_epoch:
+                for e in range(self.current_epoch, req.epoch):
+                    if e in self.impeachment_votes and e not in self.penalized_epochs:
+                        old_leader = self.get_leader_for_epoch(e)
+                        self.penalized_epochs.add(e)
+                        self.reputation.penalize_censorship(old_leader)
+
+            # 4. Renew follower's local lease timer for this leader
             self.current_epoch = req.epoch
             self.lease_expires_at = req.lease_expires_at / 1000.0
             return True, self.current_epoch
@@ -132,16 +167,36 @@ class LeaderManager:
                 self.impeachment_votes[req.target_epoch] = set()
 
             self.impeachment_votes[req.target_epoch].add(req.accuser_id)
+            if self.config.node_id != req.leader_id and self.current_epoch <= req.target_epoch:
+                self.impeachment_votes[req.target_epoch].add(self.config.node_id)
 
             # Check if Quorum threshold reached to depose leader
             required_quorum = self.config.quorum_size
             if len(self.impeachment_votes[req.target_epoch]) >= required_quorum:
-                if self.current_epoch <= req.target_epoch:
-                    # Penalize censoring leader once per deposed epoch
+                if req.target_epoch not in self.penalized_epochs:
+                    self.penalized_epochs.add(req.target_epoch)
                     self.reputation.penalize_censorship(req.leader_id)
+                if self.current_epoch <= req.target_epoch:
                     # Advance epoch (failover to next leader!)
                     self.current_epoch = req.target_epoch + 1
                     self.lease_expires_at = time.time() + self.LEASE_DURATION_SECONDS
                 return True
 
+            # Return True if this node seconded the impeachment vote so the caller can tally it!
+            return self.config.node_id in self.impeachment_votes[req.target_epoch]
+
+    def record_impeachment_vote(self, target_epoch: int, leader_id: str, voter_id: str) -> bool:
+        """Records an affirmative ImpeachResponse from a peer and advances epoch once Q votes are collected."""
+        with self._lock:
+            if target_epoch not in self.impeachment_votes:
+                self.impeachment_votes[target_epoch] = set()
+            self.impeachment_votes[target_epoch].add(voter_id)
+            if len(self.impeachment_votes[target_epoch]) >= self.config.quorum_size:
+                if target_epoch not in self.penalized_epochs:
+                    self.penalized_epochs.add(target_epoch)
+                    self.reputation.penalize_censorship(leader_id)
+                if self.current_epoch <= target_epoch:
+                    self.current_epoch = target_epoch + 1
+                    self.lease_expires_at = time.time() + self.LEASE_DURATION_SECONDS
+                return True
             return False

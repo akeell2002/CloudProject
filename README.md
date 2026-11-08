@@ -250,7 +250,7 @@ FedConsensus is containerized and deployed using **Kubernetes StatefulSets**:
 * **Deterministic Identities:** StatefulSets assign fixed hostnames (`fednode-0`, `fednode-1`, etc.).
 * **Headless DNS Service:** Enables direct peer-to-peer gRPC addressing without load-balancer proxy overhead.
 * **PersistentVolumeClaims (PVC):** Ensures SQLite WAL files and node keypairs survive pod crashes and restarts.
-* **Automated Elastic Self-Healing:** If 2 nodes are compromised, the cluster detects the quorum stall (3/4 votes) and automatically patches the Kubernetes API to scale to 7 replicas, restoring quorum ($5/7$) autonomously!
+* **Dynamic Consortium Organization Onboarding & Self-Healing:** When new partner organizations are admitted into the consortium, the Kubernetes StatefulSet scales replicas (e.g., $N=5 \rightarrow 7$, increasing fault tolerance $f=1 \rightarrow 2$, $Q=5/7$) and automatically executes `CatchupSync` with $Q$-signed Quorum Certificate verification to hydrate the new organization's $O(1)$ RAM firewall.
 
 ---
 

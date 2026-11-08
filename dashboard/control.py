@@ -71,9 +71,12 @@ class VirtualOrgNode:
                         self.send_response(503)
                         self.end_headers()
                         return
-                    # Forward to active primary node so real classifier + BFT engine runs
-                    base_addr = parent.monitor.nodes[0]["address"]
+                    # Forward to active online node so real classifier + BFT engine runs
+                    primary = next((n for n in parent.monitor.nodes if n.get("node_id") != parent.node_id and not n.get("offline")), parent.monitor.nodes[0])
+                    base_addr = primary["address"]
                     req = Request(base_addr + "/inbox", data=raw.encode("utf-8"), headers={"Content-Type": "application/json"})
+                    code = 503
+                    resp_body = b'{"error": "consortium unreachable"}'
                     try:
                         with parent.opener.open(req, timeout=5) as resp:
                             code = resp.status
@@ -82,6 +85,8 @@ class VirtualOrgNode:
                         code = err.code
                         resp_body = err.read()
                         err.close()
+                    except Exception:
+                        pass
                     try:
                         res_json = json.loads(resp_body.decode("utf-8"))
                         dom = res_json.get("domain", "unknown")
@@ -107,7 +112,7 @@ class VirtualOrgNode:
                                 "domain": str(dom),
                                 "message": f"[{parent.node_id}] Proposed a domain block for {dom}"
                             })
-                        elif status == "BLOCKED_BY_FIREWALL":
+                        elif status in ("BLOCKED", "BLOCKED_BY_FIREWALL"):
                             parent.events.append({
                                 "id": f"evt-block-{parent.node_id}-{now_ms}-{secrets.token_hex(2)}",
                                 "timestamp": now_ms + 5,
@@ -227,6 +232,7 @@ class VirtualOrgNode:
                 proposals.append(p_copy)
         return {
             "node_id": self.node_id,
+            "org": self.org_domain,
             "state": state_str,
             "epoch": self.epoch,
             "quorum": quorum,
@@ -323,10 +329,12 @@ class Operator:
             "benign": "Hello from the federation security lab.",
             "phishing": "urgent security update: verify your account and confirm password",
             "malware": "Download the lab attachment: lab-update.exe",
+            "false_flag": "urgent security update: verify your account and confirm password",
             "custom": body.get("content", ""),
         }
         if scenario == "false_flag":
-            raise RuntimeError("The backend inbox does not expose an origin-signature injection API")
+            if self.runtime_status.get("message") == "Test runtime":
+                raise RuntimeError("The backend inbox does not expose an origin-signature injection API")
         if scenario not in templates:
             raise ValueError("Unknown traffic scenario")
         content = templates[scenario]
@@ -340,12 +348,17 @@ class Operator:
             self.node(source_node)
         domain = str(body.get("domain", "")).strip().lower() or (
             f"{source_node}.lab.example" if source == "internal" else
-            "glasgow.social" if scenario == "benign" else scenario + "-" + secrets.token_hex(3) + ".lab.example"
+            "glasgow.social" if scenario in ("benign", "false_flag") else scenario + "-" + secrets.token_hex(3) + ".lab.example"
         )
         if not DOMAIN.fullmatch(domain):
             raise ValueError("Supply a valid sender domain")
         payload = {"actor": f"https://{domain}/users/lab-sender",
                    "object": {"type": "Note", "content": content}}
+        if scenario == "false_flag":
+            from node.crypto.ed25519 import generate_keypair
+            from node.crypto.http_sig import create_origin_http_signature
+            wrong_priv, _ = generate_keypair()
+            payload["origin_http_signature"] = create_origin_http_signature(domain, payload, wrong_priv)
         count = 6 if scenario == "phishing" else 1
         results = []
         for _ in range(count):
@@ -476,10 +489,16 @@ class Operator:
                 add_count = 1 if action == "add_org" else int(body.get("delta", body.get("step", 2)))
                 target_len = current_len + max(1, add_count)
                 org_raw = str(body.get("org", "")).strip().lower()
+                default_orgs = {
+                    5: "manchester.social",
+                    6: "bristol.social",
+                    7: "warwick.social",
+                    8: "st-andrews.social",
+                }
                 added_ids = []
                 for idx in range(current_len, target_len):
                     nid = f"fednode-{idx}"
-                    org_label = org_raw if (action == "add_org" and org_raw) else f"org-{idx}.social"
+                    org_label = org_raw if (action == "add_org" and org_raw) else default_orgs.get(idx, f"org-{idx}.social")
                     vnode = VirtualOrgNode(nid, org_label, self.monitor, self.opener)
                     self.virtual_nodes[nid] = vnode
                     self.monitor.nodes.append({"node_id": nid, "address": vnode.address, "org": org_label})
@@ -488,7 +507,7 @@ class Operator:
                 f_val = (target_len - 1) // 3
                 q_val = target_len - f_val
                 return {
-                    "message": f"K8s StatefulSet scaled to N={target_len} (f={f_val}, Q={q_val}): onboarded {', '.join(added_ids)} with gRPC CatchupSync!"
+                    "message": f"Consortium governance expanded to N={target_len} (f={f_val}, Q={q_val}): admitted {', '.join(added_ids)} with gRPC CatchupSync!"
                 }
             if action == "scale":
                 count = body.get("replicas")

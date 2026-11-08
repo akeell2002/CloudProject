@@ -61,14 +61,22 @@ def cmd_peers(args):
 
 def cmd_propose(args):
     """Manually broadcasts a ban proposal against a malicious domain."""
+    import os
     import time
-    from node.crypto.ed25519 import generate_keypair, sign_message
+    from node.crypto.ed25519 import generate_keypair, generate_deterministic_keypair, sign_message
 
     stub = get_stub(args.target)
     reason_code = getattr(pb2, f"REASON_{args.reason.upper()}", pb2.REASON_BOTNET)
 
-    # Generate a temporary operator key to sign the manual proposal
-    priv, pub = generate_keypair()
+    as_node = getattr(args, "as_node", None)
+    if isinstance(as_node, str) and as_node.strip():
+        consortium_secret = os.getenv("CONSORTIUM_SECRET", "fedconsensus-consortium")
+        priv, pub = generate_deterministic_keypair(f"{consortium_secret}-{as_node.strip()}")
+        proposer_id = as_node.strip()
+    else:
+        # Generate a temporary operator key to sign the manual proposal
+        priv, pub = generate_keypair()
+        proposer_id = "operator-fedctl"
     now = int(time.time() * 1000)
     proposal_id = f"prop-manual-{args.domain}-{now}"
 
@@ -90,7 +98,7 @@ def cmd_propose(args):
         reason=reason_code,
         evidence_payload=f'{{"reason": "{args.reason}", "operator": "fedctl"}}',
         threat_score=0.95,
-        proposer_id="operator-fedctl",
+        proposer_id=proposer_id,
         proposer_signature=signature,
         timestamp=now
     )
@@ -121,6 +129,7 @@ def main():
     prop_parser = subparsers.add_parser("propose", help="Manually propose defederation against a domain")
     prop_parser.add_argument("domain", help="Target domain to ban (e.g., spam-bot.net)")
     prop_parser.add_argument("--reason", default="BOTNET", choices=["SPAM", "BOTNET", "PHISHING", "MALICIOUS_FILES"], help="Violation category")
+    prop_parser.add_argument("--as-node", default=None, help="Sign proposal using authorized consortium node identity (e.g., fednode-0)")
 
     args = parser.parse_args()
 

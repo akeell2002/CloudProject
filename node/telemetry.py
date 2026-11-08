@@ -62,6 +62,7 @@ def node_snapshot(service):
         state = "BYZANTINE_" + service.byzantine_mode
     return {
         "node_id": service.config.node_id,
+        "org": getattr(service.config, "org_domain", f"{service.config.node_id}.social"),
         "state": state,
         "epoch": service.leader.current_epoch,
         "last_sequence": service.db.get_latest_sequence_number(),
