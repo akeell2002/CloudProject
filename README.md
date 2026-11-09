@@ -5,7 +5,7 @@
 See [dashboard/README.md](dashboard/README.md) for live UI controls and setup.
 
 **Operator token:** node `POST /fault`, `/reputation` and `/peers` require the header `X-Operator-Token` matching `FEDCONSENSUS_OPERATOR_TOKEN`. Client IP is not trusted. A node without a token returns 403 on these routes. `start-cluster.bat` generates a random token into the gitignored `.env` on first run; docker compose passes it to the nodes and the dashboard. On Kubernetes, create the secret with `kubectl create secret generic fedconsensus-operator --from-literal=token=<random>` and give a host-run dashboard the same value. Trust recovers automatically: after 60 s without a new violation, a score below 100 rises by +5 every 30 s (operator-set scores included), so 0 reaches the voting threshold of 30 in about 210 s.
-The live Operator Console provides end-to-end observability and interactive testing for external & internal ActivityPub threat injection, automated 3-phase BFT voting (`Q = N - f`), O(1) RAM firewall inspection, Byzantine fault injection (`Silent`, `Liar`, `Forger`), crash/revive `CatchupSync` self-healing, and unlimited Kubernetes StatefulSet scaling.
+The live Operator Console provides end-to-end observability and interactive testing for external & internal ActivityPub threat injection, automated 3-phase BFT voting (`Q = N - f`), O(1) RAM firewall inspection, Byzantine fault injection (`Silent`, `Liar`, `Forger`), and crash/revive `CatchupSync` self-healing.
 
 [![Course](https://img.shields.io/badge/Course-CSC3104%20Cloud%20%26%20Distributed%20Computing-blue.svg)](https://www.gla.ac.uk/)
 [![Institution](https://img.shields.io/badge/Institution-University%20of%20Glasgow%20%2F%20SIT-red.svg)](https://www.singaporetech.edu.sg/)
@@ -335,10 +335,21 @@ CloudProject/
 │   │   ├── test_dashboard_node_verify.py # Node /telemetry endpoint integration test
 │   │   ├── test_dashboard_routes.cjs   # Network routes & persistent sender labels (Node.js)
 │   │   └── test_phase4_verification.py # Phase 4 comprehensive cloud infrastructure suite
-│   └── end_to_end_testing/         # End-to-End BFT Quorum, Byzantine Masking & Chaos Lifecycles
-│       ├── test_consensus.py           # Quorum math, split-brain invariance & live QC minting
-│       ├── test_byzantine.py           # Byzantine LIAR masking & FORGER signature audit
-│       └── test_scenarios.py           # End-to-end moderation, crash catch-up & anti-framing
+│   ├── end_to_end_testing/         # End-to-End BFT Quorum, Byzantine Masking & Chaos Lifecycles
+│   │   ├── test_consensus.py           # Quorum math, split-brain invariance & live QC minting
+│   │   ├── test_byzantine.py           # Byzantine LIAR masking & FORGER signature audit
+│   │   ├── test_scenarios.py           # End-to-end moderation, crash catch-up & anti-framing
+│   │   ├── test_11_flaws_verification.py    # Regression checks for 11 earlier bugs (QC audit, sync, scaling)
+│   │   ├── test_follower_threat_escalation.py # Follower-detected threats escalate to the leader
+│   │   └── test_dashboard_interactions.py   # Drives the LIVE dashboard on :8090 (needs a running cluster)
+│   └── bugfix_consensus_liveness/  # Quorum visibility, reputation recovery & operator-token fix
+│       ├── test_bug_condition.py       # Each fixed bug as a failing-before / passing-after case
+│       ├── test_preservation.py        # Behaviour that the fix must not change
+│       ├── test_reputation_storage.py  # Keyed penalties, self-exemption, recovery timing, migration
+│       ├── test_consensus_retry_sync.py # Equivocation repeats, retry filter, lower-only sync
+│       ├── test_operator_endpoints.py  # X-Operator-Token 403/400/200 matrix for /fault, /reputation, /peers
+│       ├── test_telemetry_quorum.py    # Node quorum_health and per-proposal quorum_state
+│       └── test_dashboard_fix.py       # Dashboard token header, settings validation, quorum-unreachable view
 │
 ├── benchmarks/                     # Quantitative Evaluation Framework (25% Paper)
 │   ├── benchmark_runner.py         # Automated latency and throughput benchmarking
@@ -346,7 +357,9 @@ CloudProject/
 │   └── results/                    # Directory for benchmark CSVs and output PNG charts
 │
 ├── docker-compose.yml              # Local multi-node testbed with bridge networking
-├── start-cluster.bat               # 1-click startup batch script
+├── start-cluster.bat               # 1-click startup (generates the operator token into .env)
+├── clean-cluster.bat               # Full reset: removes volumes, regenerates token if missing, rebuilds
+├── requirements-dev.txt            # Test-only dependencies (hypothesis)
 └── README.md                       # Master architecture documentation
 ```
 
@@ -401,4 +414,20 @@ node tests/phase4/test_dashboard_routes.cjs
 python tests/end_to_end_testing/test_consensus.py
 python tests/end_to_end_testing/test_byzantine.py
 python tests/end_to_end_testing/test_scenarios.py
+python tests/end_to_end_testing/test_11_flaws_verification.py
+python tests/end_to_end_testing/test_follower_threat_escalation.py
+
+# Consensus liveness & operator security fix (needs: pip install -r requirements-dev.txt)
+python tests/bugfix_consensus_liveness/test_bug_condition.py
+python tests/bugfix_consensus_liveness/test_preservation.py
+python tests/bugfix_consensus_liveness/test_reputation_storage.py
+python tests/bugfix_consensus_liveness/test_consensus_retry_sync.py
+python tests/bugfix_consensus_liveness/test_operator_endpoints.py
+python tests/bugfix_consensus_liveness/test_telemetry_quorum.py
+python tests/bugfix_consensus_liveness/test_dashboard_fix.py
+
+# Live cluster only (start the cluster first; drives the dashboard on :8090)
+python tests/end_to_end_testing/test_dashboard_interactions.py
 ```
+
+Most suites build `NodeConfig()`, which defaults its peers to `localhost:50051-50055`. If the Docker cluster is running, set `$env:PEER_ADDRESSES = "fednode-0.invalid:59050,fednode-1.invalid:59051,fednode-2.invalid:59052,fednode-3.invalid:59053,fednode-4.invalid:59054"` first so tests cannot reach it. `tests/phase4/test_dashboard_node_verify.py` hard-codes those ports, so run it only while the cluster is stopped.

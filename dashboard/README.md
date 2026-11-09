@@ -1,14 +1,16 @@
 # FedConsensus Live Operator Dashboard
 
-The FedConsensus Operator Dashboard (`http://127.0.0.1:8090`) provides real-time telemetry, live 3-phase Byzantine Fault Tolerant (BFT) voting visualization, per-node O(1) RAM Firewall inspection, chaos fault injection, and elastic Kubernetes StatefulSet scaling.
+The FedConsensus Operator Dashboard (`http://127.0.0.1:8090`) provides real-time telemetry, live 3-phase Byzantine Fault Tolerant (BFT) voting visualization, per-node O(1) RAM Firewall inspection, and chaos fault injection.
 
 ## Quick Start
 
-Start the 5-node cluster and dashboard container:
+Start the 5-node cluster and dashboard container. The script also creates the operator token in `.env` on first run:
 
 ```powershell
-docker compose up --build -d
+.\start-cluster.bat
 ```
+
+Plain `docker compose up --build -d` also works once `.env` contains `FEDCONSENSUS_OPERATOR_TOKEN`.
 
 Then open **http://127.0.0.1:8090** in your browser.
 
@@ -31,15 +33,14 @@ Then open **http://127.0.0.1:8090** in your browser.
   - `Honest (NONE)`: Verifies Ed25519 signatures and threat scores (`>= 0.60`) and votes `APPROVE`.
   - `Silent`: Drops gRPC requests to simulate packet loss or network partition.
   - `Liar`: Intentionally votes `REJECT` on verified threats to test Byzantine masking.
-  - `Forger`: Corrupts its Ed25519 ballot signature; the consensus engine detects the invalid signature, rejects the ballot as `Forged`, and **automatically penalizes the node's reputation score (`-50`)**.
+  - `Forger`: Corrupts its Ed25519 ballot signature; the consensus engine detects the invalid signature, rejects the ballot as `Forged`, and **automatically penalizes the node's reputation score (`-40`)**.
 - **Crash & Self-Healing (`Kill node` / `Revive`):**
   - Killing a node takes it offline. If a domain is banned while the node is offline, clicking that node in the mesh and opening its **`Banned Domains · RAM`** tab highlights the missed ban as `× Missing (Offline)`.
   - Clicking **`Revive (Self-heal)`** brings the node back online, triggers `gRPC CatchupSync` with verification of the Ed25519 Quorum Certificate, and updates its local O(1) RAM Firewall to `✓ Active in RAM`.
 
-### 3. K8s Autoscaling & Organisations
-- **`+ Add organisation node`:** Onboards a new federated organisation server (e.g., `ntu.social`, `oxford.social`) into the consortium ring and syncs historical bans into its O(1) RAM Firewall via `CatchupSync`.
-- **`⚡ Auto-scale (+2)`:** Elastically scales the Kubernetes StatefulSet by `+2` replicas with no upper limit and dynamically recalculates fault tolerance `f = (N - 1) // 3` and required quorum `Q = N - f`.
-- **`Reset to 5 nodes`:** Scales the cluster back to the base 5 consortium nodes (`N=5, f=1, Q=4`).
+### 3. Scaling (API only, no UI button)
+- The console has no scaling buttons. Scaling is available only through `POST /api/actions` with `{"action": "scale", "replicas": N}` (N from 1 to 9), and only when the dashboard runs on the host with Docker or `kubectl` access. Inside the dashboard container this action returns 409.
+- It changes the number of running containers or StatefulSet replicas and the addresses the dashboard polls. It does not rewrite the nodes' peer lists, so N, f and Q on the running nodes stay as configured.
 
 ---
 
