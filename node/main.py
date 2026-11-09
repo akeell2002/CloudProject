@@ -1,5 +1,7 @@
 import os
+import re
 import sys
+import hmac
 import time
 import json
 import logging
@@ -14,7 +16,7 @@ from proto import fedconsensus_pb2 as pb2
 from proto import fedconsensus_pb2_grpc as pb2_grpc
 from node.crypto.ed25519 import sign_message
 
-from node.config import NodeConfig
+from node.config import NodeConfig, peer_id_from_addr
 from node.storage.database import Database
 from node.storage.reputation import ReputationManager
 from node.ingress.firewall import FirewallFilter
@@ -32,18 +34,76 @@ logging.basicConfig(
 )
 logger = logging.getLogger("fedconsensus.main")
 
+OPERATOR_MODES = frozenset({"NONE", "SILENT", "LIAR", "FORGER"})
+_PEER_ID_RE = re.compile(r"fednode-[0-9]{1,3}")
+_PEER_ADDR_RE = re.compile(r"[A-Za-z0-9.-]{1,253}:([0-9]{1,5})")
+_MAX_DISCARD_BYTES = 1 << 20
+MIN_OPERATOR_TOKEN_LENGTH = 32
+
+
+def _valid_peer_address(value) -> bool:
+    if not isinstance(value, str):
+        return False
+    match = _PEER_ADDR_RE.fullmatch(value)
+    return bool(match) and 1 <= int(match.group(1)) <= 65535
+
 
 class ActivityPubHTTPHandler(BaseHTTPRequestHandler):
     """Handles external ActivityPub POST /inbox and GET /health requests."""
     inbox: Optional[ActivityPubInbox] = None
     service: Optional[FedConsensusService] = None
 
-    def _is_internal_operator(self) -> bool:
-        client_ip = str(self.client_address[0]) if self.client_address else ""
-        return (
-            client_ip in ("127.0.0.1", "::1", "localhost")
-            or client_ip.startswith(("10.", "172.", "192.168."))
+    def _has_operator_credential(self) -> bool:
+        """Operator routes need the shared X-Operator-Token. The client IP is ignored.
+        An unconfigured (empty) node token always fails closed."""
+        expected = getattr(getattr(self.service, "config", None), "operator_token", "") or ""
+        if not expected:
+            return False
+        supplied = self.headers.get("X-Operator-Token", "") or ""
+        return hmac.compare_digest(
+            supplied.encode("utf-8", "surrogateescape"),
+            expected.encode("utf-8", "surrogateescape"),
         )
+
+    def _send_json(self, status: int, payload: dict):
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps(payload).encode("utf-8"))
+
+    def _discard_body(self):
+        """Drains a small request body without parsing it, so the client reads the
+        response instead of a connection reset."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+        except (TypeError, ValueError):
+            return
+        if 0 < length <= _MAX_DISCARD_BYTES:
+            try:
+                self.rfile.read(length)
+            except Exception:
+                pass
+
+    def _reject_operator(self):
+        self._discard_body()
+        self._send_json(403, {"error": "Operator credential required"})
+
+    def _read_json_object(self) -> Optional[dict]:
+        """Returns the request body as a dict, or None (after sending 400) if it is not a JSON object."""
+        try:
+            length = int(self.headers.get("Content-Length", ""))
+        except (TypeError, ValueError):
+            length = -1
+        body = None
+        if length > 0:
+            try:
+                body = json.loads(self.rfile.read(length).decode("utf-8"))
+            except (UnicodeDecodeError, ValueError, RecursionError):
+                body = None
+        if not isinstance(body, dict):
+            self._send_json(400, {"error": "Expected a JSON object"})
+            return None
+        return body
 
     def do_GET(self):
         if self.service and getattr(self.service, "simulated_offline", False):
@@ -99,17 +159,20 @@ class ActivityPubHTTPHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps(response_json).encode("utf-8"))
         elif self.path == "/fault":
-            if not self._is_internal_operator():
-                self.send_response(403)
-                self.end_headers()
+            if not self._has_operator_credential():
+                self._reject_operator()
                 return
-            content_length = int(self.headers.get("Content-Length", 0))
-            post_data = self.rfile.read(content_length).decode("utf-8") if content_length > 0 else "{}"
-            try:
-                req_json = json.loads(post_data) if post_data else {}
-            except Exception:
-                req_json = {}
-            mode = req_json.get("mode", "NONE").upper().strip()
+            req_json = self._read_json_object()
+            if req_json is None:
+                return
+            mode = req_json.get("mode", "NONE")
+            if not isinstance(mode, str) or mode.strip().upper() not in OPERATOR_MODES:
+                self._send_json(400, {"error": "Unsupported fault mode"})
+                return
+            mode = mode.strip().upper()
+            if "offline" in req_json and not isinstance(req_json["offline"], bool):
+                self._send_json(400, {"error": "offline must be a boolean"})
+                return
             offline = req_json.get("offline")
             if self.service:
                 if offline is True:
@@ -135,19 +198,21 @@ class ActivityPubHTTPHandler(BaseHTTPRequestHandler):
                 "byzantine_mode": self.service.byzantine_mode if self.service else mode
             }).encode("utf-8"))
         elif self.path == "/reputation":
-            if not self._is_internal_operator():
-                self.send_response(403)
-                self.end_headers()
+            if not self._has_operator_credential():
+                self._reject_operator()
                 return
-            content_length = int(self.headers.get("Content-Length", 0))
-            post_data = self.rfile.read(content_length).decode("utf-8") if content_length > 0 else "{}"
-            try:
-                req_json = json.loads(post_data) if post_data else {}
-            except Exception:
-                req_json = {}
-            peer_id = req_json.get("peer_id", "")
-            score = int(req_json.get("score", 100))
-            if self.service and peer_id:
+            req_json = self._read_json_object()
+            if req_json is None:
+                return
+            peer_id = req_json.get("peer_id")
+            score = req_json.get("score")
+            if not isinstance(peer_id, str) or not _PEER_ID_RE.fullmatch(peer_id):
+                self._send_json(400, {"error": "peer_id must match fednode-<n>"})
+                return
+            if type(score) is not int or not 0 <= score <= 100:
+                self._send_json(400, {"error": "score must be an integer from 0 to 100"})
+                return
+            if self.service:
                 self.service.db.set_reputation(peer_id, score)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -158,18 +223,17 @@ class ActivityPubHTTPHandler(BaseHTTPRequestHandler):
                 "score": score
             }).encode("utf-8"))
         elif self.path == "/peers":
-            if not self._is_internal_operator():
-                self.send_response(403)
-                self.end_headers()
+            if not self._has_operator_credential():
+                self._reject_operator()
                 return
-            content_length = int(self.headers.get("Content-Length", 0))
-            post_data = self.rfile.read(content_length).decode("utf-8") if content_length > 0 else "{}"
-            try:
-                req_json = json.loads(post_data) if post_data else {}
-            except Exception:
-                req_json = {}
-            peer_addr = req_json.get("peer_address", "")
-            if self.service and peer_addr:
+            req_json = self._read_json_object()
+            if req_json is None:
+                return
+            peer_addr = req_json.get("peer_address")
+            if not _valid_peer_address(peer_addr):
+                self._send_json(400, {"error": "peer_address must be host:port"})
+                return
+            if self.service:
                 self.service.config.add_peer(peer_addr)
                 p_host = peer_addr.split(":")[0].split(".")[0]
                 if p_host in self.service.config.known_peer_keys:
@@ -196,10 +260,15 @@ class FedNodeRunner:
     def __init__(self):
         self.config = NodeConfig()
         logger.info(f"Initializing FedNode: {self.config.node_id} (Data dir: {self.config.data_dir})")
+        # Never log the token value itself, only whether it is usable.
+        if not self.config.operator_token:
+            logger.warning("FEDCONSENSUS_OPERATOR_TOKEN is not set; operator endpoints will return 403")
+        elif len(self.config.operator_token) < MIN_OPERATOR_TOKEN_LENGTH:
+            logger.warning(f"FEDCONSENSUS_OPERATOR_TOKEN is shorter than {MIN_OPERATOR_TOKEN_LENGTH} characters; use a longer random value")
 
         # Storage & Ingress
         self.db = Database(self.config.db_path)
-        self.reputation = ReputationManager(self.db)
+        self.reputation = ReputationManager(self.db, self_id=self.config.node_id)
         self.firewall = FirewallFilter(self.db)
         self.classifier = ThreatClassifier()
 
@@ -333,16 +402,7 @@ class FedNodeRunner:
         return False
 
     def _peer_id_from_addr(self, peer_addr: str) -> str:
-        host = peer_addr.split(":")[0]
-        if host.startswith("fednode-"):
-            return host.split(".")[0]
-        if host in ("localhost", "127.0.0.1"):
-            try:
-                port = int(peer_addr.split(":")[1])
-                return f"fednode-{port - 50051}"
-            except Exception:
-                pass
-        return host
+        return peer_id_from_addr(peer_addr)
 
     def _broadcast_proposal(self, prop_req: pb2.ProposeRequest, exclude_addr: Optional[str] = None):
         """Broadcasts proposal to all consortium peers via gRPC in parallel."""
@@ -361,12 +421,44 @@ class FedNodeRunner:
                 pass
         list(self._rpc_executor.map(_send, targets))
 
+    def _retry_pending_proposals(self, now_t: Optional[float] = None):
+        """Resends this node's pending proposals to peers that have not cast a ballot yet.
+        Peers that already approved or whose decision is recorded are skipped, so a peer
+        that changed fault mode is not asked to vote again (no repeated equivocation)."""
+        now_t = time.time() if now_t is None else now_t
+        with self.consensus._lock:
+            pending = []
+            for p in list(self.consensus.active_proposals.values()):
+                if self.firewall.is_blocked(p.target_domain):
+                    p.is_committed = True
+                    continue
+                if not p.is_committed and p.request is not None and p.request.proposer_id == self.config.node_id:
+                    if (now_t - p.created_at) < 20.0:
+                        skip = set(p.approved_votes) | set(p.recorded_decisions)
+                        pending.append((p, skip))
+        for prop, skip in pending:
+            for peer_addr in self.config.peers:
+                if self._is_self_peer(peer_addr):
+                    continue
+                peer_id = self._peer_id_from_addr(peer_addr)
+                if peer_id in skip:
+                    continue
+                try:
+                    self._get_stub(peer_addr).ProposeDefederation(prop.request, timeout=0.8)
+                except Exception:
+                    pass
+
     def _heartbeat_loop(self):
         """Background thread: Leader heartbeats, lease failover election, pending proposal retry, and catchup sync."""
         tick = 0
         while self.running:
             time.sleep(2.0)
             tick += 1
+            # Gradual trust recovery runs even while offline/SILENT (ledger-only, no network)
+            try:
+                self.reputation.apply_recovery()
+            except Exception:
+                pass
             if getattr(self.service, "simulated_offline", False) or self.service.byzantine_mode == "SILENT":
                 continue
 
@@ -446,27 +538,7 @@ class FedNodeRunner:
                     threading.Thread(target=self._broadcast_proposal, args=(prop_req,), daemon=True).start()
 
             # Retry pending uncommitted proposals (heals 2-nodes-down partitions once a peer revives)
-            now_t = time.time()
-            with self.consensus._lock:
-                pending = []
-                for p in list(self.consensus.active_proposals.values()):
-                    if self.firewall.is_blocked(p.target_domain):
-                        p.is_committed = True
-                        continue
-                    if not p.is_committed and p.request is not None and p.request.proposer_id == self.config.node_id:
-                        if (now_t - p.created_at) < 20.0:
-                            pending.append(p)
-            for prop in pending:
-                for peer_addr in self.config.peers:
-                    if self._is_self_peer(peer_addr):
-                        continue
-                    peer_id = self._peer_id_from_addr(peer_addr)
-                    if peer_id in prop.approved_votes:
-                        continue
-                    try:
-                        self._get_stub(peer_addr).ProposeDefederation(prop.request, timeout=0.8)
-                    except Exception:
-                        pass
+            self._retry_pending_proposals()
 
             # Periodic self-healing catchup sync every 2 ticks (~4s)
             if tick % 2 == 0 and self.catchup:

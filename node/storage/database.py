@@ -60,6 +60,21 @@ class Database:
                     last_updated INTEGER NOT NULL
                 );
             """)
+
+            # Recovery columns (idempotent migration for pre-existing ledgers)
+            columns = {row["name"] for row in cursor.execute("PRAGMA table_info(peer_reputation);")}
+            if "recovery_anchor_at" not in columns:
+                cursor.execute(
+                    "ALTER TABLE peer_reputation ADD COLUMN recovery_anchor_at INTEGER NOT NULL DEFAULT 0;"
+                )
+                # Existing low scores recover once the grace period after their last update ends.
+                cursor.execute(
+                    "UPDATE peer_reputation SET recovery_anchor_at = last_updated WHERE trust_score < 100;"
+                )
+            if "last_recovery_at" not in columns:
+                cursor.execute(
+                    "ALTER TABLE peer_reputation ADD COLUMN last_recovery_at INTEGER NOT NULL DEFAULT 0;"
+                )
             conn.commit()
 
     def save_commit_record(
@@ -156,13 +171,15 @@ class Database:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                INSERT INTO peer_reputation (peer_id, trust_score, violations_count, is_active, last_updated)
-                VALUES (?, ?, 0, ?, ?)
+                INSERT INTO peer_reputation
+                    (peer_id, trust_score, violations_count, is_active, last_updated, recovery_anchor_at)
+                VALUES (?, ?, 0, ?, ?, ?)
                 ON CONFLICT(peer_id) DO UPDATE SET
                     trust_score = ?,
                     is_active = ?,
-                    last_updated = ?;
-            """, (peer_id, bounded, is_active, now, bounded, is_active, now))
+                    last_updated = ?,
+                    recovery_anchor_at = ?;
+            """, (peer_id, bounded, is_active, now, now, bounded, is_active, now, now))
             conn.commit()
 
     def update_reputation(self, peer_id: str, score_delta: int, is_violation: bool = False):
@@ -182,9 +199,49 @@ class Database:
                 SET trust_score = MAX(0, MIN(100, trust_score + ?)),
                     violations_count = violations_count + ?,
                     is_active = CASE WHEN MAX(0, MIN(100, trust_score + ?)) < 30 THEN 0 ELSE 1 END,
-                    last_updated = ?
+                    last_updated = ?,
+                    recovery_anchor_at = CASE WHEN ? THEN ? ELSE recovery_anchor_at END
                 WHERE peer_id = ?;
-            """, (score_delta, violation_add, score_delta, now, peer_id))
+            """, (score_delta, violation_add, score_delta, now, violation_add, now, peer_id))
+            conn.commit()
+
+    def recover_reputations(self, step: int, grace_ms: int, interval_ms: int, now_ms: int) -> int:
+        """Raises scores below 100 by ``step`` for rows whose last violation (or operator
+        write) is at least ``grace_ms`` old and whose last recovery is at least
+        ``interval_ms`` old. Returns the number of rows raised."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE peer_reputation
+                SET trust_score = MIN(100, trust_score + ?),
+                    is_active = CASE WHEN MIN(100, trust_score + ?) < 30 THEN 0 ELSE 1 END,
+                    last_recovery_at = ?,
+                    last_updated = ?
+                WHERE trust_score < 100
+                  AND ? - recovery_anchor_at >= ?
+                  AND ? - last_recovery_at >= ?;
+            """, (step, step, now_ms, now_ms, now_ms, grace_ms, now_ms, interval_ms))
+            raised = cursor.rowcount
+            conn.commit()
+            return raised
+
+    def adopt_lower_reputation(self, peer_id: str, score: int):
+        """Adopts a peer-reported score only if it is lower than the local one.
+        Keeps the recovery anchor and violations_count of an existing row."""
+        now = int(time.time() * 1000)
+        bounded = max(0, min(100, int(score)))
+        is_active = 0 if bounded < 30 else 1
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO peer_reputation
+                    (peer_id, trust_score, violations_count, is_active, last_updated, recovery_anchor_at)
+                VALUES (?, ?, 0, ?, ?, ?)
+                ON CONFLICT(peer_id) DO UPDATE SET
+                    trust_score = MIN(trust_score, ?),
+                    is_active = CASE WHEN MIN(trust_score, ?) < 30 THEN 0 ELSE 1 END,
+                    last_updated = ?;
+            """, (peer_id, bounded, is_active, now, now, bounded, bounded, now))
             conn.commit()
 
     def get_all_reputations(self) -> List[Dict[str, Any]]:

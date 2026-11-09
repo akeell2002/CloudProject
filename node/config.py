@@ -17,6 +17,20 @@ DEFAULT_ORG_DOMAINS = {
 }
 
 
+def peer_id_from_addr(peer_addr: str) -> str:
+    """Maps a peer address (host:port) to its consortium node id."""
+    host = peer_addr.split(":")[0]
+    if host.startswith("fednode-"):
+        return host.split(".")[0]
+    if host in ("localhost", "127.0.0.1"):
+        try:
+            port = int(peer_addr.split(":")[1])
+            return f"fednode-{port - 50051}"
+        except Exception:
+            pass
+    return host
+
+
 class NodeConfig:
     """
     Central Configuration for a FedConsensus node.
@@ -95,7 +109,11 @@ class NodeConfig:
         # 4. Byzantine Fault Injection Mode: NONE, LIAR, FORGER, SILENT, EQUIVOCATOR
         self.byzantine_mode = os.getenv("BYZANTINE_MODE", "NONE").upper()
 
-        # 5. Known domain public keys for Origin HTTP Signature verification
+        # 5. Shared operator credential for /fault, /reputation and /peers (X-Operator-Token).
+        # Never persisted to node_identity.json and never logged. Empty means fail closed (403).
+        self.operator_token = os.getenv("FEDCONSENSUS_OPERATOR_TOKEN", "")
+
+        # 6. Known domain public keys for Origin HTTP Signature verification
         self.known_domain_keys: Dict[str, str] = {}
         domain_keys_raw = os.getenv("KNOWN_DOMAIN_KEYS", "")
         if domain_keys_raw:

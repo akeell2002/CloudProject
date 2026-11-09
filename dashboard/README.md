@@ -12,6 +12,10 @@ docker compose up --build -d
 
 Then open **http://127.0.0.1:8090** in your browser.
 
+**Operator token.** Stop, revive, settings and trust call node operator routes that require `X-Operator-Token`. Nodes and the dashboard read the same `FEDCONSENSUS_OPERATOR_TOKEN`. `start-cluster.bat` writes a random one to the gitignored `.env` and docker compose passes it through; a host-run dashboard (`python -m dashboard.server`) reads it from the environment or from `.env`. On Kubernetes: `kubectl create secret generic fedconsensus-operator --from-literal=token=<random>`, then export the same value for the dashboard. Without a token the nodes answer 403.
+
+**Trust recovery.** After 60 s with no new violation, any score below 100 (including one set with the trust control) rises by +5 every 30 s. A node at 0 can vote again (≥ 30) after about 210 s; one at 20 after about 90 s.
+
 ---
 
 ## Operator Console Features

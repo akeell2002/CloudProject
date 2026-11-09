@@ -37,7 +37,12 @@
     }
     return previous || null;
   }
-  if (typeof module !== "undefined" && module.exports) module.exports = {networkRoute, rememberSender};
+  function quorumUnreachableText(health) {
+    function names(list) { return Array.isArray(list) && list.length ? list.join(", ") : "none"; }
+    return "Quorum unreachable: " + health.eligible_voters + " eligible < Q=" + health.quorum +
+      " · offline: " + names(health.offline) + " · quarantined: " + names(health.quarantined);
+  }
+  if (typeof module !== "undefined" && module.exports) module.exports = {networkRoute, rememberSender, quorumUnreachableText};
   if (typeof document === "undefined") return;
   const $ = function (id) { return document.getElementById(id); };
   let data = {nodes: [], events: [], bans: [], updated_at: null};
@@ -572,11 +577,14 @@
     const isAnimating = Boolean(liveVoteAnim && proposal && liveVoteAnim.domain === proposal.domain && liveVoteAnim.step < liveVoteAnim.maxSteps);
     const animStep = isAnimating ? liveVoteAnim.step : -1;
 
+    const health = data.quorum_health || null;
+    const quorumBlocked = Boolean(health && health.quorum_reachable === false);
     const nextKey = JSON.stringify([
       proposal ? [proposal.domain, proposal.committed, Array.from(proposal.approvals).sort(),
                   Array.from(proposal.rejections).sort(), Array.from(proposal.invalid).sort()] : null,
       animStep,
-      data.nodes.map(function (n) { return [n.node_id, n.online, n.quarantined, n.state]; })
+      data.nodes.map(function (n) { return [n.node_id, n.online, n.quarantined, n.state]; }),
+      health
     ]);
     if (nextKey === incidentKey) return;
     incidentKey = nextKey;
@@ -607,8 +615,12 @@
     const isFinalCommitted = !isAnimating && (proposal.committed || visibleApprovals >= quorumNeeded);
 
     $("incident-panel").classList.toggle("has-threat", isAnimating || !isFinalCommitted);
+    const unreachable = !isAnimating && !isFinalCommitted && quorumBlocked;
 
-    if (isAnimating && liveVoteAnim.step === 0) {
+    if (unreachable) {
+      state.className = "pill danger";
+      state.textContent = "QUORUM UNREACHABLE (" + health.eligible_voters + "/" + health.quorum + " eligible)";
+    } else if (isAnimating && liveVoteAnim.step === 0) {
       state.className = "pill danger";
       state.textContent = "PHASE 1 · PROPOSING BLOCK";
     } else if (isAnimating) {
@@ -625,6 +637,7 @@
     const inner = el("div", "incident-content-inner");
     inner.append(
       el("span", "threat-eyebrow",
+        unreachable ? "CONSENSUS CANNOT PROGRESS" :
         isAnimating ? "LIVE BYZANTINE VOTING ROUND IN PROGRESS" :
         isFinalCommitted ? "CONSORTIUM DEFEDERATION (COMMITTED)" : "CONSENSUS THRESHOLD NOT REACHED"),
       el("h3", "threat-domain", proposal.domain)
@@ -728,6 +741,8 @@
     inner.append(el("p", "observation",
       isAnimating
         ? "⚡ Step " + (liveVoteAnim.step + 1) + " of " + liveVoteAnim.maxSteps + ": " + activeVoter + " broadcasting signed cryptographic ballot…"
+        : unreachable
+        ? "⚠ " + quorumUnreachableText(health) + ". Pending proposals cannot commit until enough voters are back online and eligible."
         : isFinalCommitted
         ? "✓ Quorum Proof verified in " + latencyMs + " ms (N=" + bft.n + ", f=" + bft.f + ", Q=" + quorumNeeded + "). Defederation rule committed to SQLite WAL and O(1) RAM Firewall across active nodes."
         : "⚠ Quorum threshold (Q=" + quorumNeeded + " of " + bft.n + ") was not met. Domain remains unblocked due to insufficient honest votes."));
@@ -817,8 +832,16 @@
     $("total-label").textContent = "/ " + data.nodes.length + " configured";
     $("threat-count").textContent = pending.size;
     $("ban-count").textContent = data.bans.length;
+    const health = data.quorum_health;
+    const quorumUnreachable = Boolean(health && !health.quorum_reachable && pending.size > 0);
+    if ($("threat-label")) {
+      $("threat-label").textContent = quorumUnreachable ? "quorum unreachable" : "awaiting a decision";
+    }
     if ($("threat-subtext")) {
-      $("threat-subtext").textContent = "Quorum rule: Q = " + bft.q + "/" + bft.n + " (N=" + bft.n + ", f=" + bft.f + ")";
+      $("threat-subtext").textContent = quorumUnreachable ? quorumUnreachableText(health) :
+        "Quorum rule: Q = " + bft.q + "/" + bft.n + " (N=" + bft.n + ", f=" + bft.f + ")";
+      const card = $("threat-subtext").closest(".metric");
+      if (card) card.classList.toggle("quorum-unreachable", quorumUnreachable);
     }
     if ($("bft-tolerance-hint")) {
       $("bft-tolerance-hint").textContent = "With N=" + bft.n + ", consortium tolerates f=" + bft.f + " rogue/offline node(s) and requires Q=" + bft.q + " votes.";

@@ -3,6 +3,8 @@
 **Operator dashboard:** from this project directory, run
 `docker compose up --build -d` and open http://127.0.0.1:8090 (or run `python -m dashboard.server --port 8091`).
 See [dashboard/README.md](dashboard/README.md) for live UI controls and setup.
+
+**Operator token:** node `POST /fault`, `/reputation` and `/peers` require the header `X-Operator-Token` matching `FEDCONSENSUS_OPERATOR_TOKEN`. Client IP is not trusted. A node without a token returns 403 on these routes. `start-cluster.bat` generates a random token into the gitignored `.env` on first run; docker compose passes it to the nodes and the dashboard. On Kubernetes, create the secret with `kubectl create secret generic fedconsensus-operator --from-literal=token=<random>` and give a host-run dashboard the same value. Trust recovers automatically: after 60 s without a new violation, a score below 100 rises by +5 every 30 s (operator-set scores included), so 0 reaches the voting threshold of 30 in about 210 s.
 The live Operator Console provides end-to-end observability and interactive testing for external & internal ActivityPub threat injection, automated 3-phase BFT voting (`Q = N - f`), O(1) RAM firewall inspection, Byzantine fault injection (`Silent`, `Liar`, `Forger`), crash/revive `CatchupSync` self-healing, and unlimited Kubernetes StatefulSet scaling.
 
 [![Course](https://img.shields.io/badge/Course-CSC3104%20Cloud%20%26%20Distributed%20Computing-blue.svg)](https://www.gla.ac.uk/)

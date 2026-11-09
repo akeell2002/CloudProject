@@ -84,7 +84,7 @@ class ClusterMonitor:
         self.nodes = nodes
         self.timeout = timeout
         self._lock = threading.Lock()
-        self._data = {"nodes": [], "events": [], "bans": [], "updated_at": None}
+        self._data = {"nodes": [], "events": [], "bans": [], "updated_at": None, "quorum_health": None}
         self._last_known = {}
         self._events = {}
         self._executor = ThreadPoolExecutor(max_workers=len(nodes))
@@ -146,12 +146,14 @@ class ClusterMonitor:
         for node in observations:
             observers = [
                 observer["node_id"] for observer in observations if observer["online"]
+                and observer["node_id"] != node["node_id"]
                 for rep in observer.get("reputations", [])
                 if rep["peer_id"] == node["node_id"] and
                     (rep["trust_score"] < 30 or not rep["is_active"])
             ]
             node["quarantined_by"] = observers
             node["quarantined"] = bool(observers)
+        quorum_health = self._quorum_health(observations)
         # shortcut: retain the latest 300 observations in memory; add durable history if required.
         events = sorted(self._events.values(), key=lambda e: e.get("timestamp", 0))[-300:]
         self._events = {event["id"]: event for event in events}
@@ -160,7 +162,39 @@ class ClusterMonitor:
                 "nodes": observations, "events": events,
                 "bans": sorted(bans.values(), key=lambda b: b["domain"]),
                 "updated_at": int(time.time() * 1000),
+                "quorum_health": quorum_health,
             }
+
+    @staticmethod
+    def _quorum_health(observations):
+        """Cluster-wide liveness view from the dashboard's own observations of every node."""
+        members = [node["node_id"] for node in observations]
+        offline = sorted({node["node_id"] for node in observations if not node.get("online")})
+        quarantined = sorted({node["node_id"] for node in observations if node.get("quarantined")})
+        total = len(members)
+        reported = [node.get("quorum") for node in observations
+                    if node.get("online") and node.get("telemetry_available")
+                    and type(node.get("quorum")) is int and node.get("quorum") > 0]
+        quorum = max(reported) if reported else total - (total - 1) // 3
+        eligible = sorted(set(members) - set(offline) - set(quarantined))
+        reachable = len(eligible) >= quorum
+        pending, committed = set(), set()
+        if not reachable:
+            for node in observations:
+                if not (node.get("online") and node.get("telemetry_available")):
+                    continue
+                proposals = node.get("proposals")
+                for proposal in proposals if isinstance(proposals, list) else []:
+                    if not isinstance(proposal, dict) or not isinstance(proposal.get("domain"), str):
+                        continue
+                    (committed if proposal.get("committed") is True else pending).add(proposal["domain"])
+        return {
+            "total_nodes": total, "quorum": quorum,
+            "eligible_voters": len(eligible), "eligible": eligible,
+            "offline": offline, "quarantined": quarantined,
+            "quorum_reachable": reachable,
+            "pending_unreachable": sorted(pending - committed),
+        }
 
     def snapshot(self):
         with self._lock:

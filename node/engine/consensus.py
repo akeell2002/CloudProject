@@ -181,7 +181,7 @@ class ConsensusEngine:
                 elif verify_signature(proposer_pubkey, sign_meta, req.proposer_signature):
                     is_valid_sig = True
             if not is_valid_sig:
-                self.reputation.penalize_forgery(proposer_id)
+                self.reputation.penalize_forgery(proposer_id, proposal_id=req.proposal_id)
                 self.telemetry.record(
                     "invalid", proposer_id, self.config.node_id,
                     "Proposal rejected: invalid or unknown signing key",
@@ -200,7 +200,7 @@ class ConsensusEngine:
                         self.config.known_domain_keys
                     )
                     if not is_valid_origin:
-                        self.reputation.penalize_bogus_evidence(proposer_id)
+                        self.reputation.penalize_bogus_evidence(proposer_id, proposal_id=req.proposal_id)
                         self.telemetry.record(
                             "invalid", proposer_id, self.config.node_id,
                             "Proposal rejected: invalid origin HTTP signature (framing attack detected)",
@@ -229,7 +229,7 @@ class ConsensusEngine:
                         if not is_botnet_verified and "object" in ev_data:
                             audit = self.classifier.analyze(req.target_domain, ev_data)
                             if not audit.is_threat:
-                                self.reputation.penalize_bogus_evidence(proposer_id)
+                                self.reputation.penalize_bogus_evidence(proposer_id, proposal_id=req.proposal_id)
                                 self.telemetry.record(
                                     "invalid", proposer_id, self.config.node_id,
                                     "Proposal rejected: independent classifier audit scored payload as benign",
@@ -322,7 +322,7 @@ class ConsensusEngine:
                 "decision": "APPROVE" if vote.decision == pb2.VOTE_APPROVE else "REJECT"
             }
             if not voter_pubkey or not verify_signature(voter_pubkey, vote_meta, vote.voter_signature):
-                self.reputation.penalize_forgery(voter_id)
+                self.reputation.penalize_forgery(voter_id, proposal_id=vote.proposal_id)
                 self.telemetry.record(
                     "invalid", voter_id, self.config.node_id,
                     "Ballot rejected: invalid signature",
@@ -334,11 +334,14 @@ class ConsensusEngine:
             # Flaw 9: Equivocation Detection (conflicting signed ballots)
             prev_decision = proposal.recorded_decisions.get(voter_id)
             if prev_decision is not None and prev_decision != vote.decision:
-                self.reputation.penalize_equivocation(voter_id)
+                applied = self.reputation.penalize_equivocation(voter_id, proposal_id=vote.proposal_id)
                 proposal.approved_votes.pop(voter_id, None)
+                if applied:
+                    message = "Equivocation detected: peer sent conflicting signed ballots (-50 trust)"
+                else:
+                    message = "Conflicting ballot ignored (equivocation already penalised for this proposal)"
                 self.telemetry.record(
-                    "invalid", voter_id, self.config.node_id,
-                    "Equivocation detected: peer sent conflicting signed ballots (-50 trust)",
+                    "invalid", voter_id, self.config.node_id, message,
                     proposal_id=vote.proposal_id, domain=vote.target_domain,
                     decision="INVALID",
                 )

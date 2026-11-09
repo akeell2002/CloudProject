@@ -149,8 +149,8 @@ def main():
     assert "fednode-2" not in latest_prop.get("approvals", []), "Liar node approved when it should have rejected/lied!"
     print("PASS: BFT Consensus committed with Q=4 honest nodes despite fednode-2 being LIAR!")
 
-    # Reset fednode-2 to HONEST
-    post("/api/actions", {"action": "settings", "node": "fednode-2", "fault": "HONEST"})
+    # Reset fednode-2 to NONE (honest)
+    post("/api/actions", {"action": "settings", "node": "fednode-2", "fault": "NONE"})
 
     # 5. Node stop and revive (Catch-up sync test)
     print("\n=== TEST 5: Node Kill and Catchup Recovery (fednode-4) ===")

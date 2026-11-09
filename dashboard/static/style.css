@@ -277,6 +277,12 @@ h1 {
 .metric p {
   margin:3px 0 0
 }
+.metric.quorum-unreachable {
+  border-color:var(--red)
+}
+.metric.quorum-unreachable>div span,.metric.quorum-unreachable p {
+  color:var(--red)
+}
 .overview-grid {
   display:grid;
   grid-template-columns:1.2fr 1fr;

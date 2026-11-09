@@ -1,8 +1,9 @@
 import json
 import logging
+import time
 from typing import Dict, List, Optional
 from proto import fedconsensus_pb2 as pb2
-from node.config import NodeConfig
+from node.config import NodeConfig, peer_id_from_addr
 from node.storage.database import Database
 from node.ingress.firewall import FirewallFilter
 from node.storage.reputation import ReputationManager
@@ -29,6 +30,8 @@ class CatchupEngine:
         self.db = database
         self.firewall = firewall
         self.reputation = reputation or ReputationManager(database)
+        # peer_id -> {"reachable": bool, "checked_at": ms}, from the latest CatchupSync attempt
+        self.peer_reachability: Dict[str, Dict] = {}
         self.peer_public_keys: Dict[str, str] = peer_public_keys or {
             **getattr(self.config, "known_peer_keys", {}),
             self.config.node_id: self.config.public_key_hex
@@ -206,6 +209,7 @@ class CatchupEngine:
             node_name = host.split(".")[0]
             if node_name == self.config.node_id or (host in ("localhost", "127.0.0.1") and f":{self.config.grpc_port}" in peer_addr):
                 continue
+            peer_id = peer_id_from_addr(peer_addr)
             try:
                 start_seq = self.db.get_latest_sequence_number() + 1
                 with grpc.insecure_channel(peer_addr) as channel:
@@ -215,6 +219,7 @@ class CatchupEngine:
                         from_sequence_number=start_seq
                     )
                     res = stub.CatchupSync(req, timeout=1.5)
+                    self._mark_reachability(peer_id, True)
                     if res and res.records:
                         new_domains = [r.target_domain for r in res.records if not self.firewall.is_blocked(r.target_domain)]
                         count = self.replay_records(list(res.records))
@@ -230,15 +235,25 @@ class CatchupEngine:
                                     )
                         total_replayed += count
 
-                    # Item 7: Sync peer reputation/quarantine status to eliminate epoch split-brain
+                    # Item 7: Sync peer reputation/quarantine status to eliminate epoch split-brain.
+                    # Never copy a peer's view of this node, and only ever lower a local score.
                     try:
                         status_res = stub.GetStatus(pb2.StatusRequest(caller_id=self.config.node_id), timeout=1.0)
                         if status_res and status_res.reputations:
                             for rep_entry in status_res.reputations:
+                                if rep_entry.peer_id == self.config.node_id:
+                                    continue
                                 if rep_entry.trust_score < 30 or not rep_entry.is_active:
-                                    self.db.set_reputation(rep_entry.peer_id, rep_entry.trust_score)
+                                    self.reputation.adopt_peer_view(rep_entry.peer_id, rep_entry.trust_score)
                     except Exception:
                         pass
             except Exception:
+                self._mark_reachability(peer_id, False)
                 continue
         return total_replayed
+
+    def _mark_reachability(self, peer_id: str, reachable: bool):
+        self.peer_reachability[peer_id] = {
+            "reachable": reachable,
+            "checked_at": int(time.time() * 1000),
+        }

@@ -1,5 +1,6 @@
 """UI adapters for existing backend APIs and operator-authorized lab operations."""
 import json
+import os
 import re
 import secrets
 import threading
@@ -12,6 +13,32 @@ import time
 from dashboard.runtime import Runtime, ROOT
 
 DOMAIN = re.compile(r"(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
+OPERATOR_MODES = ("NONE", "SILENT", "LIAR", "FORGER")
+TOKEN_ENV = "FEDCONSENSUS_OPERATOR_TOKEN"
+ENV_FILE = Path(ROOT) / ".env"
+
+
+def load_operator_token(env_file=None):
+    """Shared node operator token: process env first, then KEY=VALUE lines in the gitignored .env."""
+    token = os.getenv(TOKEN_ENV, "").strip()
+    if token:
+        return token
+    path = Path(env_file) if env_file is not None else ENV_FILE
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return ""
+    for line in lines:
+        key, sep, value = line.strip().partition("=")
+        if sep and key.strip() == TOKEN_ENV:
+            return value.strip().strip('"').strip("'")
+    return ""
+
+
+def normalise_fault_mode(value):
+    if not isinstance(value, str) or value.strip().upper() not in OPERATOR_MODES:
+        raise ValueError("Unsupported fault mode")
+    return value.strip().upper()
 
 
 class Operator:
@@ -24,6 +51,14 @@ class Operator:
         self._lock = threading.Lock()
         self.opener = build_opener(ProxyHandler({}))
         self.state_path = Path(state_path or Path(ROOT) / ".operator-state.json")
+        self.operator_token = load_operator_token()
+
+    def _operator_request(self, url, body):
+        """Request to a node operator endpoint (/fault, /reputation, /peers) carrying the shared token."""
+        headers = {"Content-Type": "application/json"}
+        if self.operator_token:
+            headers["X-Operator-Token"] = self.operator_token
+        return Request(url, data=json.dumps(body).encode(), headers=headers)
 
     def state(self):
         if not self.connected:
@@ -38,6 +73,7 @@ class Operator:
                 "leader": False, "voting_mode": False, "sync": False},
             "message": "Connected to the existing backend. Its voting and membership rules are unchanged." if self.connected else "Connect to inspect the running backend. No backend logic is modified.",
             "limitations": "Leader assignment, voting-mode changes, and live catch-up need an API from the backend team.",
+            "operator_credential": "configured" if self.operator_token else "missing",
         }
 
     def node(self, node_id):
@@ -233,36 +269,28 @@ class Operator:
                     return {"message": message + ". Existing node persistence/recovery behavior is unchanged."}
                 target_node = self.node(node_id)
                 is_stop = (action == "stop")
-                req = Request(
+                req = self._operator_request(
                     f"{target_node['address']}/fault",
-                    data=json.dumps({"mode": "SILENT" if is_stop else "NONE", "offline": is_stop}).encode(),
-                    headers={"Content-Type": "application/json"}
-                )
-                with self.opener.open(req, timeout=3) as resp:
-                    resp.read()
-                if not is_stop:
-                    for peer_info in self.monitor.nodes:
-                        try:
-                            rep_req = Request(
-                                f"{peer_info['address']}/reputation",
-                                data=json.dumps({"peer_id": node_id, "score": 100}).encode(),
-                                headers={"Content-Type": "application/json"}
-                            )
-                            with self.opener.open(rep_req, timeout=1.5) as r:
-                                r.read()
-                        except Exception:
-                            pass
+                    {"mode": "SILENT" if is_stop else "NONE", "offline": is_stop})
+                try:
+                    with self.opener.open(req, timeout=3) as resp:
+                        resp.read()
+                except HTTPError as error:
+                    error.close()
+                    if error.code == 403:
+                        raise RuntimeError("Node rejected the operator credential; set "
+                                           "FEDCONSENSUS_OPERATOR_TOKEN for nodes and dashboard") from None
+                    raise
+                # Revive only clears the fault; trust scores recover on the nodes themselves.
                 self.monitor.refresh()
                 return {"message": f"[{node_id}] {'Node killed (offline)' if is_stop else 'Node revived and syncing missed bans'}"}
             if action == "settings":
                 if "automatic_voting" in body:
                     raise RuntimeError("Voting-mode changes require a backend API from your team")
-                fault_mode = body.get("fault", "NONE")
+                fault_mode = normalise_fault_mode(body.get("fault", "NONE"))
                 target_node = self.node(node_id)
                 try:
-                    req = Request(f"{target_node['address']}/fault",
-                                  data=json.dumps({"mode": fault_mode}).encode(),
-                                  headers={"Content-Type": "application/json"})
+                    req = self._operator_request(f"{target_node['address']}/fault", {"mode": fault_mode})
                     with self.opener.open(req, timeout=3) as resp:
                         res = json.loads(resp.read().decode())
                     self.monitor.refresh()
@@ -291,9 +319,8 @@ class Operator:
                     if not target_info:
                         continue
                     try:
-                        req = Request(f"{target_info['address']}/reputation",
-                                      data=json.dumps({"peer_id": peer, "score": score}).encode(),
-                                      headers={"Content-Type": "application/json"})
+                        req = self._operator_request(f"{target_info['address']}/reputation",
+                                                     {"peer_id": peer, "score": score})
                         with self.opener.open(req, timeout=3) as resp:
                             res = json.loads(resp.read().decode())
                             outcomes.append({"node_id": target, "score": score, "quarantined": score < 30})

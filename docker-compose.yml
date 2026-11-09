@@ -18,6 +18,8 @@ x-common-env: &common-env
   PEER_ADDRESSES: "fednode-0:50051,fednode-1:50051,fednode-2:50051,fednode-3:50051,fednode-4:50051"
   BYZANTINE_MODE: NONE
   QUORUM_MODE: STRICT
+  # Shared operator credential for /fault, /reputation, /peers (from host env or the gitignored .env)
+  FEDCONSENSUS_OPERATOR_TOKEN: ${FEDCONSENSUS_OPERATOR_TOKEN:-}
 
 services:
   dashboard:
@@ -28,6 +30,7 @@ services:
       - fedconsensus-net
     environment:
       DASHBOARD_NODES: "http://fednode-0:8080,http://fednode-1:8080,http://fednode-2:8080,http://fednode-3:8080,http://fednode-4:8080"
+      FEDCONSENSUS_OPERATOR_TOKEN: ${FEDCONSENSUS_OPERATOR_TOKEN:-}
     ports:
       - "127.0.0.1:8090:8090"
     restart: unless-stopped

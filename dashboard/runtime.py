@@ -51,9 +51,7 @@ if request["operation"] in ("propose", "vote"):
         print(json.dumps({"acknowledged": result.acknowledged, "node_id": identity["node_id"]}))
 elif request["operation"] == "trust":
     db = Database(os.path.join(data_dir, "wal.db"))
-    ledger = {r["peer_id"]: r for r in db.get_all_reputations()}
-    old = ledger.get(request["peer"], {}).get("trust_score", 100)
-    db.update_reputation(request["peer"], request["score"] - old)
+    db.set_reputation(request["peer"], request["score"])
     print(json.dumps({"score": request["score"], "quarantined": request["score"] < 30}))
 elif request["operation"] == "post":
     from urllib.request import Request, urlopen

@@ -1,0 +1,4 @@
+# Test-only dependencies. Runtime requirements are in requirements.txt and node/requirements.txt.
+# Pinned below 6.158: later releases ship a compiled _native extension (cp314 win_amd64 wheel)
+# that Windows Application Control blocks on this machine; 6.155 is a pure-Python wheel.
+hypothesis>=6.100,<6.156

@@ -119,7 +119,7 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
                     is_valid_sig = True
 
             if not is_valid_sig:
-                self.reputation.penalize_forgery(reporter_id)
+                self.reputation.penalize_forgery(reporter_id, proposal_id=request.proposal_id)
                 return pb2.ProposeResponse(
                     accepted=False,
                     reason="Proposal rejected: Invalid reporter signature",
