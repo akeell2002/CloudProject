@@ -1,5 +1,5 @@
 """
-Automated Verification Suite for Byzantine Fault Resilience (Milestone 4.4 - Part 2)
+Automated Verification Suite for Byzantine Fault Resilience
 Tests:
   1. Byzantine LIAR Fault Masking (1 liar voting REJECT cannot prevent Q=4 commit)
   2. Byzantine FORGER Detection & Reputation Penalty (-40 points & ballot dropped)

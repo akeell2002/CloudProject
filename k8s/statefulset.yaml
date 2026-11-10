@@ -35,7 +35,7 @@ spec:
                 fieldRef:
                   fieldPath: metadata.name
             # Operator credential for /fault, /reputation, /peers. Create it with:
-            #   kubectl create secret generic fedconsensus-operator --from-literal=token=<random>
+            # kubectl create secret generic fedconsensus-operator --from-literal=token=<random>
             # Without the secret the node starts and operator endpoints return 403.
             - name: FEDCONSENSUS_OPERATOR_TOKEN
               valueFrom:

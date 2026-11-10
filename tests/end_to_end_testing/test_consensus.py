@@ -1,5 +1,5 @@
 """
-Automated Verification Suite for BFT Consensus Engine (Milestone 4.4 - Part 1)
+Automated Verification Suite for BFT Consensus Engine
 Tests:
   1. Dynamic BFT Quorum Math across varying cluster scales (N = 4, 5, 7, 10, 16)
   2. Mathematical Split-Brain Partition Invariance (Q > N/2 and Q + f > N)

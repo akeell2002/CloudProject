@@ -24,7 +24,7 @@ class ThreatAssessment:
 
 class ThreatClassifier:
     """
-    Multi-Feature Threat Classifier (Section 2 of Specification):
+    Multi-Feature Threat Classifier:
     Analyzes incoming ActivityPub traffic for burst velocity, malicious extensions,
     and phishing language. Triggers consensus escalation if threat score >= 0.60.
     """

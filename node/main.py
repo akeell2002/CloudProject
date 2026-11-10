@@ -317,12 +317,12 @@ class FedNodeRunner:
             f"[{self.config.node_id}] Escalating attack to consensus! Target: {domain} "
             f"(Score: {assessment.score}, Reasons: {assessment.reasons})"
         )
-        # Flaw 3: Byzantine CENSOR check
+        # If configured in CENSOR mode, drop proposal
         if getattr(self.service, "byzantine_mode", "") == "CENSOR":
             logger.warning(f"[{self.config.node_id}] Leader is in CENSOR Byzantine mode; dropping proposal for {domain}!")
             return
 
-        # Item 9: Extract authentic origin_http_signature if provided; no fabricated fallback
+        # Extract raw origin HTTP signature if present
         origin_sig = payload.get("origin_http_signature", "")
         if isinstance(origin_sig, dict):
             origin_sig_str = json.dumps(origin_sig)
@@ -331,7 +331,7 @@ class FedNodeRunner:
         else:
             origin_sig_str = ""
 
-        # Flaw 2 & Patch A1: Check if this node is current Epoch Leader
+        # If current epoch leader, broadcast proposal to consortium
         if self.leader.is_current_leader():
             prop_req = self.consensus.create_proposal(
                 target_domain=domain,
@@ -353,7 +353,7 @@ class FedNodeRunner:
             ).start()
 
     def _forward_threat_to_leader(self, domain: str, payload: dict, origin_sig_str: str, assessment: ThreatAssessment):
-        """Forwards a follower-detected threat to the current Epoch Leader without illegal bypass (Items 4 & 5)."""
+        """Forwards a follower-detected threat to the current Epoch Leader."""
         expected_leader = self.leader.get_leader_for_epoch(self.leader.current_epoch)
         leader_addr = self.service._find_peer_address(expected_leader)
         vote_meta = {
@@ -498,7 +498,7 @@ class FedNodeRunner:
                         f"Leader {expected_leader} impeached; elected {new_leader} for Epoch {self.leader.current_epoch}",
                     )
 
-            # Flaw 3 & Flaw 14: Check expired censorship watches
+            # Check for timed-out censorship watches and initiate leader impeachment if needed
             expired_watches = self.leader.get_expired_censorship_watches()
             for censored_domain, info in expired_watches:
                 logger.warning(f"[{self.config.node_id}] Leader censored attack on {censored_domain} > 3s! Impeaching.")

@@ -1,5 +1,5 @@
 """
-Automated Verification Suite for End-to-End Chaos Scenarios (Milestone 4.4 - Part 3)
+Automated Verification Suite for End-to-End Chaos Scenarios
 Tests:
   1. Complete Ingress-to-Commit Lifecycle (Benign Post -> Attack -> Quorum -> Firewall Block)
   2. Crash & Self-Healing Catch-up Replay across container lifecycles

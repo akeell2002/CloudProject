@@ -5,7 +5,7 @@ from node.storage.database import Database
 
 class FirewallFilter:
     """
-    Perimeter Firewall Filtering (Section 2 of Specification):
+    Perimeter Firewall Filtering:
     Sub-microsecond in-memory lookup to instantly drop traffic from previously
     banned domains with HTTP 403 before executing application logic.
     """

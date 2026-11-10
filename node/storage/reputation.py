@@ -7,7 +7,7 @@ from node.storage.database import Database
 
 class ReputationManager:
     """
-    Dynamic Peer Reputation Ledger (Section 3 of Specification):
+    Dynamic Peer Reputation Ledger:
     Nodes maintain trust scores (100 -> 0) for every peer in the consortium.
     Liars, censors, and forgers are penalized and stripped of voting rights.
 

@@ -7,7 +7,7 @@ from node.ingress.classifier import ThreatClassifier, ThreatAssessment
 
 class ActivityPubInbox:
     """
-    W3C ActivityPub /inbox Middleware (Section 2 of Specification):
+    W3C ActivityPub /inbox Middleware:
     Ingests and parses standard ActivityStreams JSON-LD payloads.
     Enforces perimeter firewall filtering, threat scoring, and automated
     escalation to the BFT consensus engine.

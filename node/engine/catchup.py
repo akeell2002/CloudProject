@@ -14,7 +14,7 @@ logger = logging.getLogger("fedconsensus.catchup")
 
 class CatchupEngine:
     """
-    Self-Healing Catch-up and State Replay Engine (Phase 3).
+    Self-Healing Catch-up and State Replay Engine.
     Allows crashed or newly joined nodes to query active peers for missed defederation 
     records and replay them locally after cryptographically verifying Quorum Certificates.
     """
@@ -124,7 +124,7 @@ class CatchupEngine:
             # Cryptographically audit each signature in the proof
             valid_voters = set()
             for sig in proof.signatures:
-                # Flaw 16: Check signer eligibility (quarantine check)
+                # Ensure signer is eligible to vote
                 if self.reputation and not self.reputation.is_peer_eligible_to_vote(sig.voter_id):
                     continue
                 pubkey = self.peer_public_keys.get(sig.voter_id)
@@ -143,20 +143,6 @@ class CatchupEngine:
                 # Try verifying vote format or leader proposal format
                 if verify_signature(pubkey, vote_meta, sig.signature):
                     valid_voters.add(sig.voter_id)
-                else:
-                    # Candidate threat score matching (including 1.0, Item 3)
-                    for candidate_score in (1.0, 0.95, 0.92, 0.91, 0.90, 0.89, 0.88, 0.85, 0.80, 0.75, 0.70, 0.65, 0.60):
-                        prop_meta = {
-                            "proposal_id": proof.proposal_id,
-                            "sequence_number": proof.sequence_number,
-                            "epoch": proof.epoch,
-                            "target_domain": proof.target_domain,
-                            "reason": proof.reason,
-                            "threat_score": round(candidate_score, 3)
-                        }
-                        if verify_signature(pubkey, prop_meta, sig.signature):
-                            valid_voters.add(sig.voter_id)
-                            break
 
             if len(valid_voters) < self.config.quorum_size:
                 logger.warning(
@@ -235,8 +221,8 @@ class CatchupEngine:
                                     )
                         total_replayed += count
 
-                    # Item 7: Sync peer reputation/quarantine status to eliminate epoch split-brain.
-                    # Never copy a peer's view of this node, and only ever lower a local score.
+                    # Sync peer reputation state to maintain consistent quorum view across nodes
+                    # Never copy a peer's view of this node, and only ever lower a local score
                     try:
                         status_res = stub.GetStatus(pb2.StatusRequest(caller_id=self.config.node_id), timeout=1.0)
                         if status_res and status_res.reputations:

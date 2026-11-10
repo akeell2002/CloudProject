@@ -23,7 +23,7 @@ logger = logging.getLogger("fedconsensus.service")
 
 class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
     """
-    gRPC Server Implementation for FedConsensus (Milestone 3.2).
+    gRPC Server implementation handling cluster RPC consensus operations.
     Binds the 7 cluster RPC operations and supports runtime Byzantine fault injection
     (NONE, SILENT, LIAR, FORGER).
     """
@@ -61,7 +61,7 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
             return self._stubs[peer_addr]
 
     def set_byzantine_mode(self, mode: str):
-        """Allows dynamic fault injection from CLI or Dashboard (Phase 4)."""
+        """Allows dynamic fault injection from CLI or Dashboard."""
         clean_mode = mode.upper().strip()
         logger.warning(f"[{self.config.node_id}] Switching Byzantine mode to: {clean_mode}")
         self.byzantine_mode = clean_mode
@@ -74,7 +74,7 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
         if self.byzantine_mode == "SILENT":
             context.abort(grpc.StatusCode.UNAVAILABLE, "Node is in SILENT Byzantine fault mode")
 
-        # Flaw 3: Byzantine CENSOR mode: leader drops proposals
+        # Byzantine simulation: drop proposal if in CENSOR mode
         if self.byzantine_mode == "CENSOR":
             logger.warning(f"[{self.config.node_id}] Byzantine CENSOR ignoring proposal for {request.target_domain}!")
             return pb2.ProposeResponse(accepted=False, reason="Node is in CENSOR mode", node_id=self.config.node_id)
@@ -101,22 +101,7 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
                 "target_domain": request.target_domain,
                 "decision": "APPROVE"
             }
-            sign_meta = {
-                "proposal_id": request.proposal_id,
-                "sequence_number": request.sequence_number,
-                "epoch": request.epoch,
-                "target_domain": request.target_domain,
-                "reason": request.reason,
-                "threat_score": round(request.threat_score, 3)
-            }
-            is_valid_sig = False
-            if reporter_id == "operator-fedctl":
-                is_valid_sig = True
-            elif reporter_pubkey:
-                if verify_signature(reporter_pubkey, vote_meta, request.proposer_signature):
-                    is_valid_sig = True
-                elif verify_signature(reporter_pubkey, sign_meta, request.proposer_signature):
-                    is_valid_sig = True
+            is_valid_sig = bool(proposer_pubkey and verify_signature(proposer_pubkey, vote_meta, req.proposer_signature))
 
             if not is_valid_sig:
                 self.reputation.penalize_forgery(reporter_id, proposal_id=request.proposal_id)
@@ -230,7 +215,7 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
                 decision="INVALID",
             )
 
-        # Flaw 9: Byzantine EQUIVOCATOR: send conflicting ballots
+        # Byzantine simulation: broadcast conflicting ballots
         if self.byzantine_mode == "EQUIVOCATOR" and vote_req:
             logger.warning(f"[{self.config.node_id}] Byzantine EQUIVOCATOR sending conflicting ballots!")
             reject_vote = pb2.VoteRequest(
