@@ -5,15 +5,15 @@ from node.crypto.ed25519 import generate_keypair, generate_deterministic_keypair
 
 
 DEFAULT_ORG_DOMAINS = {
-    "fednode-0": "glasgow.social",
-    "fednode-1": "edinburgh.social",
-    "fednode-2": "oxford.social",
-    "fednode-3": "cambridge.social",
-    "fednode-4": "imperial.social",
-    "fednode-5": "manchester.social",
-    "fednode-6": "bristol.social",
-    "fednode-7": "warwick.social",
-    "fednode-8": "st-andrews.social",
+    "fednode-0": "mastodon.social",
+    "fednode-1": "lemmy.world",
+    "fednode-2": "pixelfed.social",
+    "fednode-3": "friendica.me",
+    "fednode-4": "peertube.tv",
+    "fednode-5": "kbin.social",
+    "fednode-6": "misskey.io",
+    "fednode-7": "writefreely.pub",
+    "fednode-8": "funkwhale.audio",
 }
 
 

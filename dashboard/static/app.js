@@ -511,8 +511,8 @@
         isCoord ? "PROPOSER ★" : node.org ? node.org.toUpperCase() : "PEER";
       const specs = el("div", "node-specs");
       specs.append(
-        el("span", "node-spec-tag fw", "⚡ RAM"),
-        el("span", "node-spec-tag db", "💾 DB")
+        el("span", "node-spec-tag fw", "Memory"),
+        el("span", "node-spec-tag db", "Database")
       );
       button.append(circle, el("span", "node-name", node.node_id), el("span", "node-role", role), specs);
       button.addEventListener("click", function () { openNode(node.node_id); });
@@ -643,10 +643,18 @@
       el("h3", "threat-domain", proposal.domain)
     );
 
-    const evidence = data.events.slice().reverse().find(function (e) {
-      return e.domain === proposal.domain && ["threat", "proposal"].includes(e.kind);
+    const threatEvent = data.events.slice().reverse().find(function (e) {
+      return e.domain === proposal.domain && e.kind === "threat";
     });
-    inner.append(el("div", "evidence", evidence ? evidence.message : reasonNames[proposal.reason] || "Domain moderation proposal"));
+    const defaultReason = reasonNames[proposal.reason] ? (reasonNames[proposal.reason] + " detected") : "Malicious activity flagged for consensus";
+    const evidenceText = threatEvent ? threatEvent.message : defaultReason;
+    const evidenceBox = el("div", "evidence", evidenceText);
+    if (isFinalCommitted) {
+      evidenceBox.style.borderLeftColor = "#3dd68c";
+      evidenceBox.style.background = "#132b1e";
+      evidenceBox.style.color = "#a3e8c3";
+    }
+    inner.append(evidenceBox);
 
     const latencyMs = proposal.latency_ms || 18;
     const scoreVal = Number(proposal.threat_score || 0.85).toFixed(2);
@@ -655,7 +663,7 @@
       ["⏱ BFT Commit Time", isAnimating ? "Voting live…" : isFinalCommitted ? latencyMs + " ms (< 300ms SLA)" : "Stalled (No Quorum)", isFinalCommitted ? "spec-ok" : ""],
       ["🎯 Threat Score", scoreVal + " (≥ 0.60 Trigger)", "spec-danger"],
       ["🔐 Cryptographic QC", "Ed25519 · Epoch " + (proposal.epoch || 1) + " · Seq #" + (proposal.sequence || 1), ""],
-      ["💾 Enforcement", isFinalCommitted ? "SQLite WAL + O(1) RAM (< 1 µs)" : "Awaiting " + quorumNeeded + "/" + bft.n + " Quorum", isFinalCommitted ? "spec-ok" : ""]
+      ["Enforcement", isFinalCommitted ? "SQLite WAL + Memory Firewall (< 1 µs)" : "Awaiting " + quorumNeeded + "/" + bft.n + " Quorum", isFinalCommitted ? "spec-ok" : ""]
     ].forEach(function (item) {
       const box = el("div", "bft-spec-item " + item[2]);
       box.append(el("span", "bft-spec-label", item[0]), el("strong", "bft-spec-val", item[1]));
@@ -788,13 +796,16 @@
       rows.append(row);
     }
   }
+  let activeEnforcementTab = "bans";
   function renderBans() {
     const list = $("banned-list");
     list.replaceChildren();
-    const query = $("ban-search").value.trim().toLowerCase();
+    const query = $("ban-search") ? $("ban-search").value.trim().toLowerCase() : "";
     const bans = data.bans.filter(function (ban) { return ban.domain.toLowerCase().includes(query); });
     const propMap = new Map(proposals().map(function (p) { return [p.domain, p]; }));
-    $("banned-badge").textContent = data.bans.length;
+    if ($("banned-badge")) {
+      $("banned-badge").textContent = activeEnforcementTab === "bans" ? data.bans.length : data.nodes.length;
+    }
     bans.forEach(function (ban) {
       const row = el("div", "ban-item");
       const text = el("div");
@@ -814,12 +825,56 @@
       row.append(el("span", "ban-icon", "⊘"), text);
       row.addEventListener("click", function () {
         selectedDomain = ban.domain;
+        if ($("traffic-domain")) {
+          $("traffic-domain").value = ban.domain;
+        }
         incidentKey = "";
         renderIncident();
       });
       list.append(row);
     });
     if (!bans.length) list.append(el("div", "ban-empty", query ? "No domains match your search." : "No reported domain blocks."));
+
+    // Render Peer Trust Scores list
+    const repsContainer = $("reps-list");
+    if (repsContainer) {
+      repsContainer.replaceChildren();
+      const table = el("table");
+      const head = el("thead");
+      const header = el("tr");
+      ["Platform Node", "Trust Score", "BFT Status"].forEach(function (text) { header.append(el("th", "", text)); });
+      head.append(header);
+      const tbody = el("tbody");
+      data.nodes.forEach(function (n) {
+        const row = el("tr");
+        let minScore = 100;
+        let isEligible = true;
+        (n.reputations || []).forEach(function (r) {
+          if (r.trust_score < minScore) minScore = r.trust_score;
+          if (r.trust_score < 30 || !r.is_active) isEligible = false;
+        });
+        if (n.quarantined) isEligible = false;
+
+        const displayName = n.node_id + (n.org ? " (" + n.org + ")" : "");
+        const statusText = !n.online ? "Offline" : isEligible ? "Eligible (Active)" : "QUARANTINED (< 30)";
+        const statusClass = !n.online ? "muted" : isEligible ? "success" : "danger";
+
+        const scoreCell = el("td", "", minScore + " / 100");
+        scoreCell.style.fontWeight = "600";
+        if (minScore < 30) scoreCell.style.color = "#ff6b81";
+        else if (minScore < 70) scoreCell.style.color = "#f5a623";
+        else scoreCell.style.color = "#3dd68c";
+
+        row.append(
+          el("td", "", displayName),
+          scoreCell,
+          el("td", "pill " + statusClass, statusText)
+        );
+        tbody.append(row);
+      });
+      table.append(head, tbody);
+      repsContainer.append(table);
+    }
   }
   function render() {
     const active = onlineNodes().length;
@@ -981,6 +1036,9 @@
         seenDomains.delete(value.domain);
         selectedDomain = value.domain;
       }
+      if (body.action === "add_org" && $("org-domain")) {
+        $("org-domain").value = "";
+      }
 
     } catch (error) {
       result.className = "action-result failure-result";
@@ -997,8 +1055,9 @@
     const isInternal = rawOrigin !== "external";
     const sourceType = isInternal ? "internal" : "external";
     const sourceNode = isInternal ? (rawOrigin === "internal" ? ($("source-node") ? $("source-node").value : "fednode-1") : rawOrigin) : "";
+    const customDomain = $("traffic-domain") ? $("traffic-domain").value.trim().toLowerCase() : "";
     return runAction({action: "inject", node: actor(), scenario: scenario,
-      source: sourceType, source_node: sourceNode, domain: "",
+      source: sourceType, source_node: sourceNode, domain: customDomain,
       content: $("traffic-content") ? $("traffic-content").value : ""});
   }
   if ($("control-node")) $("control-node").addEventListener("change", renderControls);
@@ -1031,11 +1090,47 @@
       runAction({action: "trust", node: "fednode-0", peer: actor(), score: 100, scope: "all"});
     });
   }
+  if ($("add-org-node")) {
+    $("add-org-node").addEventListener("click", function () {
+      const org = $("org-domain") ? $("org-domain").value.trim() : "";
+      runAction({action: "add_org", org: org || "bluesky-bridge.social"});
+    });
+  }
+  if ($("autoscale-up")) {
+    $("autoscale-up").addEventListener("click", function () {
+      runAction({action: "autoscale", delta: 2});
+    });
+  }
+  if ($("reset-scale")) {
+    $("reset-scale").addEventListener("click", function () {
+      runAction({action: "reset_scale"});
+    });
+  }
   if ($("trust-form")) {
     $("trust-form").addEventListener("submit", function (event) {
       event.preventDefault();
       runAction({action: "trust", node: "fednode-0", peer: actor(),
         score: Number($("trust-score").value), scope: "all"});
+    });
+  }
+  if ($("toggle-bans-btn")) {
+    $("toggle-bans-btn").addEventListener("click", function () {
+      activeEnforcementTab = "bans";
+      $("toggle-bans-btn").classList.add("active");
+      if ($("toggle-reps-btn")) $("toggle-reps-btn").classList.remove("active");
+      if ($("bans-view-container")) $("bans-view-container").hidden = false;
+      if ($("reps-view-container")) $("reps-view-container").hidden = true;
+      renderBans();
+    });
+  }
+  if ($("toggle-reps-btn")) {
+    $("toggle-reps-btn").addEventListener("click", function () {
+      activeEnforcementTab = "reps";
+      $("toggle-reps-btn").classList.add("active");
+      if ($("toggle-bans-btn")) $("toggle-bans-btn").classList.remove("active");
+      if ($("bans-view-container")) $("bans-view-container").hidden = true;
+      if ($("reps-view-container")) $("reps-view-container").hidden = false;
+      renderBans();
     });
   }
   $("refresh").addEventListener("click", refresh);

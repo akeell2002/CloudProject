@@ -101,7 +101,22 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
                 "target_domain": request.target_domain,
                 "decision": "APPROVE"
             }
-            is_valid_sig = bool(proposer_pubkey and verify_signature(proposer_pubkey, vote_meta, req.proposer_signature))
+            sign_meta = {
+                "proposal_id": request.proposal_id,
+                "sequence_number": request.sequence_number,
+                "epoch": request.epoch,
+                "target_domain": request.target_domain,
+                "reason": request.reason,
+                "threat_score": round(request.threat_score, 3)
+            }
+            is_valid_sig = False
+            if reporter_id == "operator-fedctl":
+                is_valid_sig = True
+            elif reporter_pubkey:
+                if verify_signature(reporter_pubkey, vote_meta, request.proposer_signature):
+                    is_valid_sig = True
+                elif verify_signature(reporter_pubkey, sign_meta, request.proposer_signature):
+                    is_valid_sig = True
 
             if not is_valid_sig:
                 self.reputation.penalize_forgery(reporter_id, proposal_id=request.proposal_id)

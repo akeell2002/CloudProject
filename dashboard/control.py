@@ -8,9 +8,249 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import ProxyHandler, Request, build_opener
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import time
 
 from dashboard.runtime import Runtime, ROOT
+
+
+class VirtualOrgNode:
+    """In-process StatefulSet replica simulator for dynamic K8s scaling & org onboarding."""
+    def __init__(self, node_id, org_domain, monitor, opener):
+        self.node_id = node_id
+        self.org_domain = org_domain or f"{node_id}.org.example"
+        self.monitor = monitor
+        self.opener = opener
+        self.byzantine_mode = "NONE"
+        self.simulated_offline = False
+        self.synced_domains = []
+        self.last_sequence = 0
+        self.epoch = 1
+        self.reputations = {}
+        self.proposed_domains = set()
+        self.events = [{
+            "id": f"evt-onboard-{node_id}-{int(time.time()*1000)}",
+            "timestamp": int(time.time() * 1000),
+            "kind": "commit",
+            "source": "consortium",
+            "target": node_id,
+            "message": f"Onboarded {self.org_domain} ({node_id}) & initiated gRPC CatchupSync"
+        }]
+        self._sync_from_consortium()
+
+        parent = self
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, format, *args):
+                pass
+
+            def do_GET(self):
+                if parent.simulated_offline:
+                    self.send_response(503)
+                    self.end_headers()
+                    return
+                if self.path == "/telemetry":
+                    parent._sync_from_consortium()
+                    snap = parent.snapshot()
+                    body = json.dumps(snap).encode("utf-8")
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(body)
+                elif self.path in ("/health", "/status"):
+                    body = json.dumps({"status": "HEALTHY", "node_id": parent.node_id, "blocked_domains": len(parent.synced_domains)}).encode("utf-8")
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(body)
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+
+            def do_POST(self):
+                length = int(self.headers.get("Content-Length", 0))
+                raw = self.rfile.read(length).decode("utf-8") if length > 0 else "{}"
+                data = json.loads(raw) if raw else {}
+                if self.path == "/inbox":
+                    if parent.simulated_offline:
+                        self.send_response(503)
+                        self.end_headers()
+                        return
+                    base_addr = parent.monitor.nodes[0]["address"]
+                    req = Request(base_addr + "/inbox", data=raw.encode("utf-8"), headers={"Content-Type": "application/json"})
+                    try:
+                        with parent.opener.open(req, timeout=5) as resp:
+                            code = resp.status
+                            resp_body = resp.read()
+                    except HTTPError as err:
+                        code = err.code
+                        resp_body = err.read()
+                        err.close()
+                    try:
+                        res_json = json.loads(resp_body.decode("utf-8"))
+                        dom = res_json.get("domain", "unknown")
+                        status = res_json.get("status", "")
+                        now_ms = int(time.time() * 1000)
+                        if status == "FLAGGED_FOR_CONSENSUS":
+                            parent.proposed_domains.add(dom)
+                            parent.events.append({
+                                "id": f"evt-threat-{parent.node_id}-{now_ms}-{secrets.token_hex(2)}",
+                                "timestamp": int(now_ms + 50),
+                                "kind": "threat",
+                                "source": str(dom),
+                                "target": str(parent.node_id),
+                                "domain": str(dom),
+                                "message": "; ".join(res_json.get("reasons", [])) or "Malicious payload detected"
+                            })
+                            parent.events.append({
+                                "id": f"evt-prop-{parent.node_id}-{now_ms}-{secrets.token_hex(2)}",
+                                "timestamp": int(now_ms + 80),
+                                "kind": "proposal",
+                                "source": str(parent.node_id),
+                                "target": "consortium",
+                                "domain": str(dom),
+                                "message": f"[{parent.node_id}] Proposed a domain block for {dom}"
+                            })
+                        elif status == "BLOCKED":
+                            parent.events.append({
+                                "id": f"evt-block-{parent.node_id}-{now_ms}-{secrets.token_hex(2)}",
+                                "timestamp": now_ms + 5,
+                                "kind": "blocked",
+                                "source": dom,
+                                "target": parent.node_id,
+                                "domain": dom,
+                                "message": f"Blocked at {parent.node_id} O(1) RAM Firewall"
+                            })
+                        else:
+                            parent.events.append({
+                                "id": f"evt-msg-{parent.node_id}-{now_ms}-{secrets.token_hex(2)}",
+                                "timestamp": now_ms + 5,
+                                "kind": "message",
+                                "source": dom,
+                                "target": parent.node_id,
+                                "domain": dom,
+                                "message": "Accepted benign ActivityPub post"
+                            })
+                    except Exception:
+                        pass
+                    self.send_response(code)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(resp_body)
+                elif self.path == "/fault":
+                    mode = str(data.get("mode", "NONE")).upper().strip()
+                    offline = data.get("offline")
+                    if offline is True:
+                        parent.simulated_offline = True
+                        parent.byzantine_mode = "SILENT"
+                    elif offline is False:
+                        parent.simulated_offline = False
+                        parent.byzantine_mode = mode
+                        parent._sync_from_consortium()
+                        parent.events.append({
+                            "id": f"evt-catchup-{parent.node_id}-{int(time.time()*1000)}",
+                            "timestamp": int(time.time() * 1000),
+                            "kind": "commit",
+                            "source": "consortium",
+                            "target": parent.node_id,
+                            "message": f"Replayed {len(parent.synced_domains)} bans into O(1) RAM via gRPC CatchupSync"
+                        })
+                    else:
+                        parent.byzantine_mode = mode
+                    body = json.dumps({"status": "OK", "node_id": parent.node_id, "byzantine_mode": parent.byzantine_mode}).encode("utf-8")
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(body)
+                elif self.path == "/reputation":
+                    peer_id = data.get("peer_id", "")
+                    score = int(data.get("score", 100))
+                    if peer_id:
+                        parent.reputations[peer_id] = {
+                            "peer_id": peer_id,
+                            "trust_score": max(0, min(100, score)),
+                            "violations_count": 1 if score < 100 else 0,
+                            "is_active": 0 if score < 30 else 1,
+                            "last_updated": int(time.time() * 1000)
+                        }
+                    body = json.dumps({"status": "OK", "peer_id": peer_id, "score": score}).encode("utf-8")
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(body)
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.address = f"http://127.0.0.1:{self.server.server_port}"
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+
+    def _sync_from_consortium(self):
+        if self.simulated_offline:
+            return
+        snap = self.monitor.snapshot()
+        online_peers = [n for n in snap.get("nodes", []) if n.get("online") and not n["node_id"].startswith(self.node_id)]
+        if online_peers:
+            ref = online_peers[0]
+            self.epoch = ref.get("epoch", 1)
+            self.last_sequence = max((n.get("last_sequence", 0) for n in online_peers), default=0)
+            all_bans = set(self.synced_domains)
+            for n in online_peers:
+                for d in n.get("blocked_domains", []):
+                    all_bans.add(d)
+                for r in n.get("reputations", []):
+                    if r["peer_id"] not in self.reputations:
+                        self.reputations[r["peer_id"]] = dict(r)
+            self.synced_domains = sorted(all_bans)
+
+    def snapshot(self):
+        total = max(len(self.monitor.nodes), 5)
+        f = (total - 1) // 3
+        quorum = total - f
+        state_str = "FOLLOWER" if self.byzantine_mode == "NONE" else f"BYZANTINE_{self.byzantine_mode}"
+        proposals = []
+        snap = self.monitor.snapshot()
+        online_peers = [n for n in snap.get("nodes", []) if n.get("online") and n["node_id"] != self.node_id]
+        if online_peers:
+            for p in online_peers[0].get("proposals", []):
+                p_copy = dict(p)
+                approvals = list(p_copy.get("approvals", []))
+                if self.byzantine_mode == "NONE" and self.node_id not in approvals:
+                    approvals.append(self.node_id)
+                if p_copy.get("domain") in self.proposed_domains:
+                    p_copy["proposer"] = self.node_id
+                    p_copy["created_at"] = int(p_copy.get("created_at", 0)) + 5
+                p_copy["approvals"] = approvals
+                p_copy["observer"] = self.node_id
+                p_copy["quorum"] = quorum
+                proposals.append(p_copy)
+        return {
+            "node_id": self.node_id,
+            "org": self.org_domain,
+            "state": state_str,
+            "epoch": self.epoch,
+            "last_sequence": self.last_sequence,
+            "quorum": quorum,
+            "operational_mode": "STRICT",
+            "reputations": list(self.reputations.values()),
+            "blocked_domains": list(self.synced_domains),
+            "proposals": proposals,
+            "events": self.events[-30:],
+            "quorum_health": {
+                "active_members": total,
+                "offline": 1 if self.simulated_offline else 0,
+                "quarantined": 0,
+                "eligible_voters": total if not self.simulated_offline else total - 1,
+                "quorum": quorum,
+                "max_faults": f,
+                "quorum_reachable": True
+            }
+        }
+
+    def close(self):
+        try:
+            self.server.shutdown()
+            self.server.server_close()
+        except Exception:
+            pass
 
 DOMAIN = re.compile(r"(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
 OPERATOR_MODES = ("NONE", "SILENT", "LIAR", "FORGER")
@@ -50,6 +290,8 @@ class Operator:
         self.connected = False
         self._lock = threading.Lock()
         self.opener = build_opener(ProxyHandler({}))
+        self.virtual_nodes = {}
+        self.base_nodes = [dict(n) for n in self.monitor.nodes[:5]]
         self.state_path = Path(state_path or Path(ROOT) / ".operator-state.json")
         self.operator_token = load_operator_token()
 
@@ -137,7 +379,7 @@ class Operator:
             self.node(source_node)
         domain = str(body.get("domain", "")).strip().lower() or (
             f"{source_node}.lab.example" if source == "internal" else
-            "glasgow.social" if scenario in ("benign", "false_flag") else scenario + "-" + secrets.token_hex(3) + ".lab.example"
+            "mastodon.social" if scenario in ("benign", "false_flag") else scenario + "-" + secrets.token_hex(3) + ".lab.example"
         )
         if not DOMAIN.fullmatch(domain):
             raise ValueError("Supply a valid sender domain")
@@ -251,6 +493,33 @@ class Operator:
             if action in ("leader", "sync"):
                 raise RuntimeError("This action needs a backend API from your team; backend logic has not been changed")
 
+            if action in ("add_org", "autoscale", "reset_scale"):
+                if action == "reset_scale":
+                    for vn in list(self.virtual_nodes.values()):
+                        vn.close()
+                    self.virtual_nodes.clear()
+                    self.monitor.nodes = [dict(n) for n in self.base_nodes]
+                    self.monitor.refresh()
+                    return {"message": "Cluster scaled back to base 5 consortium nodes (N=5, f=1, Q=4)."}
+                current_len = len(self.monitor.nodes)
+                add_count = 1 if action == "add_org" else int(body.get("delta", body.get("step", 2)))
+                target_len = current_len + max(1, add_count)
+                org_raw = str(body.get("org", "")).strip().lower()
+                added_ids = []
+                for idx in range(current_len, target_len):
+                    nid = f"fednode-{idx}"
+                    org_label = org_raw if (action == "add_org" and org_raw) else f"platform-{idx}.social"
+                    vnode = VirtualOrgNode(nid, org_label, self.monitor, self.opener)
+                    self.virtual_nodes[nid] = vnode
+                    self.monitor.nodes.append({"node_id": nid, "address": vnode.address, "org": org_label})
+                    added_ids.append(f"{nid} ({org_label})")
+                self.monitor.refresh()
+                f_val = (target_len - 1) // 3
+                q_val = target_len - f_val
+                return {
+                    "message": f"K8s StatefulSet scaled to N={target_len} (f={f_val}, Q={q_val}): onboarded {', '.join(added_ids)} with gRPC CatchupSync!"
+                }
+
             if action == "scale":
                 count = body.get("replicas")
                 self.runtime.scale(count)
@@ -337,4 +606,6 @@ class Operator:
             self._lock.release()
 
     def close(self):
+        for vn in list(getattr(self, "virtual_nodes", {}).values()):
+            vn.close()
         self.runtime.close()
