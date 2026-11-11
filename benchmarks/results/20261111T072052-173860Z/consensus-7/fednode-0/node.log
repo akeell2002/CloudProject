@@ -1,0 +1,928 @@
+2026-11-11 15:21:03,625 [INFO] [fedconsensus.main] Initializing FedNode: fednode-0 (Data dir: C:\Users\vjand\Desktop\githubproj\CloudProject\benchmarks\results\20261111T072052-173860Z\consensus-7\fednode-0)
+2026-11-11 15:21:03,626 [WARNING] [fedconsensus.main] FEDCONSENSUS_OPERATOR_TOKEN is not set; operator endpoints will return 403
+2026-11-11 15:21:03,671 [INFO] [fedconsensus.main] Consortium gRPC mesh listening on 0.0.0.0:49825
+2026-11-11 15:21:03,684 [INFO] [fedconsensus.main] ActivityPub HTTP /inbox listening on http://0.0.0.0:0
+2026-11-11 15:21:03,933 [WARNING] [fedconsensus.main] [fednode-0] Escalating attack to consensus! Target: bench-0.example (Score: 0.85, Reasons: ['Malicious executable/archive extension found: exe'])
+2026-11-11 15:21:03,955 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-6:49832 accepted proposal
+2026-11-11 15:21:03,956 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-1:49826 accepted proposal
+2026-11-11 15:21:03,956 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-2:49827 accepted proposal
+2026-11-11 15:21:03,956 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-4:49830 accepted proposal
+2026-11-11 15:21:03,956 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-5:49831 accepted proposal
+2026-11-11 15:21:03,956 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-3:49829 accepted proposal
+2026-11-11 15:21:03,999 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-0.example!
+2026-11-11 15:21:04,008 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-0.example!
+2026-11-11 15:21:04,015 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-0.example!
+2026-11-11 15:21:04,041 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:04,041 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:04,046 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:04,047 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:04,047 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:04,047 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:04,064 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:04,065 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:04,065 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:04,066 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:04,066 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:04,066 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:04,085 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:04,085 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:04,085 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:04,086 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:04,086 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:04,087 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:04,096 [WARNING] [fedconsensus.main] [fednode-0] Escalating attack to consensus! Target: bench-1.example (Score: 0.85, Reasons: ['Malicious executable/archive extension found: exe'])
+2026-11-11 15:21:04,106 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-1:49826 accepted proposal
+2026-11-11 15:21:04,107 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-5:49831 accepted proposal
+2026-11-11 15:21:04,107 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-3:49829 accepted proposal
+2026-11-11 15:21:04,107 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-6:49832 accepted proposal
+2026-11-11 15:21:04,107 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-4:49830 accepted proposal
+2026-11-11 15:21:04,107 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-2:49827 accepted proposal
+2026-11-11 15:21:04,142 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-1.example!
+2026-11-11 15:21:04,153 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-1.example!
+2026-11-11 15:21:04,163 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-1.example!
+2026-11-11 15:21:04,187 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:04,187 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:04,188 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:04,188 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:04,187 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:04,188 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:04,206 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:04,206 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:04,207 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:04,207 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:04,207 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:04,212 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:04,231 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:04,232 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:04,232 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:04,232 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:04,232 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:04,234 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:04,248 [WARNING] [fedconsensus.main] [fednode-0] Escalating attack to consensus! Target: bench-2.example (Score: 0.85, Reasons: ['Malicious executable/archive extension found: exe'])
+2026-11-11 15:21:04,260 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-6:49832 accepted proposal
+2026-11-11 15:21:04,265 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-4:49830 accepted proposal
+2026-11-11 15:21:04,266 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-2:49827 accepted proposal
+2026-11-11 15:21:04,268 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-3:49829 accepted proposal
+2026-11-11 15:21:04,268 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-5:49831 accepted proposal
+2026-11-11 15:21:04,269 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-1:49826 accepted proposal
+2026-11-11 15:21:04,293 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-2.example!
+2026-11-11 15:21:04,301 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-2.example!
+2026-11-11 15:21:04,310 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-2.example!
+2026-11-11 15:21:04,336 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:04,336 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:04,336 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:04,337 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:04,337 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:04,337 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:04,360 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:04,360 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:04,361 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:04,361 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:04,361 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:04,361 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:04,383 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:04,383 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:04,384 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:04,384 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:04,384 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:04,385 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:04,413 [WARNING] [fedconsensus.main] [fednode-0] Escalating attack to consensus! Target: bench-3.example (Score: 0.85, Reasons: ['Malicious executable/archive extension found: exe'])
+2026-11-11 15:21:04,424 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-3:49829 accepted proposal
+2026-11-11 15:21:04,425 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-6:49832 accepted proposal
+2026-11-11 15:21:04,425 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-1:49826 accepted proposal
+2026-11-11 15:21:04,426 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-2:49827 accepted proposal
+2026-11-11 15:21:04,425 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-4:49830 accepted proposal
+2026-11-11 15:21:04,426 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-5:49831 accepted proposal
+2026-11-11 15:21:04,458 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-3.example!
+2026-11-11 15:21:04,467 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-3.example!
+2026-11-11 15:21:04,474 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-3.example!
+2026-11-11 15:21:04,500 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:04,500 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:04,500 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:04,500 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:04,500 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:04,501 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:04,519 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:04,522 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:04,523 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:04,523 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:04,524 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:04,524 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:04,556 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:04,556 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:04,556 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:04,557 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:04,557 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:04,571 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:04,594 [WARNING] [fedconsensus.main] [fednode-0] Escalating attack to consensus! Target: bench-4.example (Score: 0.85, Reasons: ['Malicious executable/archive extension found: exe'])
+2026-11-11 15:21:04,606 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-4:49830 accepted proposal
+2026-11-11 15:21:04,607 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-3:49829 accepted proposal
+2026-11-11 15:21:04,607 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-6:49832 accepted proposal
+2026-11-11 15:21:04,607 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-2:49827 accepted proposal
+2026-11-11 15:21:04,607 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-5:49831 accepted proposal
+2026-11-11 15:21:04,637 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-1:49826 accepted proposal
+2026-11-11 15:21:04,646 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-4.example!
+2026-11-11 15:21:04,657 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-4.example!
+2026-11-11 15:21:04,671 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-4.example!
+2026-11-11 15:21:04,701 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:04,701 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:04,701 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:04,701 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:04,702 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:04,702 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:04,730 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:04,730 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:04,730 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:04,730 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:04,730 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:04,731 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:04,757 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:04,757 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:04,758 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:04,758 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:04,758 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:04,759 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:04,772 [WARNING] [fedconsensus.main] [fednode-0] Escalating attack to consensus! Target: bench-5.example (Score: 0.85, Reasons: ['Malicious executable/archive extension found: exe'])
+2026-11-11 15:21:04,784 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-3:49829 accepted proposal
+2026-11-11 15:21:04,784 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-5:49831 accepted proposal
+2026-11-11 15:21:04,784 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-6:49832 accepted proposal
+2026-11-11 15:21:04,784 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-4:49830 accepted proposal
+2026-11-11 15:21:04,784 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-1:49826 accepted proposal
+2026-11-11 15:21:04,784 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-2:49827 accepted proposal
+2026-11-11 15:21:04,824 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-5.example!
+2026-11-11 15:21:04,834 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-5.example!
+2026-11-11 15:21:04,845 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-5.example!
+2026-11-11 15:21:04,873 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:04,874 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:04,874 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:04,873 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:04,874 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:04,873 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:04,897 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:04,897 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:04,898 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:04,898 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:04,898 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:04,898 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:04,916 [WARNING] [fedconsensus.main] [fednode-0] Escalating attack to consensus! Target: bench-6.example (Score: 0.85, Reasons: ['Malicious executable/archive extension found: exe'])
+2026-11-11 15:21:04,924 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:04,924 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:04,925 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:04,924 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:04,926 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:04,926 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:04,936 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-5:49831 accepted proposal
+2026-11-11 15:21:04,936 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-1:49826 accepted proposal
+2026-11-11 15:21:04,936 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-3:49829 accepted proposal
+2026-11-11 15:21:04,936 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-2:49827 accepted proposal
+2026-11-11 15:21:04,937 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-6:49832 accepted proposal
+2026-11-11 15:21:04,936 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-4:49830 accepted proposal
+2026-11-11 15:21:04,969 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-6.example!
+2026-11-11 15:21:04,978 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-6.example!
+2026-11-11 15:21:04,987 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-6.example!
+2026-11-11 15:21:05,011 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:05,012 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:05,012 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:05,012 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:05,012 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:05,012 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:05,031 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:05,031 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:05,032 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:05,032 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:05,037 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:05,038 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:05,061 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:05,062 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:05,062 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:05,062 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:05,062 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:05,063 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:05,089 [WARNING] [fedconsensus.main] [fednode-0] Escalating attack to consensus! Target: bench-7.example (Score: 0.85, Reasons: ['Malicious executable/archive extension found: exe'])
+2026-11-11 15:21:05,102 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-6:49832 accepted proposal
+2026-11-11 15:21:05,103 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-1:49826 accepted proposal
+2026-11-11 15:21:05,110 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-4:49830 accepted proposal
+2026-11-11 15:21:05,112 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-2:49827 accepted proposal
+2026-11-11 15:21:05,112 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-5:49831 accepted proposal
+2026-11-11 15:21:05,112 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-3:49829 accepted proposal
+2026-11-11 15:21:05,141 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-7.example!
+2026-11-11 15:21:05,152 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-7.example!
+2026-11-11 15:21:05,161 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-7.example!
+2026-11-11 15:21:05,188 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:05,188 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:05,188 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:05,188 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:05,189 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:05,207 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:05,211 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:05,211 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:05,212 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:05,213 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:05,213 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:05,222 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:05,233 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:05,233 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:05,233 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:05,233 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:05,234 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:05,240 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:05,250 [WARNING] [fedconsensus.main] [fednode-0] Escalating attack to consensus! Target: bench-8.example (Score: 0.85, Reasons: ['Malicious executable/archive extension found: exe'])
+2026-11-11 15:21:05,260 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-4:49830 accepted proposal
+2026-11-11 15:21:05,261 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-5:49831 accepted proposal
+2026-11-11 15:21:05,260 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-1:49826 accepted proposal
+2026-11-11 15:21:05,261 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-6:49832 accepted proposal
+2026-11-11 15:21:05,260 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-2:49827 accepted proposal
+2026-11-11 15:21:05,261 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-3:49829 accepted proposal
+2026-11-11 15:21:05,294 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-8.example!
+2026-11-11 15:21:05,303 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-8.example!
+2026-11-11 15:21:05,311 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-8.example!
+2026-11-11 15:21:05,336 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:05,337 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:05,337 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:05,337 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:05,337 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:05,337 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:05,354 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:05,355 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:05,355 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:05,355 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:05,355 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:05,356 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:05,377 [WARNING] [fedconsensus.main] [fednode-0] Escalating attack to consensus! Target: bench-9.example (Score: 0.85, Reasons: ['Malicious executable/archive extension found: exe'])
+2026-11-11 15:21:05,382 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:05,382 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:05,382 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:05,385 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:05,386 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:05,393 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:05,396 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-1:49826 accepted proposal
+2026-11-11 15:21:05,397 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-6:49832 accepted proposal
+2026-11-11 15:21:05,397 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-2:49827 accepted proposal
+2026-11-11 15:21:05,399 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-5:49831 accepted proposal
+2026-11-11 15:21:05,400 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-4:49830 accepted proposal
+2026-11-11 15:21:05,399 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-3:49829 accepted proposal
+2026-11-11 15:21:05,430 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-9.example!
+2026-11-11 15:21:05,440 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-9.example!
+2026-11-11 15:21:05,449 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-9.example!
+2026-11-11 15:21:05,474 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:05,474 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:05,474 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:05,475 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:05,474 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:05,474 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:05,495 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:05,495 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:05,496 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:05,496 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:05,495 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:05,496 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:05,521 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:05,521 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:05,521 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:05,521 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:05,522 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:05,525 [WARNING] [fedconsensus.main] [fednode-0] Escalating attack to consensus! Target: bench-10.example (Score: 0.85, Reasons: ['Malicious executable/archive extension found: exe'])
+2026-11-11 15:21:05,543 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-4:49830 accepted proposal
+2026-11-11 15:21:05,550 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:05,563 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-6:49832 accepted proposal
+2026-11-11 15:21:05,565 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-5:49831 accepted proposal
+2026-11-11 15:21:05,565 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-3:49829 accepted proposal
+2026-11-11 15:21:05,565 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-2:49827 accepted proposal
+2026-11-11 15:21:05,566 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-1:49826 accepted proposal
+2026-11-11 15:21:05,592 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-10.example!
+2026-11-11 15:21:05,600 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-10.example!
+2026-11-11 15:21:05,610 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-10.example!
+2026-11-11 15:21:05,635 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:05,635 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:05,635 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:05,635 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:05,635 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:05,635 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:05,655 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:05,655 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:05,655 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:05,655 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:05,656 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:05,656 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:05,675 [WARNING] [fedconsensus.main] [fednode-0] Escalating attack to consensus! Target: bench-11.example (Score: 0.85, Reasons: ['Malicious executable/archive extension found: exe'])
+2026-11-11 15:21:05,683 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:05,683 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:05,683 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:05,684 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:05,684 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:05,684 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:05,697 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-1:49826 accepted proposal
+2026-11-11 15:21:05,697 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-2:49827 accepted proposal
+2026-11-11 15:21:05,697 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-5:49831 accepted proposal
+2026-11-11 15:21:05,698 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-6:49832 accepted proposal
+2026-11-11 15:21:05,698 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-3:49829 accepted proposal
+2026-11-11 15:21:05,698 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-4:49830 accepted proposal
+2026-11-11 15:21:05,736 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-11.example!
+2026-11-11 15:21:05,745 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-11.example!
+2026-11-11 15:21:05,755 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-11.example!
+2026-11-11 15:21:05,764 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-11.example!
+2026-11-11 15:21:05,773 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-11.example!
+2026-11-11 15:21:05,781 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-11.example!
+2026-11-11 15:21:05,790 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-11.example!
+2026-11-11 15:21:05,815 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:05,815 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:05,821 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:05,821 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:05,822 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:05,822 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:05,843 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:05,843 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:05,843 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:05,843 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:05,843 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:05,844 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:05,863 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:05,863 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:05,863 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:05,863 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:05,865 [WARNING] [fedconsensus.main] [fednode-0] Escalating attack to consensus! Target: bench-12.example (Score: 0.85, Reasons: ['Malicious executable/archive extension found: exe'])
+2026-11-11 15:21:05,865 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:05,865 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:05,886 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:05,887 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:05,888 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:05,888 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:05,888 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:05,888 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:05,904 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:05,905 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:05,906 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:05,906 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:05,906 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:05,906 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:05,923 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:05,923 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:05,923 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:05,923 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:05,923 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:05,923 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:05,944 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:05,944 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:05,944 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:05,944 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:05,945 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:05,945 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:05,956 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-6:49832 accepted proposal
+2026-11-11 15:21:05,957 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-2:49827 accepted proposal
+2026-11-11 15:21:05,956 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-5:49831 accepted proposal
+2026-11-11 15:21:05,957 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-1:49826 accepted proposal
+2026-11-11 15:21:05,957 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-4:49830 accepted proposal
+2026-11-11 15:21:05,956 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-3:49829 accepted proposal
+2026-11-11 15:21:05,988 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-12.example!
+2026-11-11 15:21:05,998 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-12.example!
+2026-11-11 15:21:06,006 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-12.example!
+2026-11-11 15:21:06,032 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:06,032 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:06,033 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:06,033 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:06,033 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:06,033 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:06,054 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:06,054 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:06,054 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:06,054 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:06,054 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:06,054 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:06,082 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:06,083 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:06,083 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:06,084 [WARNING] [fedconsensus.main] [fednode-0] Escalating attack to consensus! Target: bench-13.example (Score: 0.85, Reasons: ['Malicious executable/archive extension found: exe'])
+2026-11-11 15:21:06,083 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:06,084 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:06,085 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:06,105 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-4:49830 accepted proposal
+2026-11-11 15:21:06,105 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-1:49826 accepted proposal
+2026-11-11 15:21:06,108 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-6:49832 accepted proposal
+2026-11-11 15:21:06,108 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-5:49831 accepted proposal
+2026-11-11 15:21:06,108 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-3:49829 accepted proposal
+2026-11-11 15:21:06,108 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-2:49827 accepted proposal
+2026-11-11 15:21:06,154 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-13.example!
+2026-11-11 15:21:06,166 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-13.example!
+2026-11-11 15:21:06,178 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-13.example!
+2026-11-11 15:21:06,215 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:06,215 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:06,216 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:06,216 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:06,216 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:06,216 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:06,255 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:06,255 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:06,256 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:06,256 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:06,256 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:06,257 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:06,290 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:06,292 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:06,293 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:06,293 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:06,293 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:06,293 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:06,321 [WARNING] [fedconsensus.main] [fednode-0] Escalating attack to consensus! Target: bench-14.example (Score: 0.85, Reasons: ['Malicious executable/archive extension found: exe'])
+2026-11-11 15:21:06,337 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-4:49830 accepted proposal
+2026-11-11 15:21:06,338 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-3:49829 accepted proposal
+2026-11-11 15:21:06,339 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-2:49827 accepted proposal
+2026-11-11 15:21:06,339 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-1:49826 accepted proposal
+2026-11-11 15:21:06,340 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-6:49832 accepted proposal
+2026-11-11 15:21:06,349 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-5:49831 accepted proposal
+2026-11-11 15:21:06,388 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-14.example!
+2026-11-11 15:21:06,397 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-14.example!
+2026-11-11 15:21:06,408 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-14.example!
+2026-11-11 15:21:06,443 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:06,444 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:06,444 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:06,444 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:06,445 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:06,446 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:06,469 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:06,475 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:06,475 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:06,475 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:06,476 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:06,476 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:06,507 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:06,507 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:06,507 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:06,508 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:06,509 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:06,509 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:06,556 [WARNING] [fedconsensus.main] [fednode-0] Escalating attack to consensus! Target: bench-15.example (Score: 0.85, Reasons: ['Malicious executable/archive extension found: exe'])
+2026-11-11 15:21:06,569 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-4:49830 accepted proposal
+2026-11-11 15:21:06,569 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-6:49832 accepted proposal
+2026-11-11 15:21:06,612 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-5:49831 accepted proposal
+2026-11-11 15:21:06,613 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-2:49827 accepted proposal
+2026-11-11 15:21:06,613 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-3:49829 accepted proposal
+2026-11-11 15:21:06,625 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-1:49826 accepted proposal
+2026-11-11 15:21:06,638 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-15.example!
+2026-11-11 15:21:06,649 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-15.example!
+2026-11-11 15:21:06,660 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-15.example!
+2026-11-11 15:21:06,686 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:06,686 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:06,686 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:06,686 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:06,687 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:06,687 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:06,734 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:06,735 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:06,735 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:06,735 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:06,735 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:06,735 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:06,762 [WARNING] [fedconsensus.main] [fednode-0] Escalating attack to consensus! Target: bench-16.example (Score: 0.85, Reasons: ['Malicious executable/archive extension found: exe'])
+2026-11-11 15:21:06,772 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:06,773 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:06,773 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:06,773 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:06,782 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:06,783 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:06,787 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-1:49826 accepted proposal
+2026-11-11 15:21:06,788 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-2:49827 accepted proposal
+2026-11-11 15:21:06,789 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-3:49829 accepted proposal
+2026-11-11 15:21:06,790 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-6:49832 accepted proposal
+2026-11-11 15:21:06,792 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-5:49831 accepted proposal
+2026-11-11 15:21:06,792 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-4:49830 accepted proposal
+2026-11-11 15:21:06,826 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-16.example!
+2026-11-11 15:21:06,835 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-16.example!
+2026-11-11 15:21:06,845 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-16.example!
+2026-11-11 15:21:06,874 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:06,874 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:06,874 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:06,874 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:06,875 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:06,875 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:06,903 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:06,903 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:06,903 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:06,903 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:06,904 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:06,904 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:06,932 [WARNING] [fedconsensus.main] [fednode-0] Escalating attack to consensus! Target: bench-17.example (Score: 0.85, Reasons: ['Malicious executable/archive extension found: exe'])
+2026-11-11 15:21:06,942 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:06,948 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:06,948 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:06,949 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:06,949 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:06,950 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:06,954 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-6:49832 accepted proposal
+2026-11-11 15:21:06,954 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-2:49827 accepted proposal
+2026-11-11 15:21:06,955 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-4:49830 accepted proposal
+2026-11-11 15:21:06,955 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-1:49826 accepted proposal
+2026-11-11 15:21:06,957 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-5:49831 accepted proposal
+2026-11-11 15:21:06,957 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-3:49829 accepted proposal
+2026-11-11 15:21:06,995 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-17.example!
+2026-11-11 15:21:07,006 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-17.example!
+2026-11-11 15:21:07,016 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-17.example!
+2026-11-11 15:21:07,048 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:07,048 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:07,048 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:07,048 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:07,049 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:07,048 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:07,073 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:07,073 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:07,073 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:07,073 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:07,079 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:07,079 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:07,104 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:07,104 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:07,104 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:07,104 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:07,105 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:07,105 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:07,133 [WARNING] [fedconsensus.main] [fednode-0] Escalating attack to consensus! Target: bench-18.example (Score: 0.85, Reasons: ['Malicious executable/archive extension found: exe'])
+2026-11-11 15:21:07,144 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-5:49831 accepted proposal
+2026-11-11 15:21:07,145 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-6:49832 accepted proposal
+2026-11-11 15:21:07,154 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-3:49829 accepted proposal
+2026-11-11 15:21:07,154 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-2:49827 accepted proposal
+2026-11-11 15:21:07,155 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-1:49826 accepted proposal
+2026-11-11 15:21:07,157 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-4:49830 accepted proposal
+2026-11-11 15:21:07,188 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-18.example!
+2026-11-11 15:21:07,198 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-18.example!
+2026-11-11 15:21:07,208 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-18.example!
+2026-11-11 15:21:07,239 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:07,239 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:07,240 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:07,240 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:07,241 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:07,241 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:07,263 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:07,263 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:07,264 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:07,265 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:07,265 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:07,265 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:07,285 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:07,285 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:07,285 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:07,286 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:07,286 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:07,287 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:07,307 [WARNING] [fedconsensus.main] [fednode-0] Escalating attack to consensus! Target: bench-19.example (Score: 0.85, Reasons: ['Malicious executable/archive extension found: exe'])
+2026-11-11 15:21:07,321 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-3:49829 accepted proposal
+2026-11-11 15:21:07,321 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-5:49831 accepted proposal
+2026-11-11 15:21:07,321 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-4:49830 accepted proposal
+2026-11-11 15:21:07,321 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-2:49827 accepted proposal
+2026-11-11 15:21:07,321 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-6:49832 accepted proposal
+2026-11-11 15:21:07,322 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-1:49826 accepted proposal
+2026-11-11 15:21:07,361 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-19.example!
+2026-11-11 15:21:07,369 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-19.example!
+2026-11-11 15:21:07,378 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-19.example!
+2026-11-11 15:21:07,402 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:07,402 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:07,403 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:07,403 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:07,403 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:07,403 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:07,422 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:07,422 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:07,423 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:07,423 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:07,423 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:07,423 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:07,463 [WARNING] [fedconsensus.main] [fednode-0] Escalating attack to consensus! Target: bench-20.example (Score: 0.85, Reasons: ['Malicious executable/archive extension found: exe'])
+2026-11-11 15:21:07,465 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:07,465 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:07,465 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:07,465 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:07,465 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:07,465 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:07,481 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-3:49829 accepted proposal
+2026-11-11 15:21:07,481 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-1:49826 accepted proposal
+2026-11-11 15:21:07,482 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-6:49832 accepted proposal
+2026-11-11 15:21:07,482 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-2:49827 accepted proposal
+2026-11-11 15:21:07,482 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-4:49830 accepted proposal
+2026-11-11 15:21:07,482 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-5:49831 accepted proposal
+2026-11-11 15:21:07,512 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-20.example!
+2026-11-11 15:21:07,520 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-20.example!
+2026-11-11 15:21:07,529 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-20.example!
+2026-11-11 15:21:07,552 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:07,552 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:07,552 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:07,552 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:07,552 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:07,552 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:07,570 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:07,570 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:07,570 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:07,570 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:07,570 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:07,570 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:07,587 [WARNING] [fedconsensus.main] [fednode-0] Escalating attack to consensus! Target: bench-21.example (Score: 0.85, Reasons: ['Malicious executable/archive extension found: exe'])
+2026-11-11 15:21:07,594 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:07,595 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:07,598 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:07,602 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:07,602 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:07,603 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:07,610 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-2:49827 accepted proposal
+2026-11-11 15:21:07,628 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-1:49826 accepted proposal
+2026-11-11 15:21:07,628 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-6:49832 accepted proposal
+2026-11-11 15:21:07,628 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-4:49830 accepted proposal
+2026-11-11 15:21:07,635 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-3:49829 accepted proposal
+2026-11-11 15:21:07,637 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-5:49831 accepted proposal
+2026-11-11 15:21:07,654 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-21.example!
+2026-11-11 15:21:07,662 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-21.example!
+2026-11-11 15:21:07,671 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-21.example!
+2026-11-11 15:21:07,693 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:07,693 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:07,693 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:07,693 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:07,693 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:07,693 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:07,712 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:07,712 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:07,713 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:07,713 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:07,713 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:07,713 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:07,733 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:07,735 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:07,735 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:07,736 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:07,739 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:07,742 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:07,749 [WARNING] [fedconsensus.main] [fednode-0] Escalating attack to consensus! Target: bench-22.example (Score: 0.85, Reasons: ['Malicious executable/archive extension found: exe'])
+2026-11-11 15:21:07,761 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-4:49830 accepted proposal
+2026-11-11 15:21:07,762 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-6:49832 accepted proposal
+2026-11-11 15:21:07,762 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-3:49829 accepted proposal
+2026-11-11 15:21:07,762 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-5:49831 accepted proposal
+2026-11-11 15:21:07,768 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-2:49827 accepted proposal
+2026-11-11 15:21:07,779 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-1:49826 accepted proposal
+2026-11-11 15:21:07,800 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-22.example!
+2026-11-11 15:21:07,811 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-22.example!
+2026-11-11 15:21:07,821 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-22.example!
+2026-11-11 15:21:07,832 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-22.example!
+2026-11-11 15:21:07,842 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-22.example!
+2026-11-11 15:21:07,852 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-22.example!
+2026-11-11 15:21:07,860 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-22.example!
+2026-11-11 15:21:07,884 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:07,884 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:07,885 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:07,885 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:07,885 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:07,885 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:07,903 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:07,903 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:07,904 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:07,904 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:07,904 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:07,905 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:07,922 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:07,926 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:07,926 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:07,927 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:07,927 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:07,926 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:07,943 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:07,944 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:07,944 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:07,944 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:07,945 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:07,946 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:07,961 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:07,961 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:07,961 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:07,961 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:07,962 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:07,962 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:07,977 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:07,977 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:07,978 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:07,978 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:07,978 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:07,979 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:07,995 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:07,995 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:07,995 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:07,995 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:07,996 [WARNING] [fedconsensus.main] [fednode-0] Escalating attack to consensus! Target: bench-23.example (Score: 0.85, Reasons: ['Malicious executable/archive extension found: exe'])
+2026-11-11 15:21:07,996 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:07,996 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:08,012 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-1:49826 accepted proposal
+2026-11-11 15:21:08,012 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-5:49831 accepted proposal
+2026-11-11 15:21:08,013 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-3:49829 accepted proposal
+2026-11-11 15:21:08,014 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-6:49832 accepted proposal
+2026-11-11 15:21:08,014 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-2:49827 accepted proposal
+2026-11-11 15:21:08,015 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-4:49830 accepted proposal
+2026-11-11 15:21:08,042 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-23.example!
+2026-11-11 15:21:08,050 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-23.example!
+2026-11-11 15:21:08,058 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-23.example!
+2026-11-11 15:21:08,082 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:08,082 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:08,082 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:08,083 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:08,082 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:08,083 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:08,103 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:08,103 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:08,103 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:08,103 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:08,104 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:08,104 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:08,123 [WARNING] [fedconsensus.main] [fednode-0] Escalating attack to consensus! Target: bench-24.example (Score: 0.85, Reasons: ['Malicious executable/archive extension found: exe'])
+2026-11-11 15:21:08,135 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:08,136 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:08,136 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:08,136 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:08,136 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:08,136 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:08,140 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-4:49830 accepted proposal
+2026-11-11 15:21:08,140 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-6:49832 accepted proposal
+2026-11-11 15:21:08,140 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-3:49829 accepted proposal
+2026-11-11 15:21:08,140 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-2:49827 accepted proposal
+2026-11-11 15:21:08,142 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-5:49831 accepted proposal
+2026-11-11 15:21:08,142 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-1:49826 accepted proposal
+2026-11-11 15:21:08,171 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-24.example!
+2026-11-11 15:21:08,180 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-24.example!
+2026-11-11 15:21:08,188 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-24.example!
+2026-11-11 15:21:08,210 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:08,211 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:08,211 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:08,211 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:08,211 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:08,211 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:08,229 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:08,229 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:08,229 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:08,229 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:08,229 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:08,230 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:08,249 [WARNING] [fedconsensus.main] [fednode-0] Escalating attack to consensus! Target: bench-25.example (Score: 0.85, Reasons: ['Malicious executable/archive extension found: exe'])
+2026-11-11 15:21:08,252 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:08,253 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:08,253 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:08,252 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:08,253 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:08,253 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:08,266 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-1:49826 accepted proposal
+2026-11-11 15:21:08,288 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-6:49832 accepted proposal
+2026-11-11 15:21:08,288 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-4:49830 accepted proposal
+2026-11-11 15:21:08,288 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-2:49827 accepted proposal
+2026-11-11 15:21:08,288 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-3:49829 accepted proposal
+2026-11-11 15:21:08,288 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-5:49831 accepted proposal
+2026-11-11 15:21:08,315 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-25.example!
+2026-11-11 15:21:08,323 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-25.example!
+2026-11-11 15:21:08,331 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-25.example!
+2026-11-11 15:21:08,354 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:08,355 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:08,355 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:08,355 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:08,355 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:08,355 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:08,377 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:08,377 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:08,377 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:08,377 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:08,377 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:08,377 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:08,401 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:08,401 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:08,401 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:08,401 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:08,401 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:08,402 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:08,408 [WARNING] [fedconsensus.main] [fednode-0] Escalating attack to consensus! Target: bench-26.example (Score: 0.85, Reasons: ['Malicious executable/archive extension found: exe'])
+2026-11-11 15:21:08,426 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-1:49826 accepted proposal
+2026-11-11 15:21:08,427 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-2:49827 accepted proposal
+2026-11-11 15:21:08,428 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-4:49830 accepted proposal
+2026-11-11 15:21:08,429 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-5:49831 accepted proposal
+2026-11-11 15:21:08,429 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-3:49829 accepted proposal
+2026-11-11 15:21:08,429 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-6:49832 accepted proposal
+2026-11-11 15:21:08,460 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-26.example!
+2026-11-11 15:21:08,469 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-26.example!
+2026-11-11 15:21:08,478 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-26.example!
+2026-11-11 15:21:08,503 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:08,503 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:08,504 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:08,504 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:08,505 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:08,507 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:08,543 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:08,543 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:08,544 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:08,544 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:08,544 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:08,544 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:08,570 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:08,570 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:08,571 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:08,571 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:08,571 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:08,572 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:08,574 [WARNING] [fedconsensus.main] [fednode-0] Escalating attack to consensus! Target: bench-27.example (Score: 0.85, Reasons: ['Malicious executable/archive extension found: exe'])
+2026-11-11 15:21:08,592 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-3:49829 accepted proposal
+2026-11-11 15:21:08,594 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-2:49827 accepted proposal
+2026-11-11 15:21:08,594 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-4:49830 accepted proposal
+2026-11-11 15:21:08,595 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-1:49826 accepted proposal
+2026-11-11 15:21:08,594 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-6:49832 accepted proposal
+2026-11-11 15:21:08,595 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-5:49831 accepted proposal
+2026-11-11 15:21:08,626 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-27.example!
+2026-11-11 15:21:08,634 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-27.example!
+2026-11-11 15:21:08,644 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-27.example!
+2026-11-11 15:21:08,668 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:08,668 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:08,668 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:08,669 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:08,669 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:08,668 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:08,689 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:08,689 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:08,690 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:08,689 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:08,689 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:08,689 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:08,712 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:08,712 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:08,712 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:08,712 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:08,712 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:08,713 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:08,720 [WARNING] [fedconsensus.main] [fednode-0] Escalating attack to consensus! Target: bench-28.example (Score: 0.85, Reasons: ['Malicious executable/archive extension found: exe'])
+2026-11-11 15:21:08,736 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-6:49832 accepted proposal
+2026-11-11 15:21:08,736 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-2:49827 accepted proposal
+2026-11-11 15:21:08,736 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-4:49830 accepted proposal
+2026-11-11 15:21:08,736 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-1:49826 accepted proposal
+2026-11-11 15:21:08,738 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-3:49829 accepted proposal
+2026-11-11 15:21:08,738 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-5:49831 accepted proposal
+2026-11-11 15:21:08,769 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-28.example!
+2026-11-11 15:21:08,777 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-28.example!
+2026-11-11 15:21:08,786 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-28.example!
+2026-11-11 15:21:08,809 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:08,809 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:08,810 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:08,810 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:08,810 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:08,810 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:08,830 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:08,830 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:08,831 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:08,831 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:08,830 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:08,831 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:08,849 [WARNING] [fedconsensus.main] [fednode-0] Escalating attack to consensus! Target: bench-29.example (Score: 0.85, Reasons: ['Malicious executable/archive extension found: exe'])
+2026-11-11 15:21:08,857 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:08,857 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:08,857 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:08,857 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:08,857 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:08,859 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:08,869 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-4:49830 accepted proposal
+2026-11-11 15:21:08,869 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-2:49827 accepted proposal
+2026-11-11 15:21:08,870 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-6:49832 accepted proposal
+2026-11-11 15:21:08,870 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-1:49826 accepted proposal
+2026-11-11 15:21:08,870 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-3:49829 accepted proposal
+2026-11-11 15:21:08,870 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-5:49831 accepted proposal
+2026-11-11 15:21:08,903 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-29.example!
+2026-11-11 15:21:08,911 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-29.example!
+2026-11-11 15:21:08,919 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-29.example!
+2026-11-11 15:21:08,943 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:08,944 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:08,944 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:08,944 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:08,944 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:08,944 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:08,964 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:08,964 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:08,965 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:08,965 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:08,965 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:08,965 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:08,987 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:08,987 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:08,987 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:08,987 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:08,987 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:08,987 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:08,993 [WARNING] [fedconsensus.main] [fednode-0] Escalating attack to consensus! Target: bench-30.example (Score: 0.85, Reasons: ['Malicious executable/archive extension found: exe'])
+2026-11-11 15:21:09,010 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-3:49829 accepted proposal
+2026-11-11 15:21:09,010 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-2:49827 accepted proposal
+2026-11-11 15:21:09,012 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-6:49832 accepted proposal
+2026-11-11 15:21:09,012 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-5:49831 accepted proposal
+2026-11-11 15:21:09,014 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-4:49830 accepted proposal
+2026-11-11 15:21:09,036 [INFO] [fedconsensus.main] [fednode-0] Peer fednode-1:49826 accepted proposal
+2026-11-11 15:21:09,042 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-30.example!
+2026-11-11 15:21:09,050 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-30.example!
+2026-11-11 15:21:09,059 [INFO] [fedconsensus.service] [fednode-0] Quorum Certificate minted for bench-30.example!
+2026-11-11 15:21:09,081 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:09,081 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:09,081 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:09,082 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:09,082 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:09,101 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:09,105 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:09,105 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:09,105 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:09,105 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829
+2026-11-11 15:21:09,106 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:09,115 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:09,126 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-5:49831
+2026-11-11 15:21:09,126 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-2:49827
+2026-11-11 15:21:09,126 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-6:49832
+2026-11-11 15:21:09,127 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-4:49830
+2026-11-11 15:21:09,137 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-1:49826
+2026-11-11 15:21:09,155 [INFO] [fedconsensus.service] [fednode-0] Broadcasted commit to fednode-3:49829

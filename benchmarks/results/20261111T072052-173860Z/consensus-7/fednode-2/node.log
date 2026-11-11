@@ -1,0 +1,70 @@
+2026-11-11 15:21:03,626 [INFO] [fedconsensus.main] Initializing FedNode: fednode-2 (Data dir: C:\Users\vjand\Desktop\githubproj\CloudProject\benchmarks\results\20261111T072052-173860Z\consensus-7\fednode-2)
+2026-11-11 15:21:03,626 [WARNING] [fedconsensus.main] FEDCONSENSUS_OPERATOR_TOKEN is not set; operator endpoints will return 403
+2026-11-11 15:21:03,677 [INFO] [fedconsensus.main] Consortium gRPC mesh listening on 0.0.0.0:49827
+2026-11-11 15:21:03,691 [INFO] [fedconsensus.main] ActivityPub HTTP /inbox listening on http://0.0.0.0:0
+2026-11-11 15:21:03,947 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-0.example
+2026-11-11 15:21:04,067 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:04,099 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-1.example
+2026-11-11 15:21:04,214 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:04,252 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-2.example
+2026-11-11 15:21:04,285 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:04,416 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-3.example
+2026-11-11 15:21:04,449 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:04,597 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-4.example
+2026-11-11 15:21:04,634 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:04,776 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-5.example
+2026-11-11 15:21:04,814 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:04,921 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-6.example
+2026-11-11 15:21:05,020 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:05,093 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-7.example
+2026-11-11 15:21:05,212 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:05,253 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-8.example
+2026-11-11 15:21:05,286 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:05,381 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-9.example
+2026-11-11 15:21:05,422 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:05,529 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-10.example
+2026-11-11 15:21:05,583 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:05,679 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-11.example
+2026-11-11 15:21:05,711 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-11.example
+2026-11-11 15:21:05,726 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:05,887 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:05,934 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-12.example
+2026-11-11 15:21:06,022 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:06,088 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-13.example
+2026-11-11 15:21:06,231 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:06,326 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-14.example
+2026-11-11 15:21:06,378 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:06,560 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-15.example
+2026-11-11 15:21:06,675 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:06,767 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-16.example
+2026-11-11 15:21:06,806 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:06,937 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-17.example
+2026-11-11 15:21:06,976 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:07,136 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-18.example
+2026-11-11 15:21:07,227 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:07,311 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-19.example
+2026-11-11 15:21:07,351 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:07,467 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-20.example
+2026-11-11 15:21:07,576 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:07,591 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-21.example
+2026-11-11 15:21:07,614 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:07,754 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-22.example
+2026-11-11 15:21:07,769 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-22.example
+2026-11-11 15:21:07,891 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:07,943 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:07,999 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-23.example
+2026-11-11 15:21:08,092 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:08,126 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-24.example
+2026-11-11 15:21:08,202 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:08,253 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-25.example
+2026-11-11 15:21:08,384 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:08,412 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-26.example
+2026-11-11 15:21:08,439 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:08,578 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-27.example
+2026-11-11 15:21:08,609 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:08,723 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-28.example
+2026-11-11 15:21:08,760 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:08,852 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-29.example
+2026-11-11 15:21:08,895 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825
+2026-11-11 15:21:08,997 [INFO] [fedconsensus.service] [fednode-2] Received proposal for: bench-30.example
+2026-11-11 15:21:09,015 [INFO] [fedconsensus.service] [fednode-2] Successfully sent vote to proposer fednode-0 at fednode-0:49825

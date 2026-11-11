@@ -1,0 +1,97 @@
+2026-11-11 15:21:49,672 [INFO] [fedconsensus.main] Initializing FedNode: fednode-1 (Data dir: C:\Users\vjand\Desktop\githubproj\CloudProject\benchmarks\results\20261111T072052-173860Z\fault-FORGER\fednode-1)
+2026-11-11 15:21:49,672 [WARNING] [fedconsensus.main] FEDCONSENSUS_OPERATOR_TOKEN is not set; operator endpoints will return 403
+2026-11-11 15:21:49,757 [INFO] [fedconsensus.main] Consortium gRPC mesh listening on 0.0.0.0:50650
+2026-11-11 15:21:49,771 [INFO] [fedconsensus.main] ActivityPub HTTP /inbox listening on http://0.0.0.0:0
+2026-11-11 15:21:49,983 [INFO] [fedconsensus.service] [fednode-1] Received proposal for: bench-1.example
+2026-11-11 15:21:49,985 [WARNING] [fedconsensus.service] [fednode-1] Byzantine FORGER corrupting ballot signature!
+2026-11-11 15:21:50,011 [INFO] [fedconsensus.service] [fednode-1] Successfully sent vote to proposer fednode-0 at fednode-0:50649
+2026-11-11 15:21:50,098 [INFO] [fedconsensus.service] [fednode-1] Received proposal for: bench-2.example
+2026-11-11 15:21:50,111 [WARNING] [fedconsensus.service] [fednode-1] Byzantine FORGER corrupting ballot signature!
+2026-11-11 15:21:50,146 [INFO] [fedconsensus.service] [fednode-1] Successfully sent vote to proposer fednode-0 at fednode-0:50649
+2026-11-11 15:21:50,198 [INFO] [fedconsensus.service] [fednode-1] Received proposal for: bench-3.example
+2026-11-11 15:21:50,211 [WARNING] [fedconsensus.service] [fednode-1] Byzantine FORGER corrupting ballot signature!
+2026-11-11 15:21:50,250 [INFO] [fedconsensus.service] [fednode-1] Successfully sent vote to proposer fednode-0 at fednode-0:50649
+2026-11-11 15:21:50,301 [INFO] [fedconsensus.service] [fednode-1] Received proposal for: bench-4.example
+2026-11-11 15:21:50,312 [WARNING] [fedconsensus.service] [fednode-1] Byzantine FORGER corrupting ballot signature!
+2026-11-11 15:21:50,352 [INFO] [fedconsensus.service] [fednode-1] Successfully sent vote to proposer fednode-0 at fednode-0:50649
+2026-11-11 15:21:50,422 [INFO] [fedconsensus.service] [fednode-1] Received proposal for: bench-5.example
+2026-11-11 15:21:50,436 [WARNING] [fedconsensus.service] [fednode-1] Byzantine FORGER corrupting ballot signature!
+2026-11-11 15:21:50,470 [INFO] [fedconsensus.service] [fednode-1] Successfully sent vote to proposer fednode-0 at fednode-0:50649
+2026-11-11 15:21:50,517 [INFO] [fedconsensus.service] [fednode-1] Received proposal for: bench-6.example
+2026-11-11 15:21:50,528 [WARNING] [fedconsensus.service] [fednode-1] Byzantine FORGER corrupting ballot signature!
+2026-11-11 15:21:50,561 [INFO] [fedconsensus.service] [fednode-1] Successfully sent vote to proposer fednode-0 at fednode-0:50649
+2026-11-11 15:21:50,590 [INFO] [fedconsensus.service] [fednode-1] Received proposal for: bench-7.example
+2026-11-11 15:21:50,601 [WARNING] [fedconsensus.service] [fednode-1] Byzantine FORGER corrupting ballot signature!
+2026-11-11 15:21:50,636 [INFO] [fedconsensus.service] [fednode-1] Successfully sent vote to proposer fednode-0 at fednode-0:50649
+2026-11-11 15:21:50,683 [INFO] [fedconsensus.service] [fednode-1] Received proposal for: bench-8.example
+2026-11-11 15:21:50,699 [WARNING] [fedconsensus.service] [fednode-1] Byzantine FORGER corrupting ballot signature!
+2026-11-11 15:21:50,732 [INFO] [fedconsensus.service] [fednode-1] Successfully sent vote to proposer fednode-0 at fednode-0:50649
+2026-11-11 15:21:50,821 [INFO] [fedconsensus.service] [fednode-1] Received proposal for: bench-9.example
+2026-11-11 15:21:50,833 [WARNING] [fedconsensus.service] [fednode-1] Byzantine FORGER corrupting ballot signature!
+2026-11-11 15:21:50,872 [INFO] [fedconsensus.service] [fednode-1] Successfully sent vote to proposer fednode-0 at fednode-0:50649
+2026-11-11 15:21:50,916 [INFO] [fedconsensus.service] [fednode-1] Received proposal for: bench-10.example
+2026-11-11 15:21:50,926 [WARNING] [fedconsensus.service] [fednode-1] Byzantine FORGER corrupting ballot signature!
+2026-11-11 15:21:50,958 [INFO] [fedconsensus.service] [fednode-1] Successfully sent vote to proposer fednode-0 at fednode-0:50649
+2026-11-11 15:21:51,001 [INFO] [fedconsensus.service] [fednode-1] Received proposal for: bench-11.example
+2026-11-11 15:21:51,012 [WARNING] [fedconsensus.service] [fednode-1] Byzantine FORGER corrupting ballot signature!
+2026-11-11 15:21:51,044 [INFO] [fedconsensus.service] [fednode-1] Successfully sent vote to proposer fednode-0 at fednode-0:50649
+2026-11-11 15:21:51,104 [INFO] [fedconsensus.service] [fednode-1] Received proposal for: bench-12.example
+2026-11-11 15:21:51,114 [WARNING] [fedconsensus.service] [fednode-1] Byzantine FORGER corrupting ballot signature!
+2026-11-11 15:21:51,141 [INFO] [fedconsensus.service] [fednode-1] Successfully sent vote to proposer fednode-0 at fednode-0:50649
+2026-11-11 15:21:51,183 [INFO] [fedconsensus.service] [fednode-1] Received proposal for: bench-13.example
+2026-11-11 15:21:51,194 [WARNING] [fedconsensus.service] [fednode-1] Byzantine FORGER corrupting ballot signature!
+2026-11-11 15:21:51,221 [INFO] [fedconsensus.service] [fednode-1] Successfully sent vote to proposer fednode-0 at fednode-0:50649
+2026-11-11 15:21:51,250 [INFO] [fedconsensus.service] [fednode-1] Received proposal for: bench-14.example
+2026-11-11 15:21:51,259 [WARNING] [fedconsensus.service] [fednode-1] Byzantine FORGER corrupting ballot signature!
+2026-11-11 15:21:51,289 [INFO] [fedconsensus.service] [fednode-1] Successfully sent vote to proposer fednode-0 at fednode-0:50649
+2026-11-11 15:21:51,317 [INFO] [fedconsensus.service] [fednode-1] Received proposal for: bench-15.example
+2026-11-11 15:21:51,326 [WARNING] [fedconsensus.service] [fednode-1] Byzantine FORGER corrupting ballot signature!
+2026-11-11 15:21:51,356 [INFO] [fedconsensus.service] [fednode-1] Successfully sent vote to proposer fednode-0 at fednode-0:50649
+2026-11-11 15:21:51,393 [INFO] [fedconsensus.service] [fednode-1] Received proposal for: bench-16.example
+2026-11-11 15:21:51,402 [WARNING] [fedconsensus.service] [fednode-1] Byzantine FORGER corrupting ballot signature!
+2026-11-11 15:21:51,434 [INFO] [fedconsensus.service] [fednode-1] Successfully sent vote to proposer fednode-0 at fednode-0:50649
+2026-11-11 15:21:51,474 [INFO] [fedconsensus.service] [fednode-1] Received proposal for: bench-17.example
+2026-11-11 15:21:51,486 [WARNING] [fedconsensus.service] [fednode-1] Byzantine FORGER corrupting ballot signature!
+2026-11-11 15:21:51,517 [INFO] [fedconsensus.service] [fednode-1] Successfully sent vote to proposer fednode-0 at fednode-0:50649
+2026-11-11 15:21:51,553 [INFO] [fedconsensus.service] [fednode-1] Received proposal for: bench-18.example
+2026-11-11 15:21:51,561 [WARNING] [fedconsensus.service] [fednode-1] Byzantine FORGER corrupting ballot signature!
+2026-11-11 15:21:51,591 [INFO] [fedconsensus.service] [fednode-1] Successfully sent vote to proposer fednode-0 at fednode-0:50649
+2026-11-11 15:21:51,640 [INFO] [fedconsensus.service] [fednode-1] Received proposal for: bench-19.example
+2026-11-11 15:21:51,650 [WARNING] [fedconsensus.service] [fednode-1] Byzantine FORGER corrupting ballot signature!
+2026-11-11 15:21:51,678 [INFO] [fedconsensus.service] [fednode-1] Successfully sent vote to proposer fednode-0 at fednode-0:50649
+2026-11-11 15:21:51,753 [INFO] [fedconsensus.service] [fednode-1] Received proposal for: bench-20.example
+2026-11-11 15:21:51,757 [WARNING] [fedconsensus.service] [fednode-1] Byzantine FORGER corrupting ballot signature!
+2026-11-11 15:21:51,792 [INFO] [fedconsensus.service] [fednode-1] Successfully sent vote to proposer fednode-0 at fednode-0:50649
+2026-11-11 15:21:51,792 [INFO] [fedconsensus.service] [fednode-1] Received proposal for: bench-20.example
+2026-11-11 15:21:51,793 [WARNING] [fedconsensus.service] [fednode-1] Byzantine FORGER corrupting ballot signature!
+2026-11-11 15:21:51,799 [INFO] [fedconsensus.service] [fednode-1] Successfully sent vote to proposer fednode-0 at fednode-0:50649
+2026-11-11 15:21:51,832 [INFO] [fedconsensus.service] [fednode-1] Received proposal for: bench-21.example
+2026-11-11 15:21:51,840 [WARNING] [fedconsensus.service] [fednode-1] Byzantine FORGER corrupting ballot signature!
+2026-11-11 15:21:51,868 [INFO] [fedconsensus.service] [fednode-1] Successfully sent vote to proposer fednode-0 at fednode-0:50649
+2026-11-11 15:21:51,916 [INFO] [fedconsensus.service] [fednode-1] Received proposal for: bench-22.example
+2026-11-11 15:21:51,926 [WARNING] [fedconsensus.service] [fednode-1] Byzantine FORGER corrupting ballot signature!
+2026-11-11 15:21:51,950 [INFO] [fedconsensus.service] [fednode-1] Successfully sent vote to proposer fednode-0 at fednode-0:50649
+2026-11-11 15:21:51,989 [INFO] [fedconsensus.service] [fednode-1] Received proposal for: bench-23.example
+2026-11-11 15:21:51,998 [WARNING] [fedconsensus.service] [fednode-1] Byzantine FORGER corrupting ballot signature!
+2026-11-11 15:21:52,022 [INFO] [fedconsensus.service] [fednode-1] Successfully sent vote to proposer fednode-0 at fednode-0:50649
+2026-11-11 15:21:52,068 [INFO] [fedconsensus.service] [fednode-1] Received proposal for: bench-24.example
+2026-11-11 15:21:52,077 [WARNING] [fedconsensus.service] [fednode-1] Byzantine FORGER corrupting ballot signature!
+2026-11-11 15:21:52,100 [INFO] [fedconsensus.service] [fednode-1] Successfully sent vote to proposer fednode-0 at fednode-0:50649
+2026-11-11 15:21:52,147 [INFO] [fedconsensus.service] [fednode-1] Received proposal for: bench-25.example
+2026-11-11 15:21:52,156 [WARNING] [fedconsensus.service] [fednode-1] Byzantine FORGER corrupting ballot signature!
+2026-11-11 15:21:52,182 [INFO] [fedconsensus.service] [fednode-1] Successfully sent vote to proposer fednode-0 at fednode-0:50649
+2026-11-11 15:21:52,230 [INFO] [fedconsensus.service] [fednode-1] Received proposal for: bench-26.example
+2026-11-11 15:21:52,239 [WARNING] [fedconsensus.service] [fednode-1] Byzantine FORGER corrupting ballot signature!
+2026-11-11 15:21:52,267 [INFO] [fedconsensus.service] [fednode-1] Successfully sent vote to proposer fednode-0 at fednode-0:50649
+2026-11-11 15:21:52,335 [INFO] [fedconsensus.service] [fednode-1] Received proposal for: bench-27.example
+2026-11-11 15:21:52,345 [WARNING] [fedconsensus.service] [fednode-1] Byzantine FORGER corrupting ballot signature!
+2026-11-11 15:21:52,371 [INFO] [fedconsensus.service] [fednode-1] Successfully sent vote to proposer fednode-0 at fednode-0:50649
+2026-11-11 15:21:52,419 [INFO] [fedconsensus.service] [fednode-1] Received proposal for: bench-28.example
+2026-11-11 15:21:52,427 [WARNING] [fedconsensus.service] [fednode-1] Byzantine FORGER corrupting ballot signature!
+2026-11-11 15:21:52,455 [INFO] [fedconsensus.service] [fednode-1] Successfully sent vote to proposer fednode-0 at fednode-0:50649
+2026-11-11 15:21:52,498 [INFO] [fedconsensus.service] [fednode-1] Received proposal for: bench-29.example
+2026-11-11 15:21:52,508 [WARNING] [fedconsensus.service] [fednode-1] Byzantine FORGER corrupting ballot signature!
+2026-11-11 15:21:52,537 [INFO] [fedconsensus.service] [fednode-1] Successfully sent vote to proposer fednode-0 at fednode-0:50649
+2026-11-11 15:21:52,584 [INFO] [fedconsensus.service] [fednode-1] Received proposal for: bench-30.example
+2026-11-11 15:21:52,596 [WARNING] [fedconsensus.service] [fednode-1] Byzantine FORGER corrupting ballot signature!
+2026-11-11 15:21:52,627 [INFO] [fedconsensus.service] [fednode-1] Successfully sent vote to proposer fednode-0 at fednode-0:50649

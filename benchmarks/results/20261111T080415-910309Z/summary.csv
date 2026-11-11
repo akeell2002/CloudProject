@@ -1,0 +1,3 @@
+suite,case,trials,successes,mean_ms,p95_ms,mean_us_per_op,ops_per_sec,serial_commits_per_sec,observed_conflicts
+micro,firewall,15,15,,,,,,0
+micro,classifier,15,15,,,,,,0

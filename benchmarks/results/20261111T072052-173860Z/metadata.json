@@ -1,0 +1,22 @@
+{
+  "commit": "e43072b6366042c15cef1db63b46737fa6b6f3e8",
+  "python": "3.15.1 (tags/v3.15.1:c37e74c, Oct 21 2026, 06:24:08) [MSC v.1951 64 bit (AMD64)]",
+  "platform": "Windows-11-10.0.26300-SP0",
+  "cpu_count": 16,
+  "quorum_mode": "STRICT",
+  "timer": "perf_counter_ns",
+  "consensus_endpoint": "local HTTP /inbox until all honest peers report block via /telemetry",
+  "warmup": "trial 0 excluded for consensus; no warmup for fault cases; clean cluster per case",
+  "recovery_scope": "local QC verification, SQLite persistence, firewall update",
+  "trials": 30,
+  "sizes": [
+    4,
+    5,
+    7,
+    10,
+    16
+  ],
+  "repeats": 3,
+  "timeout": 5,
+  "local_only": false
+}
