@@ -88,11 +88,11 @@ class ReputationManager:
             now_ms=int(round(now_s * 1000)),
         )
 
-    def adopt_peer_view(self, peer_id: str, remote_score: int) -> bool:
+    def adopt_peer_view(self, peer_id: str, remote_score: int, remote_violations: Optional[int] = None) -> bool:
         """Adopts a peer's lower score for ``peer_id``; never touches the own entry."""
         if self.self_id is not None and peer_id == self.self_id:
             return False
-        self.db.adopt_lower_reputation(peer_id, remote_score)
+        self.db.adopt_lower_reputation(peer_id, remote_score, violations_count=remote_violations)
         return True
 
     def is_peer_eligible_to_vote(self, peer_id: str) -> bool:

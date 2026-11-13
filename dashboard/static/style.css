@@ -524,11 +524,10 @@ h1 {
   margin-top:2px
 }
 .message-label {
-  position:absolute;
-  bottom:8px;
-  left:50%;
-  transform:translateX(-50%);
-  max-width:95%;
+  position:relative;
+  margin:10px auto 0;
+  width:fit-content;
+  max-width:calc(100% - 28px);
   font:9px var(--mono);
   padding:5px 9px;
   border-radius:4px;
@@ -536,7 +535,8 @@ h1 {
   color:var(--muted);
   white-space:nowrap;
   overflow:hidden;
-  text-overflow:ellipsis
+  text-overflow:ellipsis;
+  text-align:center
 }
 .message-label.attack {
   color:var(--red)
@@ -878,7 +878,7 @@ td:first-child {
   padding:4px 8px;
   border-radius:5px
 }
-.banned-panel>input {
+.banned-panel>input,#bans-view-container>input {
   margin:0 23px 12px;
   width:calc(100% - 46px);
   font-size:11px
@@ -1235,6 +1235,9 @@ main {
   padding:8px;
   min-width:0
 }
+.control-body input {
+  margin-bottom:8px
+}
 .control-body textarea {
   resize:vertical
 }
@@ -1287,7 +1290,8 @@ main {
 .button-pair {
   display:grid;
   grid-template-columns:1fr 1fr;
-  gap:7px
+  gap:7px;
+  margin-top:8px
 }
 .action-result {
   font-size:11px;
@@ -1584,4 +1588,38 @@ main {
   background: #161d24;
   color: #6d7b87;
   border-color: #2b3641;
+}
+.banned-panel .dialog-tabs {
+  padding: 0 23px;
+  margin-bottom: 10px;
+}
+#reps-list {
+  max-height: 315px;
+  overflow-y: auto;
+  margin: 0 23px 10px;
+}
+#reps-list th,
+#reps-list td {
+  padding: 9px 12px;
+  vertical-align: middle;
+}
+#reps-list td:first-child {
+  padding-top: 9px;
+}
+#reps-list .pill {
+  display: inline-block;
+}
+.rep-score {
+  font-weight: 600;
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+.rep-score.ok {
+  color: #3dd68c;
+}
+.rep-score.warn {
+  color: #f5a623;
+}
+.rep-score.bad {
+  color: #ff6b81;
 }

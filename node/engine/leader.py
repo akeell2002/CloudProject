@@ -167,7 +167,9 @@ class LeaderManager:
                 self.impeachment_votes[req.target_epoch] = set()
 
             self.impeachment_votes[req.target_epoch].add(req.accuser_id)
-            if self.config.node_id != req.leader_id and self.current_epoch <= req.target_epoch:
+            is_lease_claim = "lease expired" in req.justification.lower()
+            can_second = (not is_lease_claim) or (time.time() > self.lease_expires_at)
+            if self.config.node_id != req.leader_id and self.current_epoch <= req.target_epoch and can_second:
                 self.impeachment_votes[req.target_epoch].add(self.config.node_id)
 
             # Check if Quorum threshold reached to depose leader

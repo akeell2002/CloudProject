@@ -143,6 +143,22 @@ class ClusterMonitor:
                 entry = bans.setdefault(domain, {"domain": domain, "applied_on": [], "last_known_on": []})
                 entry["applied_on" if node["online"] and node["telemetry_available"]
                       else "last_known_on"].append(node["node_id"])
+        cluster_reps = {}
+        for observer in observations:
+            if not observer.get("online"):
+                continue
+            for rep in observer.get("reputations", []):
+                pid = rep["peer_id"]
+                if pid not in cluster_reps or rep["trust_score"] < cluster_reps[pid]["trust_score"]:
+                    cluster_reps[pid] = dict(rep)
+        if cluster_reps:
+            for node in observations:
+                if node.get("online") and node.get("telemetry_available"):
+                    merged = {r["peer_id"]: dict(r) for r in node.get("reputations", [])}
+                    for pid, crep in cluster_reps.items():
+                        if pid not in merged or crep["trust_score"] < merged[pid]["trust_score"]:
+                            merged[pid] = dict(crep)
+                    node["reputations"] = list(merged.values())
         for node in observations:
             observers = [
                 observer["node_id"] for observer in observations if observer["online"]

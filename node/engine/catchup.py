@@ -1,7 +1,7 @@
 import json
 import logging
 import time
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from proto import fedconsensus_pb2 as pb2
 from node.config import NodeConfig, peer_id_from_addr
 from node.storage.database import Database
@@ -36,6 +36,8 @@ class CatchupEngine:
             **getattr(self.config, "known_peer_keys", {}),
             self.config.node_id: self.config.public_key_hex
         }
+        self._channels: Dict[str, Any] = {}
+        self._stubs: Dict[str, Any] = {}
 
     def register_peer_key(self, peer_id: str, public_key_hex: str):
         """Registers or updates a known peer's public key for signature audit."""
@@ -198,41 +200,48 @@ class CatchupEngine:
             peer_id = peer_id_from_addr(peer_addr)
             try:
                 start_seq = self.db.get_latest_sequence_number() + 1
-                with grpc.insecure_channel(peer_addr) as channel:
-                    stub = pb2_grpc.FedConsensusServiceStub(channel)
-                    req = pb2.CatchupRequest(
-                        node_id=self.config.node_id,
-                        from_sequence_number=start_seq
-                    )
-                    res = stub.CatchupSync(req, timeout=1.5)
-                    self._mark_reachability(peer_id, True)
-                    if res and res.records:
-                        new_domains = [r.target_domain for r in res.records if not self.firewall.is_blocked(r.target_domain)]
-                        count = self.replay_records(list(res.records))
-                        if count > 0 and consensus is not None:
-                            for rec in res.records:
-                                if rec.target_domain in new_domains:
-                                    consensus.commit_defederation(rec.quorum_proof)
-                                    consensus.telemetry.record(
-                                        "commit", self.config.node_id, "firewall",
-                                        f"Self-healed missed ban via CatchupSync from {res.node_id}",
-                                        proposal_id=rec.quorum_proof.proposal_id,
-                                        domain=rec.target_domain,
-                                    )
-                        total_replayed += count
+                if peer_addr not in self._stubs:
+                    ch = grpc.insecure_channel(peer_addr)
+                    self._channels[peer_addr] = ch
+                    self._stubs[peer_addr] = pb2_grpc.FedConsensusServiceStub(ch)
+                stub = self._stubs[peer_addr]
+                req = pb2.CatchupRequest(
+                    node_id=self.config.node_id,
+                    from_sequence_number=start_seq
+                )
+                res = stub.CatchupSync(req, timeout=1.5)
+                self._mark_reachability(peer_id, True)
+                if res and res.records:
+                    new_domains = [r.target_domain for r in res.records if not self.firewall.is_blocked(r.target_domain)]
+                    count = self.replay_records(list(res.records))
+                    if count > 0 and consensus is not None:
+                        for rec in res.records:
+                            if rec.target_domain in new_domains:
+                                consensus.commit_defederation(rec.quorum_proof)
+                                consensus.telemetry.record(
+                                    "commit", self.config.node_id, "firewall",
+                                    f"Self-healed missed ban via CatchupSync from {res.node_id}",
+                                    proposal_id=rec.quorum_proof.proposal_id,
+                                    domain=rec.target_domain,
+                                )
+                    total_replayed += count
 
-                    # Sync peer reputation state to maintain consistent quorum view across nodes
-                    # Never copy a peer's view of this node, and only ever lower a local score
-                    try:
-                        status_res = stub.GetStatus(pb2.StatusRequest(caller_id=self.config.node_id), timeout=1.0)
-                        if status_res and status_res.reputations:
-                            for rep_entry in status_res.reputations:
-                                if rep_entry.peer_id == self.config.node_id:
-                                    continue
-                                if rep_entry.trust_score < 30 or not rep_entry.is_active:
-                                    self.reputation.adopt_peer_view(rep_entry.peer_id, rep_entry.trust_score)
-                    except Exception:
-                        pass
+                # Sync peer reputation state to maintain consistent quorum view across nodes
+                # Never copy a peer's view of this node, and only ever lower a local score
+                try:
+                    status_res = stub.GetStatus(pb2.StatusRequest(caller_id=self.config.node_id), timeout=1.0)
+                    if status_res and status_res.reputations:
+                        for rep_entry in status_res.reputations:
+                            if rep_entry.peer_id == self.config.node_id:
+                                continue
+                            if rep_entry.trust_score < 30 or not rep_entry.is_active:
+                                self.reputation.adopt_peer_view(
+                                    rep_entry.peer_id,
+                                    rep_entry.trust_score,
+                                    rep_entry.violations_count,
+                                )
+                except Exception:
+                    pass
             except Exception:
                 self._mark_reachability(peer_id, False)
                 continue
@@ -243,3 +252,12 @@ class CatchupEngine:
             "reachable": reachable,
             "checked_at": int(time.time() * 1000),
         }
+
+    def close(self):
+        for ch in self._channels.values():
+            try:
+                ch.close()
+            except Exception:
+                pass
+        self._channels.clear()
+        self._stubs.clear()

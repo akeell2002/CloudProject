@@ -68,7 +68,10 @@ def cmd_propose(args):
     stub = get_stub(args.target)
     reason_code = getattr(pb2, f"REASON_{args.reason.upper()}", pb2.REASON_BOTNET)
 
+    as_leader = getattr(args, "as_leader", False) is True
     as_node = getattr(args, "as_node", None)
+    if as_leader:
+        as_node = "fednode-0"
     if isinstance(as_node, str) and as_node.strip():
         consortium_secret = os.getenv("CONSORTIUM_SECRET", "fedconsensus-consortium")
         priv, pub = generate_deterministic_keypair(f"{consortium_secret}-{as_node.strip()}")
@@ -129,6 +132,7 @@ def main():
     prop_parser.add_argument("domain", help="Target domain to ban (e.g., spam-bot.net)")
     prop_parser.add_argument("--reason", default="BOTNET", choices=["SPAM", "BOTNET", "PHISHING", "MALICIOUS_FILES"], help="Violation category")
     prop_parser.add_argument("--as-node", default=None, help="Sign proposal using authorized consortium node identity (e.g., fednode-0)")
+    prop_parser.add_argument("--as-leader", action="store_true", help="Sign proposal using leader fednode-0 consortium key")
 
     args = parser.parse_args()
 

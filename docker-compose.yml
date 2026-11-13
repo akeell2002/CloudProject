@@ -48,8 +48,8 @@ services:
     volumes:
       - fednode-0-data:/data
     ports:
-      - "50051:50051"
-      - "8080:8080"
+      - "127.0.0.1:50051:50051"
+      - "127.0.0.1:8080:8080"
     restart: unless-stopped
 
   fednode-1:
@@ -65,8 +65,8 @@ services:
     volumes:
       - fednode-1-data:/data
     ports:
-      - "50052:50051"
-      - "8081:8080"
+      - "127.0.0.1:50052:50051"
+      - "127.0.0.1:8081:8080"
     restart: unless-stopped
 
   fednode-2:
@@ -82,8 +82,8 @@ services:
     volumes:
       - fednode-2-data:/data
     ports:
-      - "50053:50051"
-      - "8082:8080"
+      - "127.0.0.1:50053:50051"
+      - "127.0.0.1:8082:8080"
     restart: unless-stopped
 
   fednode-3:
@@ -99,8 +99,8 @@ services:
     volumes:
       - fednode-3-data:/data
     ports:
-      - "50054:50051"
-      - "8083:8080"
+      - "127.0.0.1:50054:50051"
+      - "127.0.0.1:8083:8080"
     restart: unless-stopped
 
   fednode-4:
@@ -116,6 +116,6 @@ services:
     volumes:
       - fednode-4-data:/data
     ports:
-      - "50055:50051"
-      - "8084:8080"
+      - "127.0.0.1:50055:50051"
+      - "127.0.0.1:8084:8080"
     restart: unless-stopped

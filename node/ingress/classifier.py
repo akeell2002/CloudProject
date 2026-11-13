@@ -53,14 +53,18 @@ class ThreatClassifier:
         dominant_code = 1  # Default REASON_SPAM
 
         # 1. Message Velocity / Burst Rate (Bot detection)
+        actor = activity_payload.get("actor")
+        if isinstance(actor, dict):
+            actor = actor.get("id") or actor.get("url")
+        actor_key = str(actor or domain).strip().lower()
         with self._lock:
             if len(self._traffic_history) > 1000:
                 stale = [d for d, ts in self._traffic_history.items() if not ts or now - ts[-1] > self.window_seconds]
                 for d in stale:
                     del self._traffic_history[d]
-            history = [t for t in self._traffic_history[domain] if now - t <= self.window_seconds]
+            history = [t for t in self._traffic_history[actor_key] if now - t <= self.window_seconds]
             history.append(now)
-            self._traffic_history[domain] = history
+            self._traffic_history[actor_key] = history
             burst_count = len(history)
         if burst_count >= self.burst_threshold:
             velocity_score = min(1.0, 0.40 + (burst_count - self.burst_threshold) * 0.15)

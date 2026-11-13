@@ -45,6 +45,29 @@ def test_peer_reputation_and_quarantine():
         assert rep.is_peer_eligible_to_vote(peer) is False
         print("  [PASS] 4. Quarantine enforcement: peer with score < 30 stripped of voting rights")
 
+        # 5. Recovery resists stale peer reports without new violations
+        peer2 = "fednode-recover"
+        db.update_reputation(peer2, -80, is_violation=True)  # score=20, violations=1
+        with db._get_connection() as conn:
+            anchor = conn.execute(
+                "SELECT recovery_anchor_at FROM peer_reputation WHERE peer_id = ?", (peer2,)
+            ).fetchone()["recovery_anchor_at"]
+        raised = db.recover_reputations(step=5, grace_ms=60_000, interval_ms=30_000, now_ms=anchor + 60_000)
+        assert raised >= 1
+        row = next(r for r in db.get_all_reputations() if r["peer_id"] == peer2)
+        assert row["trust_score"] == 25
+        db.adopt_lower_reputation(peer2, 20, violations_count=1)
+        row = next(r for r in db.get_all_reputations() if r["peer_id"] == peer2)
+        assert row["trust_score"] == 25
+        db.adopt_lower_reputation(peer2, 15, violations_count=2)
+        row = next(r for r in db.get_all_reputations() if r["peer_id"] == peer2)
+        assert row["trust_score"] == 15
+        assert row["violations_count"] == 2
+        db.set_reputation(peer2, 100)
+        row = next(r for r in db.get_all_reputations() if r["peer_id"] == peer2)
+        assert row["trust_score"] == 100 and row["violations_count"] == 0
+        print("  [PASS] 5. Recovery resists crab-bucket rollback and reset clears violation counter")
+
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 

@@ -67,6 +67,16 @@ class ConsensusEngine:
         with self._lock:
             self.peer_public_keys[peer_id] = public_key_hex
 
+    def _prune_proposals(self, max_entries: int = 200):
+        if len(self.active_proposals) <= max_entries:
+            return
+        committed_keys = [
+            k for k, v in sorted(self.active_proposals.items(), key=lambda item: item[1].created_at)
+            if v.is_committed
+        ]
+        for k in committed_keys[: len(self.active_proposals) - max_entries]:
+            self.active_proposals.pop(k, None)
+
     # -------------------------------------------------------------
     # PHASE 1: PROPOSE (Leader / Reporter)
     # -------------------------------------------------------------
@@ -80,6 +90,7 @@ class ConsensusEngine:
     ) -> pb2.ProposeRequest:
         """Constructs and cryptographically signs a Phase 1 proposal."""
         with self._lock:
+            self._prune_proposals()
             for p in self.active_proposals.values():
                 if p.target_domain == target_domain and not p.is_committed and p.request:
                     return p.request
@@ -137,7 +148,7 @@ class ConsensusEngine:
     # -------------------------------------------------------------
     # PHASE 2: PREPARE (Follower Auditing & Voting)
     # -------------------------------------------------------------
-    def handle_proposal(self, req: pb2.ProposeRequest) -> Tuple[bool, str, Optional[pb2.VoteRequest]]:
+    def handle_proposal(self, req: pb2.ProposeRequest, byzantine_mode: str = "NONE") -> Tuple[bool, str, Optional[pb2.VoteRequest]]:
         """
         Follower audits incoming Phase 1 proposal:
         1. Verify proposer signature
@@ -146,6 +157,7 @@ class ConsensusEngine:
         Returns: (accepted, reason, signed_vote_request)
         """
         with self._lock:
+            self._prune_proposals()
             self._sequence_counter = max(self._sequence_counter, req.sequence_number)
             proposer_id = req.proposer_id
             proposer_pubkey = self.peer_public_keys.get(proposer_id)
@@ -267,12 +279,13 @@ class ConsensusEngine:
 
             # Record leader's vote and follower's own vote
             self._record_vote(req.proposal_id, proposer_id, req.proposer_signature)
-            self._record_vote(req.proposal_id, self.config.node_id, voter_sig)
-            self.telemetry.record(
-                "vote", self.config.node_id, proposer_id,
-                "Signed an approval ballot", proposal_id=req.proposal_id,
-                domain=req.target_domain, decision="APPROVE",
-            )
+            if byzantine_mode not in ("LIAR", "FORGER"):
+                self._record_vote(req.proposal_id, self.config.node_id, voter_sig)
+                self.telemetry.record(
+                    "vote", self.config.node_id, proposer_id,
+                    "Signed an approval ballot", proposal_id=req.proposal_id,
+                    domain=req.target_domain, decision="APPROVE",
+                )
 
             vote_req = pb2.VoteRequest(
                 proposal_id=req.proposal_id,
@@ -322,6 +335,7 @@ class ConsensusEngine:
                 "decision": "APPROVE" if vote.decision == pb2.VOTE_APPROVE else "REJECT"
             }
             if not voter_pubkey or not verify_signature(voter_pubkey, vote_meta, vote.voter_signature):
+                proposal.recorded_decisions[voter_id] = vote.decision
                 self.reputation.penalize_forgery(voter_id, proposal_id=vote.proposal_id)
                 self.telemetry.record(
                     "invalid", voter_id, self.config.node_id,

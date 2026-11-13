@@ -181,6 +181,10 @@ class ActivityPubHTTPHandler(BaseHTTPRequestHandler):
                 elif offline is False:
                     self.service.simulated_offline = False
                     self.service.set_byzantine_mode(mode)
+                    if self.service.leader:
+                        self.service.leader.lease_expires_at = (
+                            time.time() + self.service.leader.LEASE_DURATION_SECONDS
+                        )
                     if self.service.catchup:
                         threading.Thread(
                             target=self.service.catchup.sync_with_consortium,
@@ -433,7 +437,7 @@ class FedNodeRunner:
                     p.is_committed = True
                     continue
                 if not p.is_committed and p.request is not None and p.request.proposer_id == self.config.node_id:
-                    if (now_t - p.created_at) < 20.0:
+                    if (now_t - p.created_at) < 300.0:
                         skip = set(p.approved_votes) | set(p.recorded_decisions)
                         pending.append((p, skip))
         for prop, skip in pending:
@@ -577,6 +581,8 @@ class FedNodeRunner:
             self.http_server.shutdown()
         if self.grpc_server:
             self.grpc_server.stop(grace=1.0)
+        if self.service and getattr(self.service, "catchup", None):
+            self.service.catchup.close()
         for ch in self._channels.values():
             try:
                 ch.close()

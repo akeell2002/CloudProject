@@ -49,7 +49,7 @@
           </select>
           <input type="hidden" id="source-node" value="fednode-1">
           <label for="traffic-domain">Sender Domain (e.g. spambot.net or select from banned list)</label>
-          <input type="text" id="traffic-domain" placeholder="Optional: spambot.net (or click a banned domain)" maxlength="253" style="width: 100%; margin-bottom: 8px; box-sizing: border-box;">
+          <input type="text" id="traffic-domain" placeholder="Optional: spambot.net (or click a banned domain)" maxlength="253">
           <div class="quick-actions">
             <button data-scenario="benign" class="action-button">Post benign note</button>
             <button data-scenario="phishing" class="action-button">Send phishing burst</button>
@@ -70,23 +70,23 @@
             <option value="FORGER">Forger (Corrupts Ed25519 signature)</option>
           </select>
           <button id="apply-settings" class="action-button primary">Apply voting behavior</button>
-          <div class="button-pair" style="margin-top: 10px;">
+          <div class="button-pair">
             <button id="stop-node" class="action-button danger-action">Kill node (Crash)</button>
             <button id="revive-node" class="action-button">Revive (Self-heal)</button>
           </div>
           <input type="hidden" id="trust-peer" value="fednode-0">
           <input type="hidden" id="trust-scope" value="all">
           <input type="hidden" id="trust-score" value="100">
-          <button type="button" id="restore-peer" class="action-button" style="margin-top: 8px;">Reset node reputation (100)</button>
+          <button type="button" id="restore-peer" class="action-button">Reset node reputation (100)</button>
           <p id="bft-tolerance-hint" class="control-hint">Trust scores update automatically (-50 on forgery/attack, &lt;30 = auto-quarantined).</p>
         </details>
 
         <!-- 3. Dynamic Autoscaling & Elastic Platform Onboarding -->
         <details open><summary>3. Elastic Autoscaling &amp; Onboarding</summary>
           <label for="org-domain">Onboard new platform / domain name</label>
-          <input id="org-domain" type="text" placeholder="e.g. bluesky-bridge.social or ntu.social" maxlength="100" style="width: 100%; margin-bottom: 8px; box-sizing: border-box;">
+          <input id="org-domain" type="text" placeholder="e.g. bluesky-bridge.social or ntu.social" maxlength="100">
           <button type="button" id="add-org-node" class="action-button primary">+ Add platform node</button>
-          <div class="button-pair" style="margin-top: 8px;">
+          <div class="button-pair">
             <button type="button" id="autoscale-up" class="action-button"> Auto-scale (+2)</button>
             <button type="button" id="reset-scale" class="action-button danger-action">Reset to 5 nodes</button>
           </div>
@@ -122,8 +122,8 @@
             <strong id="service-label" class="sender-domain"></strong>
           </div>
           <div id="network-nodes"></div>
-          <div id="message-label" class="message-label">No observed transmissions yet</div>
         </div>
+        <div id="message-label" class="message-label">No observed transmissions yet</div>
         <div class="network-legend"><span><i class="dot green"></i>Active</span><span><i class="dot gray"></i>Inactive</span><span><i class="dot red"></i>Flagged / fault</span><span>★ Active proposer</span><span><span class="node-spec-tag fw">Memory</span> Firewall</span><span><span class="node-spec-tag db">Database</span> Storage</span></div>
         <p class="panel-footnote">Click any node in the mesh to inspect its status and peer reputation ledger.</p>
       </section>
@@ -144,7 +144,7 @@
           <div><span class="eyebrow">04 / ENFORCEMENT &amp; TRUST</span><h2 id="banned-title">Defederation &amp; Trust</h2></div>
           <span id="banned-badge" class="count-badge">0</span>
         </div>
-        <div class="dialog-tabs" style="margin-bottom: 10px;">
+        <div class="dialog-tabs">
           <button id="toggle-bans-btn" class="dialog-tab active" type="button">Banned Domains</button>
           <button id="toggle-reps-btn" class="dialog-tab" type="button">Peer Trust Scores</button>
         </div>
@@ -154,7 +154,7 @@
           <p class="panel-footnote">Click a banned domain to populate sender box &amp; test firewall rejection.</p>
         </div>
         <div id="reps-view-container" hidden>
-          <div id="reps-list" class="dialog-scroll-box" style="max-height: 260px; overflow-y: auto;"></div>
+          <div id="reps-list" class="dialog-scroll-box"></div>
           <p class="panel-footnote">Cluster-wide Byzantine trust ledger. Peers with score &lt; 30 are auto-quarantined from voting.</p>
         </div>
       </section>

@@ -849,26 +849,31 @@
         const row = el("tr");
         let minScore = 100;
         let isEligible = true;
-        (n.reputations || []).forEach(function (r) {
-          if (r.trust_score < minScore) minScore = r.trust_score;
-          if (r.trust_score < 30 || !r.is_active) isEligible = false;
+        data.nodes.forEach(function (observer) {
+          if (!observer.online) return;
+          const r = (observer.reputations || []).find(function (entry) {
+            return entry.peer_id === n.node_id;
+          });
+          if (r) {
+            if (r.trust_score < minScore) minScore = r.trust_score;
+            if (r.trust_score < 30 || !r.is_active) isEligible = false;
+          }
         });
         if (n.quarantined) isEligible = false;
 
         const displayName = n.node_id + (n.org ? " (" + n.org + ")" : "");
         const statusText = !n.online ? "Offline" : isEligible ? "Eligible (Active)" : "QUARANTINED (< 30)";
-        const statusClass = !n.online ? "muted" : isEligible ? "success" : "danger";
+        const statusClass = !n.online ? "neutral" : isEligible ? "success" : "danger";
 
-        const scoreCell = el("td", "", minScore + " / 100");
-        scoreCell.style.fontWeight = "600";
-        if (minScore < 30) scoreCell.style.color = "#ff6b81";
-        else if (minScore < 70) scoreCell.style.color = "#f5a623";
-        else scoreCell.style.color = "#3dd68c";
+        const scoreLevel = minScore < 30 ? "bad" : minScore < 70 ? "warn" : "ok";
+        const scoreCell = el("td", "rep-score " + scoreLevel, minScore + " / 100");
+        const statusCell = el("td");
+        statusCell.append(el("span", "pill " + statusClass, statusText));
 
         row.append(
           el("td", "", displayName),
           scoreCell,
-          el("td", "pill " + statusClass, statusText)
+          statusCell
         );
         tbody.append(row);
       });

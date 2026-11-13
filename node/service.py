@@ -188,7 +188,7 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
             )
 
         # Follower audits the proposal
-        accepted, reason, vote_req = self.consensus.handle_proposal(request)
+        accepted, reason, vote_req = self.consensus.handle_proposal(request, byzantine_mode=self.byzantine_mode)
         if accepted:
             self.leader.clear_censorship_watch(request.target_domain)
 
@@ -258,23 +258,24 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
 
         # If proposal accepted and vote created, process locally
         if accepted and vote_req:
-            proof = self.consensus.handle_vote(vote_req)
-            if proof and self.consensus.commit_defederation(proof):
-                self.consensus.telemetry.record(
-                    "commit", self.config.node_id, "firewall",
-                    f"Quorum certificate reached (Q={self.config.quorum_size}); committed ban",
-                    domain=proof.target_domain,
-                )
-                commit_req = pb2.CommitRequest(
-                    proposal_id=proof.proposal_id,
-                    sequence_number=proof.sequence_number,
-                    quorum_proof=proof
-                )
-                threading.Thread(
-                    target=self._broadcast_commit,
-                    args=(commit_req,),
-                    daemon=True
-                ).start()
+            if self.byzantine_mode not in ("LIAR", "FORGER"):
+                proof = self.consensus.handle_vote(vote_req)
+                if proof and self.consensus.commit_defederation(proof):
+                    self.consensus.telemetry.record(
+                        "commit", self.config.node_id, "firewall",
+                        f"Quorum certificate reached (Q={self.config.quorum_size}); committed ban",
+                        domain=proof.target_domain,
+                    )
+                    commit_req = pb2.CommitRequest(
+                        proposal_id=proof.proposal_id,
+                        sequence_number=proof.sequence_number,
+                        quorum_proof=proof
+                    )
+                    threading.Thread(
+                        target=self._broadcast_commit,
+                        args=(commit_req,),
+                        daemon=True
+                    ).start()
 
             if request.proposer_id != self.config.node_id:
                 threading.Thread(
