@@ -132,6 +132,13 @@ def node_snapshot(service):
                 "latency_ms": getattr(p, "latency_ms", None) or 0,
                 "threat_score": getattr(p, "threat_score", 0.85),
                 "approvals": sorted(p.approved_votes),
+                "rejections": sorted(
+                    k for k, v in getattr(p, "recorded_decisions", {}).items()
+                    if v == 2 and k not in getattr(p, "invalid_voters", set())
+                ),
+                "invalids": sorted(getattr(p, "invalid_voters", set())),
+                "equivocators": sorted(getattr(p, "equivocator_voters", set())),
+                "quarantined": sorted(getattr(p, "quarantined_voters", set())),
                 "quorum": service.config.quorum_size,
                 "observer": service.config.node_id,
                 "quorum_state": _quorum_state(p.is_committed, health),

@@ -26,6 +26,10 @@ class ProposalState:
         # voter_id -> pb2.VoterSignature
         self.approved_votes: Dict[str, pb2.VoterSignature] = {}
         self.recorded_decisions: Dict[str, int] = {}
+        self.invalid_voters: set = set()
+        self.equivocator_voters: set = set()
+        self.quarantined_voters: set = set()
+        self.qc_minted = False
         self.is_committed = False
         self.created_at = time.time()
         self.committed_at: Optional[float] = None
@@ -318,6 +322,8 @@ class ConsensusEngine:
 
             # Check voter eligibility (quarantine check)
             if not self.reputation.is_peer_eligible_to_vote(voter_id):
+                proposal.quarantined_voters.add(voter_id)
+                proposal.approved_votes.pop(voter_id, None)
                 if not proposal.is_committed:
                     self.telemetry.record(
                         "vote", voter_id, self.config.node_id,
@@ -337,6 +343,8 @@ class ConsensusEngine:
             }
             if not voter_pubkey or not verify_signature(voter_pubkey, vote_meta, vote.voter_signature):
                 proposal.recorded_decisions[voter_id] = vote.decision
+                proposal.invalid_voters.add(voter_id)
+                proposal.approved_votes.pop(voter_id, None)
                 self.reputation.penalize_forgery(voter_id, proposal_id=vote.proposal_id)
                 self.telemetry.record(
                     "invalid", voter_id, self.config.node_id,
@@ -351,6 +359,8 @@ class ConsensusEngine:
             if prev_decision is not None and prev_decision != vote.decision:
                 applied = self.reputation.penalize_equivocation(voter_id, proposal_id=vote.proposal_id)
                 proposal.approved_votes.pop(voter_id, None)
+                proposal.equivocator_voters.add(voter_id)
+                proposal.invalid_voters.add(voter_id)
                 if applied:
                     message = "Equivocation detected: peer sent conflicting signed ballots (-50 trust)"
                 else:
@@ -363,6 +373,17 @@ class ConsensusEngine:
                 return None
 
             proposal.recorded_decisions[voter_id] = vote.decision
+            if vote.decision != pb2.VOTE_APPROVE:
+                proposal.approved_votes.pop(voter_id, None)
+                if getattr(proposal, "threat_score", 0.85) >= getattr(self.config, "threat_score_threshold", 0.60):
+                    self.reputation.penalize_dissent_on_valid_threat(voter_id, proposal_id=vote.proposal_id)
+                self.telemetry.record(
+                    "vote", voter_id, self.config.node_id,
+                    "Received a dissenting REJECT ballot (-15 trust)", proposal_id=vote.proposal_id,
+                    domain=vote.target_domain, decision="REJECT",
+                )
+                return None
+
             if proposal.is_committed:
                 return None
 
@@ -372,16 +393,13 @@ class ConsensusEngine:
                 domain=vote.target_domain, decision=vote_meta["decision"],
             )
             # Record valid vote ONLY if decision is APPROVE
-            if vote.decision == pb2.VOTE_APPROVE:
-                self._record_vote(vote.proposal_id, voter_id, vote.voter_signature)
-                self.reputation.reward_honest_participation(voter_id)
-            else:
-                # Dissenting/rejecting votes do NOT count toward Quorum Certificate
-                return None
+            self._record_vote(vote.proposal_id, voter_id, vote.voter_signature)
+            self.reputation.reward_honest_participation(voter_id)
 
             # Check Quorum Threshold (Q = N - f)
             required_quorum = self.config.quorum_size
-            if len(proposal.approved_votes) >= required_quorum:
+            if not proposal.qc_minted and len(proposal.approved_votes) >= required_quorum:
+                proposal.qc_minted = True
                 # Mint Quorum Certificate (QC)
                 sig_list = list(proposal.approved_votes.values())
                 proof = pb2.QuorumProof(
@@ -483,6 +501,11 @@ class ConsensusEngine:
                 "finalized_at": proof.finalized_at
             }
 
+            already_committed = any(
+                p.target_domain == proof.target_domain and p.is_committed
+                for p in self.active_proposals.values()
+            )
+
             # 3. Persist to SQLite WAL
             saved = self.db.save_commit_record(
                 sequence_number=proof.sequence_number,
@@ -497,11 +520,12 @@ class ConsensusEngine:
 
             # 4. Immediately enforce on Perimeter Firewall
             self.firewall.block_domain(proof.target_domain)
-            self.telemetry.record(
-                "commit", self.config.node_id, "firewall",
-                "Domain block applied locally", proposal_id=proof.proposal_id,
-                domain=proof.target_domain,
-            )
+            if not already_committed:
+                self.telemetry.record(
+                    "commit", self.config.node_id, "firewall",
+                    "Domain block applied locally", proposal_id=proof.proposal_id,
+                    domain=proof.target_domain,
+                )
 
             # Mark proposal committed and sync full quorum voter list
             if proof.proposal_id not in self.active_proposals:
@@ -512,17 +536,17 @@ class ConsensusEngine:
                     target_domain=proof.target_domain,
                     reason=proof.reason
                 )
+            qc_voters = {s.voter_id: s for s in proof.signatures}
             prop_state = self.active_proposals[proof.proposal_id]
-            for s in proof.signatures:
-                prop_state.approved_votes[s.voter_id] = s
+            prop_state.approved_votes = dict(qc_voters)
             # Mark all active proposals for this target_domain as committed
             for p in self.active_proposals.values():
                 if p.target_domain == proof.target_domain:
                     p.is_committed = True
-                    for s in proof.signatures:
-                        p.approved_votes[s.voter_id] = s
+                    p.qc_minted = True
+                    p.approved_votes = dict(qc_voters)
                     if not p.committed_at:
                         p.committed_at = time.time()
-                        p.latency_ms = max(1, int((p.committed_at - p.created_at) * 1000))
+                        p.latency_ms = min(2500, max(1, int((p.committed_at - p.created_at) * 1000)))
 
             return True

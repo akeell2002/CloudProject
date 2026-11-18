@@ -194,6 +194,16 @@ class ActivityPubHTTPHandler(BaseHTTPRequestHandler):
                         ).start()
                 else:
                     self.service.set_byzantine_mode(mode)
+                if req_json.get("clear_stalled") is True and self.service.consensus:
+                    with self.service.consensus._lock:
+                        stalled_ids = [
+                            pid for pid, p in self.service.consensus.active_proposals.items()
+                            if not p.is_committed
+                        ]
+                        for pid in stalled_ids:
+                            self.service.consensus.active_proposals.pop(pid, None)
+                    if self.service.leader:
+                        self.service.leader.censorship_watches.clear()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -359,6 +369,8 @@ class FedNodeRunner:
                 origin_http_signature=origin_sig_str,
                 threat_score=assessment.score
             )
+            if self.service:
+                self.service.apply_leader_byzantine_mode(prop_req)
             with self.consensus._lock:
                 prop_state = self.consensus.active_proposals.get(prop_req.proposal_id)
                 if prop_state and prop_state.is_committed:
@@ -438,16 +450,30 @@ class FedNodeRunner:
         targets = [p for p in self.config.peers if not self._is_self_peer(p) and p != exclude_addr]
         def _send(peer_addr):
             try:
+                peer_id = self._peer_id_from_addr(peer_addr)
+                reach = (getattr(self.catchup, "peer_reachability", None) or {}).get(peer_id)
+                known_offline = isinstance(reach, dict) and reach.get("reachable") is False
                 stub = self._get_stub(peer_addr)
-                self.consensus.telemetry.record(
-                    "proposal", self.config.node_id, peer_addr, "Sending block proposal",
-                    proposal_id=prop_req.proposal_id, domain=prop_req.target_domain,
-                )
+                if not known_offline:
+                    self.consensus.telemetry.record(
+                        "proposal", self.config.node_id, peer_addr, "Sending block proposal",
+                        proposal_id=prop_req.proposal_id, domain=prop_req.target_domain,
+                    )
                 res = stub.ProposeDefederation(prop_req, timeout=1.5)
+                if known_offline:
+                    self.consensus.telemetry.record(
+                        "proposal", self.config.node_id, peer_addr, "Sending block proposal",
+                        proposal_id=prop_req.proposal_id, domain=prop_req.target_domain,
+                    )
+                with self.consensus._lock:
+                    p_state = self.consensus.active_proposals.get(prop_req.proposal_id)
+                    byz_votes = list(getattr(p_state, "leader_byzantine_votes", ()))
+                for bv in byz_votes:
+                    stub.CastVote(bv, timeout=1.5)
                 if res.accepted:
                     logger.info(f"[{self.config.node_id}] Peer {peer_addr} accepted proposal")
                 else:
-                    self._record_peer_rejection(prop_req.proposal_id, self._peer_id_from_addr(peer_addr))
+                    self._record_peer_rejection(prop_req.proposal_id, peer_id)
             except Exception:
                 pass
         list(self._rpc_executor.map(_send, targets))

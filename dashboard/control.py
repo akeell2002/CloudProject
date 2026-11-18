@@ -541,7 +541,7 @@ class Operator:
                     try:
                         req = self._operator_request(
                             f"{target_node['address']}/fault",
-                            {"mode": "NONE", "offline": False},
+                            {"mode": "NONE", "offline": False, "clear_stalled": True},
                         )
                         with self.opener.open(req, timeout=3) as resp:
                             resp.read()
@@ -643,6 +643,23 @@ class Operator:
                     raise RuntimeError("Voting-mode changes require a backend API from your team")
                 fault_mode = normalise_fault_mode(body.get("fault", "NONE"))
                 target_node = self.node(node_id)
+                prev_state = next(
+                    (n.get("state", "") for n in self.monitor.snapshot().get("nodes", []) if n.get("node_id") == node_id),
+                    "",
+                )
+                if fault_mode != "NONE" and prev_state.startswith("BYZANTINE_") and prev_state != f"BYZANTINE_{fault_mode}":
+                    for peer_info in self.monitor.nodes:
+                        if peer_info["node_id"] in self.virtual_nodes:
+                            continue
+                        try:
+                            r_req = self._operator_request(
+                                f"{peer_info['address']}/reputation",
+                                {"peer_id": node_id, "score": 100},
+                            )
+                            with self.opener.open(r_req, timeout=2) as r_resp:
+                                r_resp.read()
+                        except Exception:
+                            pass
                 try:
                     req = self._operator_request(f"{target_node['address']}/fault", {"mode": fault_mode})
                     with self.opener.open(req, timeout=3) as resp:

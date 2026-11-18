@@ -133,7 +133,7 @@
                   <option value="NONE">Honest (Verifies &amp; votes normally)</option>
                   <option value="CENSOR">Censor (Leader drops follower reports, -30 trust &amp; Epoch failover)</option>
                   <option value="EQUIVOCATOR">Equivocator (Double-votes APPROVE + REJECT, -50 trust)</option>
-                  <option value="LIAR">Liar (Votes REJECT on real threats)</option>
+                  <option value="LIAR">Liar (Votes REJECT on real threats, -15 trust)</option>
                   <option value="FORGER">Forger (Corrupts Ed25519 signature, -40 trust)</option>
                   <option value="SILENT" hidden>Silent (Drops all gRPC messages)</option>
                 </select>
@@ -148,7 +148,7 @@
               <input type="hidden" id="trust-scope" value="all">
               <input type="hidden" id="trust-score" value="100">
               <button type="button" id="restore-peer" class="btn btn-outline-secondary btn-sm w-100 control-action-btn">Reset Reputation (100)</button>
-              <div id="bft-tolerance-hint" class="form-text mb-0">Trust updates automatically (-50 equivocation, -40 forgery, -30 censorship, -25 framing, &lt;30 quarantined).</div>
+              <div id="bft-tolerance-hint" class="form-text mb-0">Trust updates automatically (-50 equivocation, -40 forgery, -30 censorship, -25 framing, -15 liar dissent, &lt;30 quarantined).</div>
             </div>
 
             <div id="pane-scale" class="d-flex flex-column gap-2" hidden>

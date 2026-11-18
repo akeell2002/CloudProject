@@ -142,6 +142,10 @@ class ClusterMonitor:
             elif address in self._last_known:
                 previous = self._last_known[address]
                 node["node_id"] = previous["node_id"]
+                if "org" in previous:
+                    node["org"] = previous["org"]
+                if "epoch" in previous:
+                    node["epoch"] = previous["epoch"]
                 node["last_seen"] = previous["last_seen"]
                 node["last_known_state"] = previous["state"]
                 node["last_sequence"] = previous["last_sequence"]
@@ -197,12 +201,18 @@ class ClusterMonitor:
         members = [node["node_id"] for node in observations]
         offline = sorted({node["node_id"] for node in observations if not node.get("online")})
         quarantined = sorted({node["node_id"] for node in observations if node.get("quarantined")})
+        byzantine = sorted({
+            node["node_id"] for node in observations
+            if node.get("online") and not node.get("quarantined")
+            and str(node.get("state", "")).startswith("BYZANTINE_")
+            and node.get("state") != "BYZANTINE_CENSOR"
+        })
         total = len(members)
         reported = [node.get("quorum") for node in observations
                     if node.get("online") and node.get("telemetry_available")
                     and type(node.get("quorum")) is int and node.get("quorum") > 0]
         quorum = max(reported) if reported else total - (total - 1) // 3
-        eligible = sorted(set(members) - set(offline) - set(quarantined))
+        eligible = sorted(set(members) - set(offline) - set(quarantined) - set(byzantine))
         reachable = len(eligible) >= quorum
         pending, committed = set(), set()
         if not reachable:
@@ -218,6 +228,7 @@ class ClusterMonitor:
             "total_nodes": total, "quorum": quorum,
             "eligible_voters": len(eligible), "eligible": eligible,
             "offline": offline, "quarantined": quarantined,
+            "byzantine": byzantine,
             "quorum_reachable": reachable,
             "pending_unreachable": sorted(pending - committed),
         }

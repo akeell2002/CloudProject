@@ -2,9 +2,13 @@
 FedConsensus Operator CLI (fedctl)
 Terminal management tool for cluster diagnostics, reputation inspection, and manual proposals.
 """
+import os
 import sys
 import argparse
 import grpc
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from proto import fedconsensus_pb2 as pb2
 from proto import fedconsensus_pb2_grpc as pb2_grpc
 
@@ -115,6 +119,10 @@ def cmd_propose(args):
 
 
 def main():
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--target", default=argparse.SUPPRESS, help="Target node gRPC address (default: localhost:50051)")
+    common.add_argument("--timeout", type=float, default=argparse.SUPPRESS, help="RPC timeout in seconds")
+
     parser = argparse.ArgumentParser(prog="fedctl", description="FedConsensus Cluster Administrative CLI")
     parser.add_argument("--target", default="localhost:50051", help="Target node gRPC address (default: localhost:50051)")
     parser.add_argument("--timeout", type=float, default=3.0, help="RPC timeout in seconds")
@@ -122,13 +130,13 @@ def main():
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # Command: status
-    subparsers.add_parser("status", help="Get node status and telemetry")
+    subparsers.add_parser("status", parents=[common], help="Get node status and telemetry")
 
     # Command: peers
-    subparsers.add_parser("peers", help="Inspect peer reputation ledger")
+    subparsers.add_parser("peers", parents=[common], help="Inspect peer reputation ledger")
 
     # Command: propose
-    prop_parser = subparsers.add_parser("propose", help="Manually propose defederation against a domain")
+    prop_parser = subparsers.add_parser("propose", parents=[common], help="Manually propose defederation against a domain")
     prop_parser.add_argument("domain", help="Target domain to ban (e.g., spam-bot.net)")
     prop_parser.add_argument("--reason", default="BOTNET", choices=["SPAM", "BOTNET", "PHISHING", "MALICIOUS_FILES"], help="Violation category")
     prop_parser.add_argument("--as-node", default=None, help="Sign proposal using authorized consortium node identity (e.g., fednode-0)")

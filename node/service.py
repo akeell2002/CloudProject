@@ -67,6 +67,131 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
         logger.warning(f"[{self.config.node_id}] Switching Byzantine mode to: {clean_mode}")
         self.byzantine_mode = clean_mode
 
+    def apply_leader_byzantine_mode(self, prop_req: pb2.ProposeRequest):
+        """Applies quarantine or Byzantine fault behavior when the Leader itself creates a proposal."""
+        node_id = self.config.node_id
+        if not self.reputation.is_peer_eligible_to_vote(node_id):
+            with self.consensus._lock:
+                prop_state = self.consensus.active_proposals.get(prop_req.proposal_id)
+                if prop_state:
+                    prop_state.approved_votes.pop(node_id, None)
+                    prop_state.quarantined_voters.add(node_id)
+            self.consensus.telemetry.record(
+                "vote", node_id, node_id,
+                "Ballot excluded: peer is quarantined",
+                proposal_id=prop_req.proposal_id, domain=prop_req.target_domain,
+                decision="QUARANTINED",
+            )
+            return
+
+        if self.byzantine_mode == "LIAR":
+            logger.warning(f"[{node_id}] Byzantine LIAR leader casting REJECT ballot on proposal!")
+            reject_meta = {
+                "proposal_id": prop_req.proposal_id,
+                "sequence_number": prop_req.sequence_number,
+                "epoch": prop_req.epoch,
+                "target_domain": prop_req.target_domain,
+                "decision": "REJECT",
+            }
+            reject_vote = pb2.VoteRequest(
+                proposal_id=prop_req.proposal_id,
+                sequence_number=prop_req.sequence_number,
+                epoch=prop_req.epoch,
+                target_domain=prop_req.target_domain,
+                voter_id=node_id,
+                decision=pb2.VOTE_REJECT,
+                voter_signature=sign_message(self.config.private_key_hex, reject_meta),
+                timestamp=int(time.time() * 1000),
+            )
+            with self.consensus._lock:
+                prop_state = self.consensus.active_proposals.get(prop_req.proposal_id)
+                if prop_state:
+                    prop_state.approved_votes.pop(node_id, None)
+                    prop_state.recorded_decisions[node_id] = pb2.VOTE_REJECT
+                    prop_state.leader_byzantine_votes = [reject_vote]
+            if getattr(prop_req, "threat_score", 0.85) >= getattr(self.config, "threat_score_threshold", 0.60):
+                self.reputation.penalize_dissent_on_valid_threat(node_id, proposal_id=prop_req.proposal_id)
+            self.consensus.telemetry.record(
+                "vote", node_id, node_id,
+                "Cast a dissenting REJECT ballot (Byzantine LIAR)",
+                proposal_id=prop_req.proposal_id, domain=prop_req.target_domain,
+                decision="REJECT",
+            )
+        elif self.byzantine_mode == "FORGER":
+            logger.warning(f"[{node_id}] Byzantine FORGER leader corrupting ballot signature!")
+            forged_vote = pb2.VoteRequest(
+                proposal_id=prop_req.proposal_id,
+                sequence_number=prop_req.sequence_number,
+                epoch=prop_req.epoch,
+                target_domain=prop_req.target_domain,
+                voter_id=node_id,
+                decision=pb2.VOTE_APPROVE,
+                voter_signature="bad_signature_000000000000000000000000000000000000000000000000",
+                timestamp=int(time.time() * 1000),
+            )
+            with self.consensus._lock:
+                prop_state = self.consensus.active_proposals.get(prop_req.proposal_id)
+                if prop_state:
+                    prop_state.approved_votes.pop(node_id, None)
+                    prop_state.invalid_voters.add(node_id)
+                    prop_state.leader_byzantine_votes = [forged_vote]
+            self.reputation.penalize_forgery(node_id, proposal_id=prop_req.proposal_id)
+            self.consensus.telemetry.record(
+                "invalid", node_id, node_id,
+                "Injected forged ballot signature (Byzantine FORGER)",
+                proposal_id=prop_req.proposal_id, domain=prop_req.target_domain,
+                decision="INVALID",
+            )
+        elif self.byzantine_mode == "EQUIVOCATOR":
+            logger.warning(f"[{node_id}] Byzantine EQUIVOCATOR leader casting conflicting ballots!")
+            reject_vote = pb2.VoteRequest(
+                proposal_id=prop_req.proposal_id,
+                sequence_number=prop_req.sequence_number,
+                epoch=prop_req.epoch,
+                target_domain=prop_req.target_domain,
+                voter_id=node_id,
+                decision=pb2.VOTE_REJECT,
+                voter_signature=sign_message(self.config.private_key_hex, {
+                    "proposal_id": prop_req.proposal_id,
+                    "sequence_number": prop_req.sequence_number,
+                    "epoch": prop_req.epoch,
+                    "target_domain": prop_req.target_domain,
+                    "decision": "REJECT",
+                }),
+                timestamp=int(time.time() * 1000),
+            )
+            approve_vote = pb2.VoteRequest(
+                proposal_id=prop_req.proposal_id,
+                sequence_number=prop_req.sequence_number,
+                epoch=prop_req.epoch,
+                target_domain=prop_req.target_domain,
+                voter_id=node_id,
+                decision=pb2.VOTE_APPROVE,
+                voter_signature=sign_message(self.config.private_key_hex, {
+                    "proposal_id": prop_req.proposal_id,
+                    "sequence_number": prop_req.sequence_number,
+                    "epoch": prop_req.epoch,
+                    "target_domain": prop_req.target_domain,
+                    "decision": "APPROVE",
+                }),
+                timestamp=int(time.time() * 1000),
+            )
+            with self.consensus._lock:
+                prop_state = self.consensus.active_proposals.get(prop_req.proposal_id)
+                if prop_state:
+                    prop_state.approved_votes.pop(node_id, None)
+                    prop_state.recorded_decisions[node_id] = pb2.VOTE_REJECT
+                    prop_state.equivocator_voters.add(node_id)
+                    prop_state.invalid_voters.add(node_id)
+                    prop_state.leader_byzantine_votes = [reject_vote, approve_vote]
+            self.reputation.penalize_equivocation(node_id, proposal_id=prop_req.proposal_id)
+            self.consensus.telemetry.record(
+                "invalid", node_id, node_id,
+                "Sending conflicting APPROVE + REJECT ballots (Byzantine EQUIVOCATOR)",
+                proposal_id=prop_req.proposal_id, domain=prop_req.target_domain,
+                decision="INVALID",
+            )
+
     # -------------------------------------------------------------
     # 1. ProposeDefederation (Phase 1 of BFT)
     # -------------------------------------------------------------
@@ -182,6 +307,7 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
                 origin_http_signature=request.origin_http_signature,
                 threat_score=request.threat_score
             )
+            self.apply_leader_byzantine_mode(leader_prop)
             self.leader.clear_censorship_watch(request.target_domain)
             threading.Thread(
                 target=self._broadcast_proposal,
@@ -199,6 +325,13 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
         if accepted:
             self.leader.clear_censorship_watch(request.target_domain)
 
+        if not self.reputation.is_peer_eligible_to_vote(self.config.node_id):
+            with self.consensus._lock:
+                prop_state = self.consensus.active_proposals.get(request.proposal_id)
+                if prop_state:
+                    prop_state.approved_votes.pop(self.config.node_id, None)
+                    prop_state.quarantined_voters.add(self.config.node_id)
+
         # Byzantine LIAR: refuse to vote for legitimate threats
         if self.byzantine_mode == "LIAR" and vote_req:
             logger.warning(f"[{self.config.node_id}] Byzantine LIAR injecting REJECT ballot!")
@@ -215,6 +348,9 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
                 prop_state = self.consensus.active_proposals.get(request.proposal_id)
                 if prop_state:
                     prop_state.approved_votes.pop(self.config.node_id, None)
+                    prop_state.recorded_decisions[self.config.node_id] = pb2.VOTE_REJECT
+            if getattr(request, "threat_score", 0.85) >= getattr(self.config, "threat_score_threshold", 0.60):
+                self.reputation.penalize_dissent_on_valid_threat(self.config.node_id, proposal_id=request.proposal_id)
             self.consensus.telemetry.record(
                 "vote", self.config.node_id, request.proposer_id,
                 "Cast a dissenting REJECT ballot (Byzantine LIAR)",
@@ -230,6 +366,8 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
                 prop_state = self.consensus.active_proposals.get(request.proposal_id)
                 if prop_state:
                     prop_state.approved_votes.pop(self.config.node_id, None)
+                    prop_state.invalid_voters.add(self.config.node_id)
+            self.reputation.penalize_forgery(self.config.node_id, proposal_id=request.proposal_id)
             self.consensus.telemetry.record(
                 "invalid", self.config.node_id, request.proposer_id,
                 "Injected forged ballot signature (Byzantine FORGER)",
@@ -260,6 +398,10 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
                 prop_state = self.consensus.active_proposals.get(request.proposal_id)
                 if prop_state:
                     prop_state.approved_votes.pop(self.config.node_id, None)
+                    prop_state.recorded_decisions[self.config.node_id] = pb2.VOTE_REJECT
+                    prop_state.equivocator_voters.add(self.config.node_id)
+                    prop_state.invalid_voters.add(self.config.node_id)
+            self.reputation.penalize_equivocation(self.config.node_id, proposal_id=request.proposal_id)
             self.consensus.telemetry.record(
                 "invalid", self.config.node_id, request.proposer_id,
                 "Sending conflicting APPROVE + REJECT ballots (Byzantine EQUIVOCATOR)",
@@ -501,12 +643,26 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
         targets = [p for p in self.config.peers if not self._is_self_peer(p)]
         def _send(peer_addr):
             try:
+                peer_id = peer_addr.split(":")[0].split(".")[0]
+                reach = (getattr(self.catchup, "peer_reachability", None) or {}).get(peer_id)
+                known_offline = isinstance(reach, dict) and reach.get("reachable") is False
                 stub = self._get_stub(peer_addr)
-                self.consensus.telemetry.record(
-                    "proposal", self.config.node_id, peer_addr, "Sending block proposal",
-                    proposal_id=prop_req.proposal_id, domain=prop_req.target_domain,
-                )
+                if not known_offline:
+                    self.consensus.telemetry.record(
+                        "proposal", self.config.node_id, peer_addr, "Sending block proposal",
+                        proposal_id=prop_req.proposal_id, domain=prop_req.target_domain,
+                    )
                 res = stub.ProposeDefederation(prop_req, timeout=1.5)
+                if known_offline:
+                    self.consensus.telemetry.record(
+                        "proposal", self.config.node_id, peer_addr, "Sending block proposal",
+                        proposal_id=prop_req.proposal_id, domain=prop_req.target_domain,
+                    )
+                with self.consensus._lock:
+                    p_state = self.consensus.active_proposals.get(prop_req.proposal_id)
+                    byz_votes = list(getattr(p_state, "leader_byzantine_votes", ()))
+                for bv in byz_votes:
+                    stub.CastVote(bv, timeout=1.5)
                 if res and res.accepted:
                     logger.info(f"[{self.config.node_id}] Peer {peer_addr} accepted proposal")
             except Exception as e:

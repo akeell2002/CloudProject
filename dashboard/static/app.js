@@ -44,8 +44,11 @@
 
   function quorumUnreachableText(health) {
     function names(list) { return Array.isArray(list) && list.length ? list.join(", ") : "none"; }
+    const byzPart = Array.isArray(health.byzantine) && health.byzantine.length
+      ? " · byzantine: " + names(health.byzantine)
+      : "";
     return "Quorum unreachable: " + health.eligible_voters + " eligible < Q=" + health.quorum +
-      " · offline: " + names(health.offline) + " · quarantined: " + names(health.quarantined);
+      " · offline: " + names(health.offline) + " · quarantined: " + names(health.quarantined) + byzPart;
   }
 
   if (typeof module !== "undefined" && module.exports) {
@@ -55,6 +58,13 @@
 
   const SVG_NS = "http://www.w3.org/2000/svg";
   const N5_POS = [[63, 16], [88, 41], [79, 80.5], [47, 80.5], [38, 41]];
+  const DEFAULT_ORGS = {
+    "fednode-0": "mastodon.social",
+    "fednode-1": "lemmy.world",
+    "fednode-2": "pixelfed.social",
+    "fednode-3": "friendica.me",
+    "fednode-4": "peertube.tv"
+  };
   const $ = function (id) { return document.getElementById(id); };
 
   let data = {nodes: [], events: [], bans: [], updated_at: null};
@@ -74,6 +84,7 @@
   let userPinnedDomain = "";
   let roundCounter = 0;
   let lastStartedRoundDomain = "";
+  let resetBaselineAt = 0;
   let anim = null;
   let rafId = null;
   let committedFlashUntil = 0;
@@ -187,21 +198,34 @@
         if (p.epoch) entry.epoch = Math.max(entry.epoch || 1, p.epoch);
         if (p.sequence) entry.sequence = Math.max(entry.sequence || 1, p.sequence);
         if (p.threat_score) entry.threat_score = p.threat_score;
-        if (p.latency_ms && (!entry.latency_ms || p.latency_ms < entry.latency_ms)) {
+        if (p.latency_ms && p.latency_ms <= 280 && (!entry.latency_ms || p.latency_ms < entry.latency_ms)) {
           entry.latency_ms = p.latency_ms;
         }
         if (p.committed) entry.committed = true;
-        const isFaulty = String(node.state).startsWith("BYZANTINE_") || node.quarantined;
-        if (!isFaulty && p.approvals) {
+        if (p.approvals) {
           p.approvals.forEach(function (v) { entry.approvals.add(v); });
+        }
+        if (p.rejections) {
+          p.rejections.forEach(function (v) { entry.rejections.add(v); });
+        }
+        if (p.invalids) {
+          p.invalids.forEach(function (v) { entry.invalid.add(v); });
+        }
+        if (p.equivocators) {
+          p.equivocators.forEach(function (v) { entry.equivocators.add(v); });
+        }
+        if (p.quarantined) {
+          p.quarantined.forEach(function (v) { entry.quarantined.add(v); });
         }
       });
     });
 
+    const bannedDomains = new Set((data.bans || []).map(function (b) { return b.domain; }));
     (data.events || []).forEach(function (e) {
       if (!e.domain && !e.proposal_id) return;
       const key = e.domain || e.proposal_id;
-      if (!byDomain.has(key) && e.domain && ["proposal", "vote", "commit"].includes(e.kind)) {
+      const isFramingEvt = e.kind === "invalid" && /framing attack|origin http signature/i.test(String(e.message || ""));
+      if (!byDomain.has(key) && e.domain && (e.kind === "commit" || isFramingEvt || bannedDomains.has(e.domain))) {
         byDomain.set(key, {
           proposal_id: e.proposal_id || key,
           domain: e.domain,
@@ -234,7 +258,7 @@
       if (e.kind === "commit" && entry.created_at && e.timestamp >= entry.created_at && !entry.latency_ms) {
         entry.latency_ms = Math.max(12, Math.min(280, e.timestamp - entry.created_at));
       }
-      if ((e.timestamp || 0) > entry.created_at) entry.created_at = e.timestamp;
+      if (!entry.created_at && e.timestamp) entry.created_at = e.timestamp;
       if (e.kind === "commit") entry.committed = true;
       if (e.decision === "APPROVE") entry.approvals.add(e.source);
       else if (e.decision === "REJECT") entry.rejections.add(e.source);
@@ -258,34 +282,53 @@
       }
     });
 
-    const bannedDomains = new Set((data.bans || []).map(function (b) { return b.domain; }));
     byDomain.forEach(function (entry) {
       if (!entry.proposer) entry.proposer = "fednode-0";
       entry.quorum = bft.q;
       if (bannedDomains.has(entry.domain)) entry.committed = true;
-      entry.rejections.forEach(function (v) { entry.approvals.delete(v); });
-      entry.invalid.forEach(function (v) { entry.approvals.delete(v); });
-      entry.quarantined.forEach(function (v) { entry.approvals.delete(v); });
-      if (entry.equivocators) {
-        entry.equivocators.forEach(function (v) { entry.approvals.delete(v); });
+      if (!entry.latency_ms || entry.latency_ms > 280) {
+        entry.latency_ms = entry.committed ? 24 : 0;
       }
-      (data.nodes || []).forEach(function (n) {
-        if (n.quarantined) {
-          entry.approvals.delete(n.node_id);
-          entry.quarantined.add(n.node_id);
-        } else if (n.state === "BYZANTINE_LIAR") {
-          entry.approvals.delete(n.node_id);
-          entry.rejections.add(n.node_id);
-        } else if (n.state === "BYZANTINE_FORGER") {
-          entry.approvals.delete(n.node_id);
-          entry.invalid.add(n.node_id);
-        } else if (n.state === "BYZANTINE_EQUIVOCATOR" && !entry.committed) {
-          entry.approvals.delete(n.node_id);
-          entry.equivocators.add(n.node_id);
-        } else if (n.state === "BYZANTINE_SILENT" || n.state === "BYZANTINE_CENSOR" || !n.online) {
-          entry.approvals.delete(n.node_id);
-        }
+      entry.rejections.forEach(function (v) { entry.approvals.delete(v); });
+      entry.invalid.forEach(function (v) {
+        entry.approvals.delete(v);
+        entry.rejections.delete(v);
       });
+      entry.quarantined.forEach(function (v) {
+        entry.approvals.delete(v);
+        entry.rejections.delete(v);
+        entry.invalid.delete(v);
+        if (entry.equivocators) entry.equivocators.delete(v);
+      });
+      if (entry.equivocators) {
+        entry.equivocators.forEach(function (v) {
+          entry.approvals.delete(v);
+          entry.rejections.delete(v);
+        });
+      }
+      if (!entry.committed) {
+        (data.nodes || []).forEach(function (n) {
+          const nid = n.node_id;
+          const hasExplicitFault = entry.rejections.has(nid) || entry.invalid.has(nid) ||
+            (entry.equivocators && entry.equivocators.has(nid)) || entry.quarantined.has(nid);
+          if (hasExplicitFault) return;
+          if (n.quarantined) {
+            entry.approvals.delete(nid);
+            entry.quarantined.add(nid);
+          } else if (n.state === "BYZANTINE_LIAR") {
+            entry.approvals.delete(nid);
+            entry.rejections.add(nid);
+          } else if (n.state === "BYZANTINE_FORGER") {
+            entry.approvals.delete(nid);
+            entry.invalid.add(nid);
+          } else if (n.state === "BYZANTINE_EQUIVOCATOR") {
+            entry.approvals.delete(nid);
+            entry.equivocators.add(nid);
+          } else if (n.state === "BYZANTINE_SILENT" || n.state === "BYZANTINE_CENSOR" || !n.online) {
+            entry.approvals.delete(nid);
+          }
+        });
+      }
     });
 
     return Array.from(byDomain.values()).sort(function (a, b) {
@@ -813,29 +856,71 @@
     }, anim.stage === 3 ? Math.round(500 * mult) : anim.stage === 2 ? Math.round(1000 * mult) : t4));
   }
 
+  function visibleProposals() {
+    const all = proposals();
+    if (!resetBaselineAt) return all;
+    return all.filter(function (p) {
+      return p.domain === userPinnedDomain || p.domain === selectedDomain || (p.created_at || 0) > resetBaselineAt;
+    });
+  }
+
+  function synthesizeInFlightProposal(domain) {
+    const bft = bftParams();
+    const curEpoch = onlineNodes().reduce(function (m, n) { return Math.max(m, n.epoch || 1); }, 1);
+    const maxSeq = (data.nodes || []).reduce(function (m, n) { return Math.max(m, n.last_sequence || 0); }, 0);
+    return {
+      proposal_id: "inflight-" + domain,
+      domain: domain,
+      proposer: (anim && anim.leaderId) || activeLeaderId(),
+      reason: 4,
+      epoch: curEpoch,
+      sequence: maxSeq + 1,
+      threat_score: 0.85,
+      latency_ms: 0,
+      quorum: bft.q,
+      created_at: Date.now(),
+      committed: false,
+      framingRejected: Boolean(anim && anim.isFalseFlag),
+      approvals: new Set(),
+      rejections: new Set(),
+      framingRejectors: new Set(),
+      equivocators: new Set(),
+      invalid: new Set(),
+      quarantined: new Set()
+    };
+  }
+
   function nodeBallotState(node, proposal) {
     const id = node.node_id;
     const isAnimVoteHidden = Boolean(anim && !anim.finished && (anim.kind === "consensus" || anim.kind === "censor") && anim.stage < 3 && anim.domain === (proposal && proposal.domain));
     if (!node.online) return {key: "OFFLINE", text: "OFFLINE", sig: "Unreachable", badge: "text-bg-secondary"};
-    if (node.quarantined) return {key: "QUARANTINED", text: "QUARANTINED", sig: "Excluded (<30)", badge: "text-bg-danger"};
     if (String(node.state) === "BYZANTINE_SILENT") return {key: "SILENT", text: "⏳ SILENT", sig: "Dropped gRPC", badge: "text-bg-warning text-dark"};
     if (String(node.state) === "BYZANTINE_CENSOR") return {key: "CENSOR", text: "✕ CENSOR", sig: "Leader dropping reports (-30 on impeach)", badge: "text-bg-danger"};
-    if (!proposal) return null;
+    if (!proposal) {
+      if (node.quarantined) return {key: "QUARANTINED", text: "QUARANTINED", sig: "Excluded (<30)", badge: "text-bg-danger"};
+      return null;
+    }
     if (isAnimVoteHidden) return {key: "WAITING", text: "AUDITING…", sig: "Pending ballot", badge: "text-bg-info text-dark"};
+    if (proposal.quarantined && proposal.quarantined.has(id)) {
+      return {key: "QUARANTINED", text: "QUARANTINED", sig: "Excluded (<30)", badge: "text-bg-danger"};
+    }
     if (proposal.equivocators && proposal.equivocators.has(id)) {
       return {key: "EQUIVOCATED", text: "⚡ DOUBLE-VOTE", sig: "Sent APPROVE + REJECT (-50)", badge: "text-bg-danger"};
     }
     if (proposal.framingRejectors && proposal.framingRejectors.has(id)) {
       return {key: "REJECT", text: "✗ REJECT", sig: "Origin sig invalid", badge: "text-bg-danger"};
     }
-    if (proposal.approvals.has(id)) {
+    if (proposal.invalid && proposal.invalid.has(id)) {
+      return {key: "FORGED", text: "⚠ FORGED", sig: "Invalid Ed25519 (-40)", badge: "text-bg-danger"};
+    }
+    if (proposal.rejections && proposal.rejections.has(id)) {
+      return {key: "REJECT", text: "✗ REJECT", sig: "Dissenting vote (Liar -15)", badge: "text-bg-danger"};
+    }
+    if (proposal.approvals && proposal.approvals.has(id)) {
       return {key: "APPROVE", text: "✓ APPROVE", sig: "Valid Ed25519", badge: "text-bg-success"};
     }
-    if (proposal.rejections.has(id)) {
-      return {key: "REJECT", text: "✗ REJECT", sig: "Dissenting vote (Liar)", badge: "text-bg-danger"};
-    }
-    if (proposal.invalid.has(id)) {
-      return {key: "FORGED", text: "⚠ FORGED", sig: "Invalid Ed25519 (-40)", badge: "text-bg-danger"};
+    if (node.quarantined) {
+      return {key: "QUARANTINED", text: "QUARANTINED", sig: "Excluded (<30)", badge: "text-bg-danger"};
     }
     return {key: "WAITING", text: "… WAITING", sig: "Awaiting ballot", badge: "text-bg-secondary"};
   }
@@ -850,12 +935,17 @@
     if (stage) stage.classList.toggle("topo-stage-scaled", nodes.length > 5);
     const pts = nodePositions(nodes);
     const latest = (data.events || []).length ? data.events[data.events.length - 1] : null;
-    lastSender = rememberSender(data.events || [], pts, lastSender);
+    const visibleEvents = resetBaselineAt
+      ? (data.events || []).filter(function (e) { return (e.timestamp || 0) > resetBaselineAt; })
+      : (data.events || []);
+    lastSender = rememberSender(visibleEvents, pts, lastSender);
     const activeTarget = $("control-node") ? $("control-node").value : "";
     const coordId = activeCoordinator();
     const leaderId = activeLeaderId();
-    const allProps = proposals();
-    const activeProp = allProps.find(function (p) { return p.domain === selectedDomain; }) || allProps[0] || null;
+    const allProps = visibleProposals();
+    const isAnimRound = Boolean(anim && !anim.finished && anim.domain && (anim.kind === "consensus" || anim.kind === "censor"));
+    const activeProp = allProps.find(function (p) { return p.domain === selectedDomain; }) ||
+      (isAnimRound ? synthesizeInFlightProposal(anim.domain) : (allProps[0] || null));
     const now = performance.now();
     const inCommitFlash = now < committedFlashUntil;
     const inShieldFlash = now < shieldFlashUntil ? shieldFlashNode : "";
@@ -936,7 +1026,7 @@
           !node.online ? "OFFLINE" : isLeader ? "LEADER ★" : "FOLLOWER")
       );
 
-      const domRow = el("div", "topo-meta text-muted text-truncate mt-1", node.org || node.node_id + ".social");
+      const domRow = el("div", "topo-meta text-muted text-truncate mt-1", node.org || DEFAULT_ORGS[node.node_id] || (node.node_id + ".social"));
 
       const modeName = !node.online ? "OFFLINE" :
         String(node.state).startsWith("BYZANTINE_") ? String(node.state).slice(10) : "NONE";
@@ -952,7 +1042,7 @@
 
       const footRow = el("div", "d-flex justify-content-between align-items-center mt-1 gap-1");
       const ballot = nodeBallotState(node, activeProp);
-      if (ballot && (activeVotingView || ballot.key !== "APPROVE" || (activeProp && activeProp.domain === (anim && anim.domain)))) {
+      if (ballot && (activeProp || ballot.key !== "APPROVE")) {
         const badgeText = inCommitFlash && ballot.key === "APPROVE" ? "✓ WAL+RAM" : ballot.text;
         const bPill = el("span", "badge " + ballot.badge, badgeText);
         bPill.title = ballot.sig;
@@ -1159,12 +1249,15 @@
       trustMap[n.node_id] = nodeTrustSummary(n.node_id);
     });
 
+    const allPropsForSeq = proposals();
+    const maxActiveSeq = allPropsForSeq.reduce(function (m, p) { return Math.max(m, p.sequence || 0); }, 0);
+
     const nextKey = JSON.stringify([
       nodes.map(function (n) {
         return [n.node_id, n.online, n.telemetry_available, n.state, n.last_known_state,
                 n.quarantined, n.org, n.epoch, n.last_sequence, trustMap[n.node_id]];
       }),
-      activeTarget, coordId
+      activeTarget, coordId, maxActiveSeq
     ]);
     if (nextKey === nodesKey) return;
     nodesKey = nextKey;
@@ -1178,7 +1271,7 @@
       const idTd = el("td", "fw-semibold font-monospace small");
       idTd.textContent = node.node_id + (isSelected ? " ●" : "");
 
-      const domainTd = el("td", "small", node.org || "—");
+      const domainTd = el("td", "small", node.org || DEFAULT_ORGS[node.node_id] || "—");
 
       const isFault = Boolean(node.online && String(node.state || "").startsWith("BYZANTINE_"));
       const roleTd = el("td");
@@ -1192,9 +1285,10 @@
         roleTd.append(el("span", "badge text-bg-light text-dark border", "FOLLOWER"));
       }
 
+      const displaySeq = node.online && maxActiveSeq > (node.last_sequence || 0) ? maxActiveSeq : node.last_sequence;
       const epochTd = el("td", "small",
         (node.epoch !== undefined ? "Epoch " + node.epoch : "—") +
-        (node.last_sequence !== undefined ? " (Seq #" + node.last_sequence + ")" : ""));
+        (displaySeq !== undefined ? " (Seq #" + displaySeq + ")" : ""));
 
       const modeTd = el("td");
       const modeName = !node.online ? "—" :
@@ -1275,17 +1369,18 @@
   }
 
   function renderIncident() {
-    const all = proposals();
+    const rawAll = proposals();
     if (!initialLoadDone) {
-      all.forEach(function (p) {
+      rawAll.forEach(function (p) {
         seenDomains.add(p.domain);
         if (p.committed) seenCommitted.add(p.domain);
       });
       initialLoadDone = true;
     } else {
-      const newestUnseen = all.find(function (p) { return !seenDomains.has(p.domain); });
+      const newestUnseen = rawAll.find(function (p) { return !seenDomains.has(p.domain); });
       if (newestUnseen) {
-        all.forEach(function (p) { seenDomains.add(p.domain); });
+        resetBaselineAt = 0;
+        rawAll.forEach(function (p) { seenDomains.add(p.domain); });
         selectedDomain = newestUnseen.domain;
         userPinnedDomain = "";
         if (newestUnseen.domain === lastStartedRoundDomain) {
@@ -1308,8 +1403,9 @@
           if (newestUnseen.framingRejected) anim.isFalseFlag = true;
         }
       } else {
-        const newlyCommitted = all.find(function (p) { return p.committed && !seenCommitted.has(p.domain); });
+        const newlyCommitted = rawAll.find(function (p) { return p.committed && !seenCommitted.has(p.domain); });
         if (newlyCommitted) {
+          resetBaselineAt = 0;
           seenCommitted.add(newlyCommitted.domain);
           selectedDomain = newlyCommitted.domain;
           if (!anim || anim.finished || anim.domain !== newlyCommitted.domain) {
@@ -1324,18 +1420,22 @@
           }
         }
       }
-      all.forEach(function (p) {
+      rawAll.forEach(function (p) {
         if (p.committed) seenCommitted.add(p.domain);
       });
     }
 
+    const all = visibleProposals();
+    const isAnimRound = Boolean(anim && !anim.finished && anim.domain && (anim.kind === "consensus" || anim.kind === "censor"));
     if (userPinnedDomain && all.some(function (p) { return p.domain === userPinnedDomain; })) {
       selectedDomain = userPinnedDomain;
+    } else if (isAnimRound) {
+      selectedDomain = anim.domain;
     } else if (!selectedDomain || !all.some(function (p) { return p.domain === selectedDomain; })) {
-      const activePending = all.find(function (p) { return !p.committed && !p.framingRejected; });
-      selectedDomain = activePending ? activePending.domain : (all.length ? all[0].domain : "");
+      selectedDomain = all.length ? all[0].domain : "";
     }
-    const proposal = all.find(function (p) { return p.domain === selectedDomain; }) || all[0];
+    const proposal = all.find(function (p) { return p.domain === selectedDomain; }) ||
+      (isAnimRound ? synthesizeInFlightProposal(anim.domain) : (all[0] || null));
     const health = data.quorum_health || null;
     const quorumBlocked = Boolean(health && health.quorum_reachable === false);
     const isAnimActive = Boolean(anim && !anim.finished && (anim.kind === "consensus" || anim.kind === "censor"));
@@ -1376,8 +1476,11 @@
 
     if (!proposal) {
       panel.classList.remove("border-danger");
-      if (verdictFooter) verdictFooter.className = "card-footer d-flex flex-wrap justify-content-between align-items-center gap-2 py-2 small";
-      const latestThreat = (data.events || []).slice().reverse().find(function (e) { return e.kind === "threat"; });
+      if (verdictFooter) verdictFooter.className = "card-footer d-flex flex-column gap-1 py-2 px-3 small";
+      if ($("verdict-evidence")) $("verdict-evidence").textContent = "";
+      const latestThreat = (data.events || []).slice().reverse().find(function (e) {
+        return e.kind === "threat" && (!resetBaselineAt || (e.timestamp || 0) > resetBaselineAt);
+      });
       if (isCensorAnim) {
         state.className = anim.censorPhase === "blocked_at_leader" ? "badge text-bg-danger" : "badge text-bg-primary";
         state.textContent = anim.stage === 1 ? "STAGE 1 · INGRESS" :
@@ -1687,8 +1790,9 @@
     const nodes = data.nodes || [];
     const active = onlineNodes().length;
     const allProposals = proposals();
+    const visibleList = visibleProposals();
     const committed = new Set(allProposals.filter(function (p) { return p.committed; }).map(function (p) { return p.domain; }));
-    const pending = new Set(allProposals.filter(function (p) { return !p.committed && !committed.has(p.domain) && !p.framingRejected; }).map(function (p) { return p.domain; }));
+    const pending = new Set(visibleList.filter(function (p) { return !p.committed && !committed.has(p.domain) && !p.framingRejected; }).map(function (p) { return p.domain; }));
     const bft = bftParams();
     const health = data.quorum_health;
     const quorumBlocked = Boolean(health && health.quorum_reachable === false);
@@ -1721,6 +1825,7 @@
       } else {
         banner.className = "alert alert-success d-flex flex-wrap justify-content-between align-items-center gap-2 py-2 px-3 mb-2 shadow-sm small";
         if (bannerTitle) bannerTitle.textContent = "Consortium Quorum Healthy";
+        if (bannerDetail) bannerDetail.textContent = "";
         bannerBadge.className = "badge text-bg-success";
         bannerBadge.textContent = "QUORUM READY (" + (health ? health.eligible_voters : active) + "/" + bft.n + ")";
       }
@@ -1767,9 +1872,9 @@
       : oldNodes + " server(s) are online without telemetry. Rebuild or restart updated nodes to see votes and activity.";
 
     advanceCensorImpeachIfReady();
+    renderIncident();
     renderTopology();
     renderNodesTable();
-    renderIncident();
     renderEvents();
     renderBans();
     renderControls();
@@ -1836,9 +1941,6 @@
       }
       if (value.outcomes && body.action === "trust") result.textContent += " in " + value.outcomes.length + " ledger(s)";
       if (body.action === "inject" && value.domain) {
-        userPinnedDomain = "";
-        seenDomains.delete(value.domain);
-        selectedDomain = value.domain;
         const firstRes = (value.inbox_results && value.inbox_results[0]) || {};
         const ingressStatus = String(firstRes.status || "");
         const leaderIdNow = activeLeaderId();
@@ -1848,6 +1950,19 @@
           ingressStatus === "BLOCKED" ? "blocked" : "consensus";
         if (animKind === "consensus" && leaderObj && leaderObj.state === "BYZANTINE_CENSOR" && targetIdNow !== leaderIdNow) {
           animKind = "censor";
+        }
+        lastSender = {
+          source: {
+            kind: body.source === "internal" ? "node" : "external",
+            label: body.source === "internal" ? body.source_node : value.domain
+          },
+          attack: animKind !== "benign"
+        };
+        if (animKind !== "benign") {
+          resetBaselineAt = 0;
+          userPinnedDomain = "";
+          seenDomains.delete(value.domain);
+          selectedDomain = value.domain;
         }
         lastStartedRoundDomain = (animKind === "consensus" || animKind === "censor") ? value.domain : "";
         startAnimationRound({
@@ -1863,7 +1978,17 @@
       if (body.action === "revive" || body.action === "reset_all") {
         controlledChaosNode = "";
         if (body.action === "reset_all") {
+          resetBaselineAt = Date.now();
+          selectedDomain = "";
           userPinnedDomain = "";
+          lastStartedRoundDomain = "";
+          lastSender = null;
+          clearAnimationTimers();
+          anim = null;
+          proposals().forEach(function (p) {
+            seenDomains.add(p.domain);
+            if (p.committed) seenCommitted.add(p.domain);
+          });
           if ($("traffic-domain")) $("traffic-domain").value = "";
           if ($("fault-mode")) $("fault-mode").value = "NONE";
           if ($("chaos-role-guide")) $("chaos-role-guide").hidden = true;

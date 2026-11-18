@@ -101,10 +101,12 @@ def test_byzantine_liar_fault_masking():
         # Quorum (Q=4) must be reached despite Node 1 lying!
         assert qc is not None, "Honest majority of 4 nodes must reach quorum!"
         assert len(qc.signatures) == 4
-        # Verify Node 1 (liar) is NOT in the Quorum Certificate
+        # Verify Node 1 (liar) is NOT in the Quorum Certificate and was penalized -15 trust (85/100)
         voter_ids = [s.voter_id for s in qc.signatures]
         assert "fednode-1" not in voter_ids
         assert set(voter_ids) == {"fednode-0", "fednode-2", "fednode-3", "fednode-4"}
+        liar_score = next(r["trust_score"] for r in rep.get_ledger() if r["peer_id"] == "fednode-1")
+        assert liar_score == 85, f"Expected liar trust score 85, got {liar_score}"
 
         # Commit ban
         engine.commit_defederation(qc)

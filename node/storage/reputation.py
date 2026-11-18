@@ -21,6 +21,7 @@ class ReputationManager:
     PENALTY_EQUIVOCATION = -50
     PENALTY_CENSORSHIP = -30
     PENALTY_BOGUS_EVIDENCE = -25
+    PENALTY_DISSENT_ON_THREAT = -15
     BONUS_HONEST_VOTE = +2
 
     RECOVERY_GRACE_SECONDS = 60
@@ -64,7 +65,26 @@ class ReputationManager:
 
     def penalize_equivocation(self, peer_id: str, proposal_id: Optional[str] = None) -> bool:
         """Called when a node sends conflicting votes to different peers (lying)."""
-        return self._penalize("equivocation", peer_id, self.PENALTY_EQUIVOCATION, proposal_id)
+        if self.self_id is not None and peer_id == self.self_id:
+            return False
+        prior_dissent = False
+        if proposal_id is not None:
+            with self._penalty_lock:
+                if ("equivocation", peer_id, proposal_id) in self._penalty_keys:
+                    return False
+                prior_dissent = ("liar_dissent", peer_id, proposal_id) in self._penalty_keys
+                self._penalty_keys[("equivocation", peer_id, proposal_id)] = None
+                while len(self._penalty_keys) > self.MAX_PENALTY_KEYS:
+                    self._penalty_keys.popitem(last=False)
+        if prior_dissent:
+            self.db.update_reputation(
+                peer_id,
+                self.PENALTY_EQUIVOCATION - self.PENALTY_DISSENT_ON_THREAT,
+                is_violation=False,
+            )
+            return True
+        self.db.update_reputation(peer_id, self.PENALTY_EQUIVOCATION, is_violation=True)
+        return True
 
     def penalize_censorship(self, peer_id: str) -> bool:
         """Called when a leader ignores or censors incoming attack reports."""
@@ -73,6 +93,10 @@ class ReputationManager:
     def penalize_bogus_evidence(self, peer_id: str, proposal_id: Optional[str] = None) -> bool:
         """Called when a node submits invalid or fabricated evidence."""
         return self._penalize("bogus_evidence", peer_id, self.PENALTY_BOGUS_EVIDENCE, proposal_id)
+
+    def penalize_dissent_on_valid_threat(self, peer_id: str, proposal_id: Optional[str] = None) -> bool:
+        """Called when a Byzantine LIAR votes REJECT against a verified threat."""
+        return self._penalize("liar_dissent", peer_id, self.PENALTY_DISSENT_ON_THREAT, proposal_id)
 
     def reward_honest_participation(self, peer_id: str):
         """Rewards honest nodes who vote validly."""
