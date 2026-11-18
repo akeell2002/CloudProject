@@ -1451,7 +1451,7 @@
     renderPhaseStepperInto(stepper, stepperStage, stepperFailed, isFinalCommitted && !isAnimPlaying, bft, censorStepperLabels);
 
     if (verdictFooter) {
-      verdictFooter.className = "card-footer d-flex flex-wrap justify-content-between align-items-center gap-2 py-2 small " +
+      verdictFooter.className = "card-footer d-flex flex-column gap-1 py-2 px-3 small " +
         (isFramingRejected || unreachable ? "bg-danger-subtle text-danger-emphasis" :
          isFinalCommitted ? "bg-success-subtle" : "");
     }
@@ -1486,13 +1486,13 @@
     fill.style.width = pct + "%";
     progress.append(fill);
 
-    const summaryPill = el("span", "verdict-evidence text-truncate text-muted", evidenceText);
+    const summaryPill = el("span", "verdict-evidence text-muted", evidenceText);
     summaryPill.title = evidenceText;
 
-    verdictBar.append(domBadge, metaSpan, progress, summaryPill);
+    verdictBar.append(domBadge, metaSpan, progress);
 
     if (isFinalCommitted) {
-      const fwTestBtn = el("button", "btn btn-outline-danger btn-sm py-0 px-2 flex-shrink-0", "Test Firewall Drop");
+      const fwTestBtn = el("button", "btn btn-outline-danger btn-sm py-0 px-2 ms-auto flex-shrink-0", "Test Firewall Drop");
       fwTestBtn.type = "button";
       fwTestBtn.addEventListener("click", function () {
         runAction({
@@ -1505,6 +1505,8 @@
       });
       verdictBar.append(fwTestBtn);
     }
+
+    verdictBar.append(summaryPill);
   }
 
   function renderEvents() {
