@@ -3,169 +3,300 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="color-scheme" content="dark">
-  <title>FedConsensus · Federation monitor</title>
-  <link rel="stylesheet" href="/style.css">
+  <title>FedConsensus · Federation Monitor</title>
+  <link rel="stylesheet" href="/static/vendor/bootstrap.min.css">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/vendor/bootstrap.bundle.min.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
-<body>
-  <header class="topbar">
-    <a class="brand" href="/" aria-label="FedConsensus home">
-      <span class="brand-icon" aria-hidden="true">F<span>:</span></span>
-      <span>FedConsensus<small>FEDERATION SECURITY</small></span>
-    </a>
-    <span class="workspace-label">CONSORTIUM / OVERVIEW</span>
-    <div class="top-actions">
-      <span id="connection" class="connection"><i></i>Connecting</span>
-      <span class="pill success">LIVE LAB</span>
-    </div>
-  </header>
-  <main>
-    <div class="page-heading">
-      <div><p class="eyebrow">DISTRIBUTED DEFENSE, IN VIEW</p><h1>Federation overview<span class="heading-dot">.</span></h1>
-      <p class="subtitle">See your servers, follow the votes, and know what gets blocked.</p></div>
-      <div class="heading-actions"><span id="updated" class="muted mono">Waiting for first update</span>
-      <button id="refresh" class="icon-button" aria-label="Refresh cluster" title="Refresh cluster">↻</button></div>
-    </div>
-    <div id="live-notice" class="notice" role="status" hidden></div>
-    <div class="console-layout">
-    <aside class="panel controls-panel" aria-labelledby="controls-title">
-      <div class="panel-heading"><div><span class="eyebrow">OPERATOR CONSOLE</span><h2 id="controls-title">Consortium Controls</h2></div></div>
-      <div class="control-body">
-        <p id="controls-state" class="control-hint">Connected · Actions use real node identities</p>
-        <label for="control-node">Target / Receiving Node</label>
-        <select id="control-node"><option value="">Waiting for nodes</option></select>
-        <p id="controlled-node-status" class="control-hint"></p>
-
-        <!-- 1. ActivityPub Traffic & Attack Simulator -->
-        <details open><summary>1. Attack &amp; traffic simulator</summary>
-          <label for="traffic-source">Attack Sender (Who is sending?)</label>
-          <select id="traffic-source">
-            <option value="external">External Server (Internet)</option>
-            <option value="fednode-1">Internal Node: fednode-1</option>
-            <option value="fednode-2">Internal Node: fednode-2</option>
-            <option value="fednode-3">Internal Node: fednode-3</option>
-            <option value="fednode-4">Internal Node: fednode-4</option>
-          </select>
-          <input type="hidden" id="source-node" value="fednode-1">
-          <label for="traffic-domain">Sender Domain (e.g. spambot.net or select from banned list)</label>
-          <input type="text" id="traffic-domain" placeholder="Optional: spambot.net (or click a banned domain)" maxlength="253">
-          <div class="quick-actions">
-            <button data-scenario="benign" class="action-button">Post benign note</button>
-            <button data-scenario="phishing" class="action-button">Send phishing burst</button>
-            <button data-scenario="malware" class="action-button danger-action">Send malware-link text</button>
-          </div>
-          <p class="control-hint">Sends ActivityPub payload to Target Node. Once a domain is banned by consensus, any post from it (even benign) is instantly rejected with HTTP 403 BLOCKED.</p>
-          <label for="traffic-content">Custom post text</label><textarea id="traffic-content" rows="2" maxlength="2000" placeholder="Type custom post to test threat classification..."></textarea>
-          <button id="send-custom" class="action-button">Send custom post</button>
-        </details>
-
-        <!-- 2. Byzantine Fault & Crash Recovery -->
-        <details open><summary>2. Chaos lab (Faults &amp; self-healing)</summary>
-          <label for="fault-mode">Simulate voting behavior of Target Node</label>
-          <select id="fault-mode">
-            <option value="NONE">Honest (Verifies &amp; votes normally)</option>
-            <option value="SILENT">Silent (Drops all gRPC messages)</option>
-            <option value="LIAR">Liar (Votes REJECT on real threats)</option>
-            <option value="FORGER">Forger (Corrupts Ed25519 signature)</option>
-          </select>
-          <button id="apply-settings" class="action-button primary">Apply voting behavior</button>
-          <div class="button-pair">
-            <button id="stop-node" class="action-button danger-action">Kill node (Crash)</button>
-            <button id="revive-node" class="action-button">Revive (Self-heal)</button>
-          </div>
-          <input type="hidden" id="trust-peer" value="fednode-0">
-          <input type="hidden" id="trust-scope" value="all">
-          <input type="hidden" id="trust-score" value="100">
-          <button type="button" id="restore-peer" class="action-button">Reset node reputation (100)</button>
-          <p id="bft-tolerance-hint" class="control-hint">Trust scores update automatically (-50 on forgery/attack, &lt;30 = auto-quarantined).</p>
-        </details>
-
-        <!-- 3. Dynamic Autoscaling & Elastic Platform Onboarding -->
-        <details open><summary>3. Elastic Autoscaling &amp; Onboarding</summary>
-          <label for="org-domain">Onboard new platform / domain name</label>
-          <input id="org-domain" type="text" placeholder="e.g. bluesky-bridge.social or ntu.social" maxlength="100">
-          <button type="button" id="add-org-node" class="action-button primary">+ Add platform node</button>
-          <div class="button-pair">
-            <button type="button" id="autoscale-up" class="action-button"> Auto-scale (+2)</button>
-            <button type="button" id="reset-scale" class="action-button danger-action">Reset to 5 nodes</button>
-          </div>
-          <p class="control-hint">New K8s StatefulSet pods auto-sync historical bans via gRPC CatchupSync into their O(1) RAM Firewall. BFT Quorum <em>Q = &lfloor;2N/3&rfloor; + 1</em> automatically recalculates.</p>
-        </details>
-
-
-
-        <div id="action-result" class="action-result" role="status" aria-live="polite">Actions and backend responses appear here.</div>
+<body class="bg-light text-dark">
+  <nav class="navbar navbar-expand-lg navbar-dark bg-dark py-1 mb-2 shadow-sm">
+    <div class="container-fluid px-3 px-lg-4">
+      <a class="navbar-brand fw-semibold d-flex align-items-center gap-2 py-1" href="/">
+        <span>FedConsensus</span>
+        <span class="badge text-bg-primary">FEDERATION SECURITY</span>
+      </a>
+      <span class="navbar-text small text-secondary d-none d-xl-inline me-auto ms-2">CONSORTIUM COCKPIT</span>
+      <div class="d-flex align-items-center gap-2 ms-auto flex-wrap">
+        <div class="form-check form-switch text-light mb-0 me-1 d-flex align-items-center gap-1">
+          <input class="form-check-input" type="checkbox" role="switch" id="slow-mo-toggle">
+          <label class="form-check-label small" for="slow-mo-toggle">Slow-Mo Demo</label>
+        </div>
+        <span id="updated" class="text-light small log-mono">Waiting for first update</span>
+        <button id="refresh" type="button" class="btn btn-outline-light btn-sm py-0 px-2" aria-label="Refresh cluster" title="Refresh cluster">↻ Refresh</button>
+        <button id="reset-lab" type="button" class="btn btn-outline-warning btn-sm py-0 px-2 control-action-btn" title="Revive all nodes, clear fault modes, and restore 100/100 trust">↺ Reset Lab</button>
+        <span id="connection" class="badge text-bg-light text-dark"><span class="status-dot dot-gray me-1"></span>Connecting</span>
+        <span class="badge text-bg-success">LIVE LAB</span>
       </div>
-    </aside>
-    <div class="monitor-content">
-    <section class="metrics" aria-label="Cluster summary">
-      <article class="metric"><span class="metric-label"><i class="dot green"></i>Active servers</span><div><strong id="active-count">—</strong><span id="total-label">/ — configured</span></div><p id="active-subtext">Reachable at the last check</p></article>
-      <article class="metric"><span class="metric-label"><i class="dot gray"></i>Inactive servers</span><div><strong id="inactive-count">—</strong><span>unreachable</span></div><p>Kept visible for recovery</p></article>
-      <article class="metric"><span class="metric-label"><i class="dot red"></i>Threat proposals</span><div><strong id="threat-count">—</strong><span id="threat-label">awaiting a decision</span></div><p id="threat-subtext">Quorum rule: Q = 4/5 (N=5, f=1)</p></article>
-      <article class="metric"><span class="metric-label"><i class="dot cyan"></i>Banned domains</span><div><strong id="ban-count">—</strong><span>reported blocks</span></div><p id="ban-subtext">See coverage in the banned list</p></article>
-    </section>
-    <div class="overview-grid">
-      <section class="panel network-panel" aria-labelledby="network-title">
-        <div class="panel-heading"><div><span class="eyebrow">01 / NETWORK</span><h2 id="network-title">Your server network</h2></div><span class="pill success">LIVE</span></div>
-        <div class="network-stage">
-          <svg id="network-lines" viewBox="0 0 600 310" preserveAspectRatio="none" aria-hidden="true"></svg>
-          <div id="mesh-center" class="mesh-center" aria-hidden="true"><span class="mesh-symbol">⌘</span><strong>P2P gRPC MESH</strong><span id="mesh-caption">Shared-Nothing</span></div>
-          <div id="external-sender" class="external-sender" role="group" aria-label="External server: waiting for traffic">
-            <span class="sender-icon" aria-hidden="true">▤</span>
-            <span id="sender-type" class="sender-type">EXTERNAL SERVER</span>
-            <strong id="sender-domain" class="sender-domain">Awaiting sender</strong>
-            <span id="sender-status" class="sender-status">Waiting for traffic</span>
+    </div>
+  </nav>
+
+  <main class="container-fluid px-3 px-lg-4 pb-3">
+    <div id="live-notice" class="alert alert-warning py-2 px-3 small mb-2" role="status" hidden></div>
+
+    <div id="quorum-banner" class="alert alert-secondary d-flex flex-wrap justify-content-between align-items-center gap-2 py-2 px-3 mb-2 shadow-sm small" role="status">
+      <div class="d-flex flex-wrap align-items-center gap-2">
+        <span id="quorum-banner-badge" class="badge text-bg-secondary">INITIALIZING</span>
+        <strong id="quorum-banner-title" class="d-none">Connecting to consortium</strong>
+        <span id="quorum-banner-detail" class="d-none"></span>
+        <span>Active: <strong id="active-count">—</strong><span id="total-label" class="text-muted">/ —</span> <span class="text-muted">(Offline: <span id="inactive-count">—</span>)</span></span>
+        <span class="text-muted">|</span>
+        <span id="active-subtext">Epoch 1 · Proposer: —</span>
+        <span class="text-muted">|</span>
+        <span id="threat-subtext">Rule: Q = 4/5 (N=5, f=1)</span>
+        <span class="text-muted">|</span>
+        <span>Pending: <strong id="threat-count">0</strong> <span id="threat-label" class="text-muted">awaiting</span></span>
+        <span class="text-muted">|</span>
+        <span>Banned Domains: <strong id="ban-count">0</strong> <span id="ban-subtext" class="text-muted">(SQLite WAL + RAM)</span></span>
+      </div>
+    </div>
+
+    <div class="row g-3 align-items-start">
+      <aside class="col-lg-4" aria-labelledby="controls-title">
+        <div class="card shadow-sm controls-sticky control-body">
+          <div class="card-header d-flex justify-content-between align-items-center py-2">
+            <span id="controls-title" class="fw-semibold">Operator Controls</span>
+            <span id="operator-target-badge" class="badge text-bg-primary">Target: fednode-0</span>
           </div>
-          <div id="service-endpoint" class="service-endpoint" hidden>
-            <span id="service-type" class="sender-type">DESTINATION</span>
-            <strong id="service-label" class="sender-domain"></strong>
+          <div class="card-body d-flex flex-column gap-2 p-3">
+            <div>
+              <div class="d-flex justify-content-between align-items-center mb-1">
+                <label for="control-node" class="form-label small fw-semibold mb-0">Target Node</label>
+                <span id="controlled-node-status" class="small text-muted">Connecting…</span>
+              </div>
+              <select id="control-node" class="form-select form-select-sm"><option value="">Waiting for nodes</option></select>
+              <div id="controls-state" class="form-text mt-1 mb-0">Actions use real node identities</div>
+            </div>
+
+            <ul class="nav nav-pills nav-fill small bg-light border rounded p-1" role="tablist">
+              <li class="nav-item" role="presentation">
+                <button id="tab-btn-traffic" class="nav-link py-1 px-2 active" type="button" role="tab" aria-selected="true">Traffic Attack</button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button id="tab-btn-chaos" class="nav-link py-1 px-2" type="button" role="tab" aria-selected="false">Chaos &amp; Faults</button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button id="tab-btn-scale" class="nav-link py-1 px-2" type="button" role="tab" aria-selected="false">Scale Cluster</button>
+              </li>
+            </ul>
+
+            <div id="pane-traffic" class="d-flex flex-column gap-2">
+              <div class="d-flex justify-content-between align-items-center">
+                <span class="small fw-semibold">Simulator</span>
+                <span id="traffic-target-badge" class="badge text-bg-primary">Targeting: fednode-0</span>
+              </div>
+              <div>
+                <label for="traffic-source" class="form-label small fw-semibold mb-1">Attack Sender</label>
+                <select id="traffic-source" class="form-select form-select-sm">
+                  <option value="external">External Server (Internet)</option>
+                  <option value="fednode-1">Internal Node: fednode-1</option>
+                  <option value="fednode-2">Internal Node: fednode-2</option>
+                  <option value="fednode-3">Internal Node: fednode-3</option>
+                  <option value="fednode-4">Internal Node: fednode-4</option>
+                </select>
+                <input type="hidden" id="source-node" value="fednode-1">
+              </div>
+              <div>
+                <label for="traffic-domain" class="form-label small fw-semibold mb-1">Sender Domain (optional)</label>
+                <input type="text" id="traffic-domain" class="form-control form-control-sm" placeholder="spambot.net or click Banned row" maxlength="253">
+              </div>
+              <div class="row g-2">
+                <div class="col-6"><button type="button" data-scenario="benign" class="btn btn-primary btn-sm w-100 control-action-btn">Benign Note</button></div>
+                <div class="col-6"><button type="button" data-scenario="phishing" class="btn btn-outline-danger btn-sm w-100 control-action-btn">Phishing Burst</button></div>
+                <div class="col-6"><button type="button" data-scenario="malware" class="btn btn-danger btn-sm w-100 control-action-btn">Malware Link</button></div>
+                <div class="col-6"><button type="button" id="send-false-flag" data-scenario="false_flag" class="btn btn-outline-warning text-dark btn-sm w-100 control-action-btn">False-Flag</button></div>
+              </div>
+              <div>
+                <button type="button" id="toggle-custom-payload" class="btn btn-outline-secondary btn-sm w-100" aria-expanded="false">+ Custom payload</button>
+                <div id="custom-payload-box" class="mt-2 d-flex flex-column gap-2" hidden>
+                  <label class="visually-hidden" for="traffic-content">Custom post text</label>
+                  <textarea id="traffic-content" class="form-control form-control-sm" rows="2" maxlength="2000" placeholder="Type custom post to test threat classification..."></textarea>
+                  <button id="send-custom" type="button" class="btn btn-outline-primary btn-sm w-100 control-action-btn">Send custom post</button>
+                </div>
+              </div>
+            </div>
+
+            <div id="pane-chaos" class="d-flex flex-column gap-2" hidden>
+              <div class="d-flex justify-content-between align-items-center">
+                <span class="small fw-semibold">Fault Injector</span>
+                <span id="chaos-target-badge" class="badge text-bg-warning text-dark">Targeting: fednode-0</span>
+              </div>
+              <div>
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                  <label for="chaos-node" class="form-label small fw-semibold mb-0">Chaos Target Node</label>
+                  <button type="button" id="sync-chaos-node" class="btn btn-link btn-sm p-0 text-decoration-none">Match traffic target</button>
+                </div>
+                <select id="chaos-node" class="form-select form-select-sm"><option value="">Waiting for nodes</option></select>
+                <div id="chaos-node-status" class="form-text mb-0"></div>
+              </div>
+              <div>
+                <label for="fault-mode" class="form-label small fw-semibold mb-1">Byzantine Mode</label>
+                <select id="fault-mode" class="form-select form-select-sm">
+                  <option value="NONE">Honest (Verifies &amp; votes normally)</option>
+                  <option value="CENSOR">Censor (Leader drops follower reports, -30 trust &amp; Epoch failover)</option>
+                  <option value="EQUIVOCATOR">Equivocator (Double-votes APPROVE + REJECT, -50 trust)</option>
+                  <option value="LIAR">Liar (Votes REJECT on real threats)</option>
+                  <option value="FORGER">Forger (Corrupts Ed25519 signature, -40 trust)</option>
+                  <option value="SILENT" hidden>Silent (Drops all gRPC messages)</option>
+                </select>
+              </div>
+              <div id="chaos-role-guide" class="alert alert-warning py-1 px-2 small mb-0" role="status" hidden></div>
+              <button id="apply-settings" type="button" class="btn btn-primary btn-sm w-100 control-action-btn">Apply</button>
+              <div class="row g-2">
+                <div class="col-6"><button id="stop-node" type="button" class="btn btn-danger btn-sm w-100 control-action-btn">Kill</button></div>
+                <div class="col-6"><button id="revive-node" type="button" class="btn btn-success btn-sm w-100 control-action-btn">Revive</button></div>
+              </div>
+              <input type="hidden" id="trust-peer" value="fednode-0">
+              <input type="hidden" id="trust-scope" value="all">
+              <input type="hidden" id="trust-score" value="100">
+              <button type="button" id="restore-peer" class="btn btn-outline-secondary btn-sm w-100 control-action-btn">Reset Reputation (100)</button>
+              <div id="bft-tolerance-hint" class="form-text mb-0">Trust updates automatically (-50 equivocation, -40 forgery, -30 censorship, -25 framing, &lt;30 quarantined).</div>
+            </div>
+
+            <div id="pane-scale" class="d-flex flex-column gap-2" hidden>
+              <div>
+                <label for="org-domain" class="form-label small fw-semibold mb-1">Onboard platform / domain</label>
+                <input id="org-domain" type="text" class="form-control form-control-sm" placeholder="e.g. kbin.social or ntu.social" maxlength="100">
+              </div>
+              <button type="button" id="add-org-node" class="btn btn-outline-primary btn-sm w-100 control-action-btn">+ Add platform node</button>
+              <div class="row g-2">
+                <div class="col-6"><button type="button" id="autoscale-up" class="btn btn-outline-secondary btn-sm w-100 control-action-btn">Auto-scale (+2)</button></div>
+                <div class="col-6"><button type="button" id="reset-scale" class="btn btn-outline-danger btn-sm w-100 control-action-btn">Reset to 5 nodes</button></div>
+              </div>
+              <div class="form-text mb-0">New nodes sync historical bans via gRPC CatchupSync and recalculate Q = ⌊2N/3⌋ + 1.</div>
+            </div>
+
+            <div id="action-result" class="alert alert-secondary py-2 px-2 small mb-0" role="status" aria-live="polite">Actions and backend responses appear here.</div>
           </div>
-          <div id="network-nodes"></div>
         </div>
-        <div id="message-label" class="message-label">No observed transmissions yet</div>
-        <div class="network-legend"><span><i class="dot green"></i>Active</span><span><i class="dot gray"></i>Inactive</span><span><i class="dot red"></i>Flagged / fault</span><span>★ Active proposer</span><span><span class="node-spec-tag fw">Memory</span> Firewall</span><span><span class="node-spec-tag db">Database</span> Storage</span></div>
-        <p class="panel-footnote">Click any node in the mesh to inspect its status and peer reputation ledger.</p>
-      </section>
-      <section id="incident-panel" class="panel incident-panel" aria-labelledby="incident-title">
-        <div class="panel-heading"><div><span class="eyebrow">02 / CONSENSUS ENGINE</span><h2 id="incident-title">Live Threat &amp; Voting</h2></div><span id="incident-state" class="pill neutral">FLEET IDLE</span></div>
-        <div id="incident-content"></div>
-      </section>
+      </aside>
+
+      <div class="col-lg-8 d-flex flex-column gap-3">
+        <section id="topology-panel" class="card shadow-sm" aria-labelledby="topology-title">
+          <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2 py-2">
+            <span id="topology-title" class="fw-semibold">Live P2P Consensus Topology &amp; Voting</span>
+            <div class="d-flex align-items-center gap-2">
+              <span id="incident-state" class="badge text-bg-secondary">FLEET IDLE</span>
+              <span id="topology-phase-badge" class="badge text-bg-secondary d-none">IDLE</span>
+              <span id="mesh-caption" class="small text-muted">0 / 0 reachable</span>
+              <span class="badge text-bg-success">LIVE</span>
+            </div>
+          </div>
+          <div class="card-body p-2">
+            <div id="phase-stepper" class="row g-2 mb-2"></div>
+            <div id="network-stage" class="network-stage border rounded">
+              <svg id="network-lines" viewBox="0 0 800 365" preserveAspectRatio="none" aria-hidden="true"></svg>
+              <svg id="network-packets" viewBox="0 0 800 365" preserveAspectRatio="none" aria-hidden="true"></svg>
+              <div id="external-sender" class="card shadow-sm external-sender" role="group" aria-label="External server: waiting for traffic">
+                <div class="card-body p-2 text-center">
+                  <div id="sender-type" class="badge text-bg-secondary mb-1">EXTERNAL SENDER</div>
+                  <div id="sender-domain" class="fw-semibold small text-truncate log-mono">Awaiting sender</div>
+                  <div id="sender-status" class="topo-meta text-muted mt-1">Waiting for traffic</div>
+                </div>
+              </div>
+              <div id="network-nodes"></div>
+            </div>
+          </div>
+          <div id="verdict-footer" class="card-footer d-flex flex-wrap justify-content-between align-items-center gap-2 py-2 small">
+            <div id="verdict-bar" class="d-flex flex-wrap align-items-center gap-2 flex-grow-1"></div>
+            <span id="message-label" class="log-mono text-muted">No observed transmissions yet</span>
+          </div>
+        </section>
+
+        <section class="card shadow-sm" aria-labelledby="data-tabs-title">
+          <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2 py-2">
+            <span id="data-tabs-title" class="visually-hidden">Cluster Ledger &amp; Logs</span>
+            <ul class="nav nav-tabs card-header-tabs" role="tablist">
+              <li class="nav-item" role="presentation">
+                <button id="tab-btn-activity" class="nav-link active py-1 px-2 small fw-semibold" type="button" role="tab" aria-selected="true">Activity Log</button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button id="toggle-bans-btn" class="nav-link py-1 px-2 small fw-semibold" type="button" role="tab" aria-selected="false">Banned Domains (<span id="banned-badge">0</span>)</button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button id="toggle-reps-btn" class="nav-link py-1 px-2 small fw-semibold" type="button" role="tab" aria-selected="false">Nodes &amp; Trust (<span id="nodes-tab-count">0/0</span>)</button>
+              </li>
+            </ul>
+            <div id="activity-filter-wrap" class="d-flex align-items-center gap-2">
+              <label class="visually-hidden" for="event-filter">Filter activity</label>
+              <select id="event-filter" class="form-select form-select-sm w-auto">
+                <option value="all">All activity</option>
+                <option value="security">Threats &amp; votes</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="card-body p-0">
+            <div id="activity-view-container">
+              <div class="table-responsive log-scroll-box">
+                <table class="table table-sm table-hover align-middle mb-0 font-monospace log-mono">
+                  <thead class="table-light">
+                    <tr>
+                      <th scope="col">Time</th>
+                      <th scope="col">Sender → Receiver</th>
+                      <th scope="col">Activity</th>
+                      <th scope="col">Details</th>
+                    </tr>
+                  </thead>
+                  <tbody id="event-rows"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div id="bans-view-container" class="p-2" hidden>
+              <label class="visually-hidden" for="ban-search">Search banned domains</label>
+              <input id="ban-search" type="search" class="form-control form-control-sm mb-2" placeholder="Search banned domains…" autocomplete="off">
+              <div class="table-responsive log-scroll-box">
+                <table class="table table-sm table-hover align-middle mb-0">
+                  <thead class="table-light">
+                    <tr>
+                      <th scope="col">Banned Domain</th>
+                      <th scope="col">Enforcement</th>
+                      <th scope="col">Nodes</th>
+                      <th scope="col">Proof</th>
+                    </tr>
+                  </thead>
+                  <tbody id="banned-list"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div id="reps-view-container" hidden>
+              <div class="table-responsive log-scroll-box">
+                <table class="table table-sm table-bordered table-hover align-middle mb-0">
+                  <thead class="table-light">
+                    <tr>
+                      <th scope="col">Node ID</th>
+                      <th scope="col">Domain</th>
+                      <th scope="col">Role</th>
+                      <th scope="col">Epoch</th>
+                      <th scope="col">Mode</th>
+                      <th scope="col">Trust (0–100)</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">WAL / RAM</th>
+                    </tr>
+                  </thead>
+                  <tbody id="network-nodes-rows"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
     </div>
-    <div class="bottom-grid">
-      <section class="panel traffic-panel" aria-labelledby="traffic-title">
-        <div class="panel-heading"><div><span class="eyebrow">03 / ACTIVITY</span><h2 id="traffic-title">Who is sending what</h2></div>
-          <label class="sr-only" for="event-filter">Filter activity</label><select id="event-filter" class="compact-select"><option value="all">All activity</option><option value="security">Threats &amp; votes</option></select></div>
-        <div class="table-scroll"><table><thead><tr><th scope="col">Time</th><th scope="col">Sender → receiver</th><th scope="col">Activity</th><th scope="col">Details</th></tr></thead><tbody id="event-rows"></tbody></table></div>
-        <p class="panel-footnote">Recent observations only. Sender domains are claimed identities unless origin verification succeeds.</p>
-      </section>
-      <section class="panel banned-panel" aria-labelledby="banned-title">
-        <div class="panel-heading">
-          <div><span class="eyebrow">04 / ENFORCEMENT &amp; TRUST</span><h2 id="banned-title">Defederation &amp; Trust</h2></div>
-          <span id="banned-badge" class="count-badge">0</span>
-        </div>
-        <div class="dialog-tabs">
-          <button id="toggle-bans-btn" class="dialog-tab active" type="button">Banned Domains</button>
-          <button id="toggle-reps-btn" class="dialog-tab" type="button">Peer Trust Scores</button>
-        </div>
-        <div id="bans-view-container">
-          <label class="sr-only" for="ban-search">Search banned domains</label><input id="ban-search" type="search" placeholder="Search domains…" autocomplete="off">
-          <div id="banned-list" class="banned-list"></div>
-          <p class="panel-footnote">Click a banned domain to populate sender box &amp; test firewall rejection.</p>
-        </div>
-        <div id="reps-view-container" hidden>
-          <div id="reps-list" class="dialog-scroll-box"></div>
-          <p class="panel-footnote">Cluster-wide Byzantine trust ledger. Peers with score &lt; 30 are auto-quarantined from voting.</p>
-        </div>
-      </section>
-    </div>
-    </div>
-    </div>
-    <footer><span><i class="dot cyan"></i>FedConsensus live lab</span><span id="footer-note">Live observations · refreshes every 2 seconds</span></footer>
   </main>
-  <dialog id="node-dialog" aria-labelledby="node-dialog-title">
-    <div class="dialog-heading"><div><p class="eyebrow">SERVER DETAILS</p><h2 id="node-dialog-title"></h2></div><button id="close-dialog" class="icon-button" aria-label="Close server details">×</button></div>
-    <div id="node-details"></div>
+
+  <dialog id="node-dialog" class="border-0 rounded-3 shadow p-0" aria-labelledby="node-dialog-title">
+    <div class="card border-0">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+          <div class="small text-muted fw-semibold">SERVER DETAILS</div>
+          <h2 id="node-dialog-title" class="h5 mb-0"></h2>
+        </div>
+        <button id="close-dialog" type="button" class="btn-close" aria-label="Close server details"></button>
+      </div>
+      <div id="node-details" class="card-body"></div>
+    </div>
   </dialog>
 </body>
 </html>

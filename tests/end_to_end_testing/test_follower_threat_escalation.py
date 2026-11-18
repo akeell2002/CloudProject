@@ -114,6 +114,82 @@ class TestFollowerThreatEscalation(unittest.TestCase):
         self.assertFalse(resp.accepted)
         self.assertIn("not an authorized consortium peer", resp.reason)
 
+    def test_censor_drop_impeachment_quorum_and_equivocator_penalty(self):
+        """Verify CENSOR drop telemetry, mesh impeachment Q=4 Epoch advance (-30), and post-commit EQUIVOCATOR (-50)."""
+        self.service.set_byzantine_mode("CENSOR")
+        prop_req = pb2.ProposeRequest(
+            proposal_id="forward-1-fednode-1-censor.example",
+            sequence_number=1,
+            epoch=1,
+            target_domain="censor.example",
+            reason=pb2.REASON_MALICIOUS_FILES,
+            threat_score=0.90,
+            proposer_id="fednode-1",
+            proposer_signature="",
+            timestamp=1000,
+        )
+        drop_res = self.service.ProposeDefederation(prop_req, None)
+        self.assertFalse(drop_res.accepted)
+        censor_events = [e for e in self.consensus.telemetry.snapshot() if e["kind"] == "censor"]
+        self.assertEqual(len(censor_events), 1)
+        self.assertIn("silently dropped threat report from fednode-1", censor_events[0]["message"])
+
+        # Simulate peer impeachment co-votes arriving on Epoch 1 against fednode-0 (Q=4)
+        self.service.set_byzantine_mode("NONE")
+        peer_keys = {"fednode-1": (self.priv1, self.pub1)}
+        for idx in (2, 3, 4):
+            pid = f"fednode-{idx}"
+            priv, pub = generate_keypair()
+            self.consensus.register_peer_key(pid, pub)
+            peer_keys[pid] = (priv, pub)
+
+        for pid, (priv, pub) in peer_keys.items():
+            meta = {
+                "accuser_id": pid,
+                "target_epoch": 1,
+                "leader_id": "fednode-0",
+                "justification": "Leader fednode-0 censored attack on censor.example",
+            }
+            imp = pb2.ImpeachRequest(
+                accuser_id=pid,
+                target_epoch=1,
+                leader_id="fednode-0",
+                justification=meta["justification"],
+                signature=sign_message(priv, meta),
+            )
+            self.leader.handle_impeachment(imp, pub)
+
+        scores = {r["peer_id"]: r["trust_score"] for r in self.rep.get_ledger()}
+        self.assertEqual(self.leader.current_epoch, 2)
+        self.assertEqual(scores["fednode-0"], 70)
+
+        # Equivocator sends REJECT then APPROVE on an active (even already committed) proposal -> -50 trust
+        prop = self.consensus.create_proposal("equiv.example", pb2.REASON_PHISHING, "{}", "", 0.90)
+        self.consensus.active_proposals[prop.proposal_id].is_committed = True
+        priv2, _ = peer_keys["fednode-2"]
+        for dec_enum, dec_str in ((pb2.VOTE_REJECT, "REJECT"), (pb2.VOTE_APPROVE, "APPROVE")):
+            v_meta = {
+                "proposal_id": prop.proposal_id,
+                "sequence_number": prop.sequence_number,
+                "epoch": prop.epoch,
+                "target_domain": "equiv.example",
+                "decision": dec_str,
+            }
+            vote = pb2.VoteRequest(
+                proposal_id=prop.proposal_id,
+                sequence_number=prop.sequence_number,
+                epoch=prop.epoch,
+                target_domain="equiv.example",
+                voter_id="fednode-2",
+                decision=dec_enum,
+                voter_signature=sign_message(priv2, v_meta),
+                timestamp=1001,
+            )
+            self.consensus.handle_vote(vote)
+
+        scores = {r["peer_id"]: r["trust_score"] for r in self.rep.get_ledger()}
+        self.assertEqual(scores["fednode-2"], 50)
+
 
 if __name__ == "__main__":
     unittest.main()

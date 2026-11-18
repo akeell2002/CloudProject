@@ -1,9 +1,11 @@
 """UI adapters for existing backend APIs and operator-authorized lab operations."""
+import hashlib
 import json
 import os
 import re
 import secrets
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
@@ -253,7 +255,7 @@ class VirtualOrgNode:
             pass
 
 DOMAIN = re.compile(r"(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
-OPERATOR_MODES = ("NONE", "SILENT", "LIAR", "FORGER")
+OPERATOR_MODES = ("NONE", "SILENT", "LIAR", "FORGER", "CENSOR", "EQUIVOCATOR")
 TOKEN_ENV = "FEDCONSENSUS_OPERATOR_TOKEN"
 ENV_FILE = Path(ROOT) / ".env"
 
@@ -386,10 +388,21 @@ class Operator:
         payload = {"actor": f"https://{domain}/users/lab-sender",
                    "object": {"type": "Note", "content": content}}
         if scenario == "false_flag":
-            from node.crypto.ed25519 import generate_keypair
-            from node.crypto.http_sig import create_origin_http_signature
-            wrong_priv, _ = generate_keypair()
-            payload["origin_http_signature"] = create_origin_http_signature(domain, payload, wrong_priv)
+            try:
+                from node.crypto.ed25519 import generate_keypair
+                from node.crypto.http_sig import create_origin_http_signature
+                wrong_priv, _ = generate_keypair()
+                payload["origin_http_signature"] = create_origin_http_signature(domain, payload, wrong_priv)
+            except ImportError:
+                canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+                payload_hash = hashlib.sha256(canonical).hexdigest()
+                payload["origin_http_signature"] = {
+                    "keyId": f"https://{domain}/actor#main-key",
+                    "algorithm": "ed25519-sha256",
+                    "headers": "origin_domain digest",
+                    "signature": "00" * 64,
+                    "digest": f"SHA-256={payload_hash}",
+                }
         count = 6 if scenario == "phishing" else 1
         results = []
         for _ in range(count):
@@ -520,6 +533,78 @@ class Operator:
                     "message": f"K8s StatefulSet scaled to N={target_len} (f={f_val}, Q={q_val}): onboarded {', '.join(added_ids)} with gRPC CatchupSync!"
                 }
 
+            if action == "reset_all":
+                target_nodes = [n for n in self.monitor.nodes if n["node_id"] not in self.virtual_nodes]
+                peer_ids = [n["node_id"] for n in target_nodes]
+                def _reset_fault(target_node):
+                    nid = target_node["node_id"]
+                    try:
+                        req = self._operator_request(
+                            f"{target_node['address']}/fault",
+                            {"mode": "NONE", "offline": False},
+                        )
+                        with self.opener.open(req, timeout=3) as resp:
+                            resp.read()
+                        return None
+                    except HTTPError as error:
+                        error.close()
+                        if error.code == 403:
+                            return RuntimeError("Node rejected the operator credential; set "
+                                                "FEDCONSENSUS_OPERATOR_TOKEN for nodes and dashboard")
+                    except Exception:
+                        if self.runtime_status.get("available"):
+                            try:
+                                self.runtime.lifecycle(nid, "revive")
+                                if self.runtime.kind == "kubernetes":
+                                    self.runtime.ensure_forward(int(nid.rsplit("-", 1)[1]))
+                            except Exception:
+                                pass
+                    return None
+                with ThreadPoolExecutor(max_workers=max(1, len(target_nodes))) as pool:
+                    fault_errors = [err for err in pool.map(_reset_fault, target_nodes) if err is not None]
+                if fault_errors:
+                    raise fault_errors[0]
+                self.monitor.refresh()
+                online_targets = [
+                    n for n in self.monitor.snapshot()["nodes"]
+                    if n.get("online") and n["node_id"] not in self.virtual_nodes
+                ]
+                def _reset_node_reps(target):
+                    target_info = next((n for n in self.monitor.nodes if n["node_id"] == target["node_id"]), None)
+                    if not target_info:
+                        return
+                    for peer in peer_ids:
+                        try:
+                            req = self._operator_request(
+                                f"{target_info['address']}/reputation",
+                                {"peer_id": peer, "score": 100},
+                            )
+                            with self.opener.open(req, timeout=3) as resp:
+                                resp.read()
+                        except Exception:
+                            if self.runtime_status.get("available"):
+                                try:
+                                    self.runtime.node_call(target["node_id"], {
+                                        "operation": "trust", "peer": peer, "score": 100,
+                                    })
+                                except Exception:
+                                    pass
+                with ThreadPoolExecutor(max_workers=max(1, len(online_targets))) as pool:
+                    list(pool.map(_reset_node_reps, online_targets))
+                for vn in self.virtual_nodes.values():
+                    vn.simulated_offline = False
+                    vn.byzantine_mode = "NONE"
+                    for pid in list(vn.reputations):
+                        vn.reputations[pid] = {
+                            **vn.reputations[pid],
+                            "trust_score": 100,
+                            "violations_count": 0,
+                            "is_active": 1,
+                        }
+                self.monitor.refresh()
+                return {
+                    "message": f"Reset lab baseline: {len(online_targets)}/{len(target_nodes)} nodes ONLINE, Byzantine mode NONE, and 100/100 trust restored."
+                }
             if action == "scale":
                 count = body.get("replicas")
                 self.runtime.scale(count)

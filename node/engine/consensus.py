@@ -92,7 +92,7 @@ class ConsensusEngine:
         with self._lock:
             self._prune_proposals()
             for p in self.active_proposals.values():
-                if p.target_domain == target_domain and not p.is_committed and p.request:
+                if p.target_domain == target_domain and (not p.is_committed or self.firewall.is_blocked(target_domain)) and p.request:
                     return p.request
             self._sequence_counter = max(self._sequence_counter, self.db.get_latest_sequence_number()) + 1
             seq = self._sequence_counter
@@ -310,7 +310,7 @@ class ConsensusEngine:
         """
         with self._lock:
             proposal = self.active_proposals.get(vote.proposal_id)
-            if not proposal or proposal.is_committed:
+            if not proposal:
                 return None
 
             voter_id = vote.voter_id
@@ -318,15 +318,16 @@ class ConsensusEngine:
 
             # Check voter eligibility (quarantine check)
             if not self.reputation.is_peer_eligible_to_vote(voter_id):
-                self.telemetry.record(
-                    "vote", voter_id, self.config.node_id,
-                    "Ballot excluded: peer is quarantined",
-                    proposal_id=vote.proposal_id, domain=vote.target_domain,
-                    decision="QUARANTINED",
-                )
+                if not proposal.is_committed:
+                    self.telemetry.record(
+                        "vote", voter_id, self.config.node_id,
+                        "Ballot excluded: peer is quarantined",
+                        proposal_id=vote.proposal_id, domain=vote.target_domain,
+                        decision="QUARANTINED",
+                    )
                 return None
 
-            # Verify ballot signature
+            # Verify ballot signature (still audit forgery even if proposal just reached quorum)
             vote_meta = {
                 "proposal_id": vote.proposal_id,
                 "sequence_number": vote.sequence_number,
@@ -345,7 +346,7 @@ class ConsensusEngine:
                 )
                 return None
 
-            # Flaw 9: Equivocation Detection (conflicting signed ballots)
+            # Flaw 9: Equivocation Detection (catch conflicting signed ballots even post-commit)
             prev_decision = proposal.recorded_decisions.get(voter_id)
             if prev_decision is not None and prev_decision != vote.decision:
                 applied = self.reputation.penalize_equivocation(voter_id, proposal_id=vote.proposal_id)
@@ -360,7 +361,10 @@ class ConsensusEngine:
                     decision="INVALID",
                 )
                 return None
+
             proposal.recorded_decisions[voter_id] = vote.decision
+            if proposal.is_committed:
+                return None
 
             self.telemetry.record(
                 "vote", voter_id, self.config.node_id,

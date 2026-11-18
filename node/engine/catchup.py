@@ -24,12 +24,14 @@ class CatchupEngine:
         database: Database,
         firewall: FirewallFilter,
         peer_public_keys: Optional[Dict[str, str]] = None,
-        reputation: Optional[ReputationManager] = None
+        reputation: Optional[ReputationManager] = None,
+        leader: Optional[Any] = None,
     ):
         self.config = config
         self.db = database
         self.firewall = firewall
         self.reputation = reputation or ReputationManager(database)
+        self.leader = leader
         # peer_id -> {"reachable": bool, "checked_at": ms}, from the latest CatchupSync attempt
         self.peer_reachability: Dict[str, Dict] = {}
         self.peer_public_keys: Dict[str, str] = peer_public_keys or {
@@ -230,6 +232,13 @@ class CatchupEngine:
                 # Never copy a peer's view of this node, and only ever lower a local score
                 try:
                     status_res = stub.GetStatus(pb2.StatusRequest(caller_id=self.config.node_id), timeout=1.0)
+                    if status_res and self.leader and getattr(status_res, "current_epoch", 1) > self.leader.current_epoch:
+                        with self.leader._lock:
+                            if status_res.current_epoch > self.leader.current_epoch:
+                                self.leader.current_epoch = status_res.current_epoch
+                                self.leader.lease_expires_at = time.time() + self.leader.LEASE_DURATION_SECONDS
+                        if consensus is not None:
+                            consensus.current_epoch = self.leader.current_epoch
                     if status_res and status_res.reputations:
                         for rep_entry in status_res.reputations:
                             if rep_entry.peer_id == self.config.node_id:

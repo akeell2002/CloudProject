@@ -138,11 +138,12 @@ class DashboardTests(unittest.TestCase):
                 self.assertEqual(data["events"][0]["source"], "bad.example")
                 self.assertEqual(response.headers["Cache-Control"], "no-store")
                 self.assertIn("frame-ancestors 'none'", response.headers["Content-Security-Policy"])
-            for path in ("/", "/app.js", "/style.css"):
+            for path in ("/", "/app.js", "/style.css", "/static/style.css", "/static/app.js",
+                         "/static/vendor/bootstrap.min.css", "/static/vendor/bootstrap.bundle.min.js"):
                 with urlopen(base + path) as response:
                     self.assertEqual(response.status, 200)
                     self.assertTrue(response.read())
-            for path in ("/server.py", "/../node/config.py", "/api/unknown", "/demo.js"):
+            for path in ("/server.py", "/../node/config.py", "/api/unknown", "/demo.js", "/static/vendor/unknown.js"):
                 with self.assertRaises(HTTPError) as error:
                     urlopen(base + path)
                 self.assertEqual(error.exception.code, 404)

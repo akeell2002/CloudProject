@@ -26,6 +26,8 @@ class LeaderManager:
         self.impeachment_votes: Dict[int, Set[str]] = {}
         self.censorship_watches: Dict[str, Dict[str, Any]] = {}
         self.penalized_epochs: Set[int] = set()
+        self.seconded_impeachments: Set[int] = set()
+        self.announced_epochs: Set[int] = set()
 
     def get_leader_for_epoch(self, epoch: int) -> str:
         """Deterministic round-robin leader selection skipping quarantined peers."""
@@ -126,13 +128,19 @@ class LeaderManager:
     # -------------------------------------------------------------
     # FOLLOWER IMPEACHMENT (ANTI-CENSORSHIP)
     # -------------------------------------------------------------
-    def create_impeachment_request(self, justification: str) -> pb2.ImpeachRequest:
+    def create_impeachment_request(
+        self,
+        justification: str,
+        target_epoch: Optional[int] = None,
+        leader_id: Optional[str] = None,
+    ) -> pb2.ImpeachRequest:
         """Follower triggers emergency election if leader censors attacks or dies."""
         with self._lock:
-            target_leader = self.get_leader_for_epoch(self.current_epoch)
+            epoch = self.current_epoch if target_epoch is None else target_epoch
+            target_leader = self.get_leader_for_epoch(epoch) if leader_id is None else leader_id
             sign_meta = {
                 "accuser_id": self.config.node_id,
-                "target_epoch": self.current_epoch,
+                "target_epoch": epoch,
                 "leader_id": target_leader,
                 "justification": justification
             }
@@ -140,11 +148,27 @@ class LeaderManager:
 
             return pb2.ImpeachRequest(
                 accuser_id=self.config.node_id,
-                target_epoch=self.current_epoch,
+                target_epoch=epoch,
                 leader_id=target_leader,
                 justification=justification,
                 signature=sig
             )
+
+    def claim_impeachment_broadcast(self, target_epoch: int) -> bool:
+        """Guards per-epoch co-sign propagation so each node broadcasts once."""
+        with self._lock:
+            if target_epoch in self.seconded_impeachments:
+                return False
+            self.seconded_impeachments.add(target_epoch)
+            return True
+
+    def claim_epoch_announcement(self, new_epoch: int) -> bool:
+        """Ensures epoch transition telemetry logs once per node."""
+        with self._lock:
+            if new_epoch in self.announced_epochs:
+                return False
+            self.announced_epochs.add(new_epoch)
+            return True
 
     def handle_impeachment(self, req: pb2.ImpeachRequest, accuser_pubkey: str) -> bool:
         """

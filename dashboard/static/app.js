@@ -1,6 +1,7 @@
-/* Live data is read-only. Demo data is explicitly isolated in demo.js. */
+/* Live telemetry and operator controls UI built cleanly with DOM APIs. */
 (function () {
   "use strict";
+
   function networkRoute(event, positions) {
     if (!event) return null;
     function resolve(endpoint) {
@@ -13,7 +14,9 @@
             address.hostname === p.node.node_id + ".lab.example" ||
             address.host === new URL(p.node.address).host;
         });
-      } catch (_) { return undefined; }
+      } catch (_) {
+        return undefined;
+      }
     }
     const source = resolve(event.source);
     const target = resolve(event.target);
@@ -28,39 +31,58 @@
       attack: ["threat", "invalid", "blocked"].includes(event.kind),
     };
   }
+
   function rememberSender(events, positions, previous) {
     for (let i = events.length - 1; i >= 0; i--) {
       const route = networkRoute(events[i], positions);
-      if (["external", "endpoint"].includes(route.source.kind)) {
+      if (route && ["external", "endpoint"].includes(route.source.kind)) {
         return {source: route.source, attack: route.attack};
       }
     }
     return previous || null;
   }
+
   function quorumUnreachableText(health) {
     function names(list) { return Array.isArray(list) && list.length ? list.join(", ") : "none"; }
     return "Quorum unreachable: " + health.eligible_voters + " eligible < Q=" + health.quorum +
       " · offline: " + names(health.offline) + " · quarantined: " + names(health.quarantined);
   }
-  if (typeof module !== "undefined" && module.exports) module.exports = {networkRoute, rememberSender, quorumUnreachableText};
+
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = {networkRoute, rememberSender, quorumUnreachableText};
+  }
   if (typeof document === "undefined") return;
+
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const N5_POS = [[63, 16], [88, 41], [79, 80.5], [47, 80.5], [38, 41]];
   const $ = function (id) { return document.getElementById(id); };
+
   let data = {nodes: [], events: [], bans: [], updated_at: null};
   let selectedDomain = "";
   let selectedNode = "";
   let selectedNodeTab = "status";
   let fetching = false;
-  let networkKey = "";
+  let topologyKey = "";
+  let nodesKey = "";
   let incidentKey = "";
   let lastSender = null;
   let controls = {enabled: false, connected: false, runtime: {}};
   let actionBusy = false;
   let controlledNode = "";
+  let controlledChaosNode = "";
   let initialLoadDone = false;
+  let userPinnedDomain = "";
+  let roundCounter = 0;
+  let lastStartedRoundDomain = "";
+  let anim = null;
+  let rafId = null;
+  let committedFlashUntil = 0;
+  let shieldFlashNode = "";
+  let shieldFlashUntil = 0;
+
   const seenDomains = new Set();
-  let liveVoteAnim = null;
-  const points = [[65, 11], [88, 37], [79, 74], [51, 74], [42, 37]];
-  const securityKinds = ["threat", "blocked", "invalid", "proposal", "vote", "commit"];
+  const seenCommitted = new Set();
+  const securityKinds = ["threat", "blocked", "invalid", "censor", "proposal", "vote", "commit"];
   const reasonNames = {1: "Spam", 2: "Bot activity", 3: "Phishing", 4: "Suspicious file", 5: "Hate speech"};
 
   function el(tag, className, text) {
@@ -69,37 +91,25 @@
     if (text !== undefined) node.textContent = String(text);
     return node;
   }
-  function time(value) {
+
+  function svgEl(tag, attrs) {
+    const node = document.createElementNS(SVG_NS, tag);
+    Object.entries(attrs || {}).forEach(function (pair) {
+      node.setAttribute(pair[0], String(pair[1]));
+    });
+    return node;
+  }
+
+  function formatTime(value) {
     return value ? new Date(value).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit"}) : "Unknown";
   }
-  function isAttack(event) { return ["threat", "invalid", "blocked"].includes(event.kind); }
-  function empty(symbol, title, description) {
-    const box = el("div", "empty-state");
-    box.append(el("span", "empty-symbol", symbol), el("h3", "", title), el("p", "", description));
-    return box;
+
+  function isAttack(event) {
+    return ["threat", "invalid", "blocked", "censor"].includes(event.kind);
   }
-  function onlineNodes() { return data.nodes.filter(function (node) { return node.online; }); }
-  function activeCoordinator() {
-    const all = proposals();
-    if (liveVoteAnim && liveVoteAnim.proposer) {
-      const animNode = data.nodes.find(function (n) { return n.node_id === liveVoteAnim.proposer && n.online; });
-      if (animNode) return animNode.node_id;
-    }
-    if (selectedDomain) {
-      const sel = all.find(function (p) { return p.domain === selectedDomain; });
-      if (sel && sel.proposer) {
-        const selNode = data.nodes.find(function (n) { return n.node_id === sel.proposer && n.online; });
-        if (selNode) return selNode.node_id;
-      }
-    }
-    if (all.length && all[0].proposer) {
-      const latestNode = data.nodes.find(function (n) { return n.node_id === all[0].proposer && n.online; });
-      if (latestNode) return latestNode.node_id;
-    }
-    const reported = data.nodes.find(function (n) { return n.online && n.state === "LEADER"; });
-    if (reported) return reported.node_id;
-    const firstOnline = data.nodes.find(function (n) { return n.online && !n.quarantined && !String(n.state).startsWith("BYZANTINE"); });
-    return firstOnline ? firstOnline.node_id : "";
+
+  function onlineNodes() {
+    return (data.nodes || []).filter(function (node) { return node.online; });
   }
 
   function bftParams() {
@@ -109,9 +119,39 @@
     return {n: n, f: f, q: q};
   }
 
+  function nodePositions(nodes) {
+    const list = nodes || data.nodes || [];
+    return list.map(function (node, idx) {
+      const pt = list.length <= 5 ? N5_POS[idx] : [
+        64 + 26.5 * Math.cos((2 * Math.PI * idx) / list.length - Math.PI / 2),
+        50 + 37.5 * Math.sin((2 * Math.PI * idx) / list.length - Math.PI / 2)
+      ];
+      return {node: node, idx: idx, x: pt[0], y: pt[1], sx: pt[0] * 8, sy: pt[1] * 3.65};
+    });
+  }
+
+  function nodeTrustSummary(nodeId) {
+    let minScore = 100;
+    let isEligible = true;
+    (data.nodes || []).forEach(function (observer) {
+      if (!observer.online) return;
+      const rep = (observer.reputations || []).find(function (entry) {
+        return entry.peer_id === nodeId;
+      });
+      if (rep) {
+        if (rep.trust_score < minScore) minScore = rep.trust_score;
+        if (rep.trust_score < 30 || !rep.is_active) isEligible = false;
+      }
+    });
+    const node = (data.nodes || []).find(function (item) { return item.node_id === nodeId; });
+    if (node && node.quarantined) isEligible = false;
+    return {score: minScore, eligible: isEligible};
+  }
+
   function proposals() {
     const bft = bftParams();
     const byDomain = new Map();
+
     (data.nodes || []).forEach(function (node) {
       if (!node.online || !node.proposals) return;
       node.proposals.forEach(function (p) {
@@ -120,7 +160,7 @@
           byDomain.set(key, {
             proposal_id: p.proposal_id,
             domain: p.domain,
-            proposer: p.proposer || "", 
+            proposer: p.proposer || "",
             reason: p.reason,
             epoch: p.epoch || 1,
             sequence: p.sequence || 1,
@@ -129,8 +169,11 @@
             quorum: bft.q,
             created_at: p.created_at || 0,
             committed: Boolean(p.committed),
+            framingRejected: false,
             approvals: new Set(),
             rejections: new Set(),
+            framingRejectors: new Set(),
+            equivocators: new Set(),
             invalid: new Set(),
             quarantined: new Set()
           });
@@ -148,7 +191,6 @@
           entry.latency_ms = p.latency_ms;
         }
         if (p.committed) entry.committed = true;
-        // Prefer proposer's verified approvals or honest nodes' approvals
         const isFaulty = String(node.state).startsWith("BYZANTINE_") || node.quarantined;
         if (!isFaulty && p.approvals) {
           p.approvals.forEach(function (v) { entry.approvals.add(v); });
@@ -172,8 +214,11 @@
           quorum: bft.q,
           created_at: e.timestamp || 0,
           committed: false,
+          framingRejected: false,
           approvals: new Set(),
           rejections: new Set(),
+          framingRejectors: new Set(),
+          equivocators: new Set(),
           invalid: new Set(),
           quarantined: new Set()
         });
@@ -195,19 +240,35 @@
       else if (e.decision === "REJECT") entry.rejections.add(e.source);
       else if (e.decision === "INVALID") entry.invalid.add(e.source);
       else if (e.decision === "QUARANTINED") entry.quarantined.add(e.source);
+
+      if (e.kind === "invalid" && /framing attack|origin http signature/i.test(String(e.message || ""))) {
+        entry.framingRejected = true;
+        const rejector = /^fednode-\d+$/.test(String(e.target || "")) ? e.target :
+          /^fednode-\d+$/.test(String(e.observer || "")) ? e.observer : "";
+        if (rejector) {
+          entry.framingRejectors.add(rejector);
+          entry.rejections.add(rejector);
+          entry.approvals.delete(rejector);
+        }
+      } else if (e.kind === "invalid" && /equivocat|conflicting.*ballot/i.test(String(e.message || ""))) {
+        if (/^fednode-\d+$/.test(String(e.source || ""))) {
+          entry.equivocators.add(e.source);
+          entry.approvals.delete(e.source);
+        }
+      }
     });
 
     const bannedDomains = new Set((data.bans || []).map(function (b) { return b.domain; }));
     byDomain.forEach(function (entry) {
       if (!entry.proposer) entry.proposer = "fednode-0";
       entry.quorum = bft.q;
-      if (bannedDomains.has(entry.domain)) {
-        entry.committed = true;
-      }
-
+      if (bannedDomains.has(entry.domain)) entry.committed = true;
       entry.rejections.forEach(function (v) { entry.approvals.delete(v); });
       entry.invalid.forEach(function (v) { entry.approvals.delete(v); });
       entry.quarantined.forEach(function (v) { entry.approvals.delete(v); });
+      if (entry.equivocators) {
+        entry.equivocators.forEach(function (v) { entry.approvals.delete(v); });
+      }
       (data.nodes || []).forEach(function (n) {
         if (n.quarantined) {
           entry.approvals.delete(n.node_id);
@@ -218,7 +279,10 @@
         } else if (n.state === "BYZANTINE_FORGER") {
           entry.approvals.delete(n.node_id);
           entry.invalid.add(n.node_id);
-        } else if (n.state === "BYZANTINE_SILENT" || !n.online) {
+        } else if (n.state === "BYZANTINE_EQUIVOCATOR" && !entry.committed) {
+          entry.approvals.delete(n.node_id);
+          entry.equivocators.add(n.node_id);
+        } else if (n.state === "BYZANTINE_SILENT" || n.state === "BYZANTINE_CENSOR" || !n.online) {
           entry.approvals.delete(n.node_id);
         }
       });
@@ -229,54 +293,731 @@
     });
   }
 
-  function startLiveVoteAnimation(proposal) {
-    if (liveVoteAnim && liveVoteAnim.timer) {
-      clearInterval(liveVoteAnim.timer);
+  function activeLeaderId() {
+    const nodes = data.nodes || [];
+    const leader = nodes.find(function (n) { return n.online && n.state === "LEADER"; });
+    if (leader) return leader.node_id;
+    const online = nodes.filter(function (n) { return n.online; });
+    const epoch = online.reduce(function (m, n) { return Math.max(m, n.epoch || 1); }, 1);
+    const nCount = Math.max(nodes.length, 1);
+    const baseIdx = (epoch - 1) % nCount;
+    for (let offset = 0; offset < nCount; offset++) {
+      const candidate = "fednode-" + ((baseIdx + offset) % nCount);
+      const found = nodes.find(function (n) { return n.node_id === candidate; });
+      if (found && found.online && !found.quarantined) return candidate;
     }
-    const proposer = proposal.proposer || "fednode-0";
-    const order = [proposer];
-    (data.nodes || []).forEach(function (n) {
-      if (n.node_id !== proposer) {
-        if (proposal.approvals.has(n.node_id) ||
-            proposal.rejections.has(n.node_id) ||
-            proposal.invalid.has(n.node_id) ||
-            proposal.quarantined.has(n.node_id) ||
-            n.quarantined) {
-          order.push(n.node_id);
-        }
+    return "fednode-" + baseIdx;
+  }
+
+  function activeCoordinator() {
+    const all = proposals();
+    if (selectedDomain) {
+      const sel = all.find(function (p) { return p.domain === selectedDomain; });
+      if (sel && sel.proposer) {
+        const selNode = (data.nodes || []).find(function (n) { return n.node_id === sel.proposer && n.online; });
+        if (selNode) return selNode.node_id;
       }
-    });
-    liveVoteAnim = {
-      domain: proposal.domain,
-      proposer: proposer,
-      order: order,
-      step: 0,
-      maxSteps: order.length
+    }
+    if (all.length && all[0].proposer) {
+      const latestNode = (data.nodes || []).find(function (n) { return n.node_id === all[0].proposer && n.online; });
+      if (latestNode) return latestNode.node_id;
+    }
+    return activeLeaderId();
+  }
+
+  function selectTrafficNode(nodeId) {
+    const select = $("control-node");
+    if (select && Array.from(select.options).some(function (o) { return o.value === nodeId; })) {
+      select.value = nodeId;
+    }
+    topologyKey = "";
+    nodesKey = "";
+    renderControls();
+    renderTopology();
+    renderNodesTable();
+  }
+
+  function isSlowMo() {
+    return Boolean($("slow-mo-toggle") && $("slow-mo-toggle").checked);
+  }
+
+  function clearAnimationTimers() {
+    if (anim && Array.isArray(anim.timerIds)) {
+      anim.timerIds.forEach(function (id) { clearTimeout(id); });
+    }
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId);
+      rafId = null;
+    }
+  }
+
+  function trimSegment(p1, p2, curveSign) {
+    const dx = p2.sx - p1.sx;
+    const dy = p2.sy - p1.sy;
+    const dist = Math.hypot(dx, dy) || 1;
+    const ux = dx / dist;
+    const uy = dy / dist;
+    function borderPush(pt, dirX, dirY) {
+      const tx = Math.abs(dirX) > 0.001 ? pt.hw / Math.abs(dirX) : 9999;
+      const ty = Math.abs(dirY) > 0.001 ? pt.hh / Math.abs(dirY) : 9999;
+      const t = Math.min(tx, ty) + 4;
+      return {x: pt.sx + dirX * t, y: pt.sy + dirY * t};
+    }
+    const a = borderPush(p1, ux, uy);
+    const b = borderPush(p2, -ux, -uy);
+    const mx = (a.x + b.x) / 2;
+    const my = (a.y + b.y) / 2;
+    const nx = -(b.y - a.y);
+    const ny = b.x - a.x;
+    const nlen = Math.hypot(nx, ny) || 1;
+    const curve = Math.min(24, dist * 0.08) * (curveSign === undefined ? 1 : curveSign);
+    return {
+      x1: a.x, y1: a.y,
+      cx: mx + (nx / nlen) * curve,
+      cy: my + (ny / nlen) * curve,
+      x2: b.x, y2: b.y
     };
-    liveVoteAnim.timer = setInterval(function () {
-      if (!liveVoteAnim) return;
-      liveVoteAnim.step += 1;
-      incidentKey = "";
-      networkKey = "";
-      try {
-        renderIncident();
-        renderNetwork();
-      } catch (_) {}
-      if (liveVoteAnim && liveVoteAnim.step >= liveVoteAnim.maxSteps) {
-        clearInterval(liveVoteAnim.timer);
-        liveVoteAnim.timer = null;
+  }
+
+  function ensureMarkers(svg) {
+    const defs = svgEl("defs");
+    [
+      ["green", "#198754"],
+      ["red", "#dc3545"],
+      ["amber", "#fd7e14"],
+      ["blue", "#0d6efd"],
+      ["gray", "#6c757d"]
+    ].forEach(function (pair) {
+      const marker = svgEl("marker", {
+        id: "pkt-arrow-" + pair[0], viewBox: "0 0 10 10",
+        refX: 7, refY: 5, markerWidth: 7, markerHeight: 7,
+        orient: "auto", markerUnits: "userSpaceOnUse"
+      });
+      marker.append(svgEl("path", {d: "M 0 1 L 8 5 L 0 9 z", fill: pair[1]}));
+      defs.append(marker);
+    });
+    svg.append(defs);
+  }
+
+  function drawPacketAlong(svg, seg, progress, color, markerKey, labelText, reverseProgress) {
+    const path = svgEl("path", {
+      d: "M " + seg.x1.toFixed(1) + " " + seg.y1.toFixed(1) +
+         " Q " + seg.cx.toFixed(1) + " " + seg.cy.toFixed(1) +
+         " " + seg.x2.toFixed(1) + " " + seg.y2.toFixed(1),
+      class: "edge-flow",
+      stroke: color,
+      "marker-end": reverseProgress ? "" : "url(#pkt-arrow-" + markerKey + ")"
+    });
+    svg.append(path);
+    let pt;
+    try {
+      const totalLen = path.getTotalLength() || 1;
+      const p = Math.max(0, Math.min(1, progress));
+      pt = path.getPointAtLength(totalLen * p);
+    } catch (_) {
+      pt = {x: seg.x1 + (seg.x2 - seg.x1) * progress, y: seg.y1 + (seg.y2 - seg.y1) * progress};
+    }
+    svg.append(svgEl("circle", {cx: pt.x.toFixed(1), cy: pt.y.toFixed(1), r: 8, fill: color, "fill-opacity": "0.22"}));
+    svg.append(svgEl("circle", {cx: pt.x.toFixed(1), cy: pt.y.toFixed(1), r: 4.5, fill: color, stroke: "#ffffff", "stroke-width": "1.5"}));
+    if (labelText) {
+      const lbl = svgEl("text", {
+        x: pt.x.toFixed(1), y: (pt.y - 10).toFixed(1),
+        "text-anchor": "middle", fill: color, class: "packet-label"
+      });
+      lbl.textContent = labelText;
+      svg.append(lbl);
+    }
+  }
+
+  function nodeBoxSpec(nodeId, pts) {
+    if (nodeId === "external" || nodeId === "sender") {
+      return {sx: 84, sy: 182.5, hw: 72, hh: 40};
+    }
+    const found = pts.find(function (p) { return p.node.node_id === nodeId; });
+    if (!found) return {sx: 84, sy: 182.5, hw: 72, hh: 40};
+    const compact = pts.length > 5;
+    return {sx: found.sx, sy: found.sy, hw: compact ? 63 : 76, hh: compact ? 42 : 48};
+  }
+
+  function renderPacketFrame() {
+    const svg = $("network-packets");
+    if (!svg) return;
+    svg.replaceChildren();
+    if (!anim || anim.finished) {
+      rafId = null;
+      return;
+    }
+
+    ensureMarkers(svg);
+    const pts = nodePositions(data.nodes);
+    const now = performance.now();
+    const elapsed = Math.max(0, now - anim.stageStartedAt);
+    const prog = Math.min(1, elapsed / Math.max(1, anim.stageDuration));
+    const leaderId = anim.leaderId || activeLeaderId();
+    const pData = proposals().find(function (p) { return p.domain === anim.domain; }) || anim.proposal;
+
+    if (anim.kind === "censor") {
+      if (anim.stage === 1) {
+        const src = nodeBoxSpec(anim.sourceKind === "internal" ? anim.sourceId : "external", pts);
+        const dst = nodeBoxSpec(anim.targetId, pts);
+        drawPacketAlong(svg, trimSegment(src, dst), prog, "#dc3545", "red", "THREAT 403");
+      } else if (anim.censorPhase === "escalate") {
+        const segEsc = trimSegment(nodeBoxSpec(anim.targetId, pts), nodeBoxSpec(leaderId, pts));
+        drawPacketAlong(svg, segEsc, prog, "#fd7e14", "amber", "ESCALATE");
+      } else if (anim.censorPhase === "blocked_at_leader") {
+        const segDrop = trimSegment(nodeBoxSpec(anim.targetId, pts), nodeBoxSpec(leaderId, pts));
+        svg.append(svgEl("path", {
+          d: "M " + segDrop.x1.toFixed(1) + " " + segDrop.y1.toFixed(1) +
+             " Q " + segDrop.cx.toFixed(1) + " " + segDrop.cy.toFixed(1) +
+             " " + segDrop.x2.toFixed(1) + " " + segDrop.y2.toFixed(1),
+          class: "edge-flow", stroke: "#dc3545"
+        }));
+        svg.append(svgEl("circle", {cx: segDrop.x2.toFixed(1), cy: segDrop.y2.toFixed(1), r: 10, fill: "#dc3545", stroke: "#ffffff", "stroke-width": "2"}));
+        const xLbl = svgEl("text", {
+          x: segDrop.x2.toFixed(1), y: (segDrop.y2 - 14).toFixed(1),
+          "text-anchor": "middle", fill: "#dc3545", class: "packet-label"
+        });
+        xLbl.textContent = "✕ CENSORED (3s WATCH)";
+        svg.append(xLbl);
+      } else if (anim.censorPhase === "impeach") {
+        const oldSpec = nodeBoxSpec(anim.oldLeaderId || "fednode-0", pts);
+        pts.forEach(function (pt) {
+          const nid = pt.node.node_id;
+          if (nid === (anim.oldLeaderId || "fednode-0") || !pt.node.online || pt.node.state === "BYZANTINE_SILENT") return;
+          const seg = trimSegment(nodeBoxSpec(nid, pts), oldSpec, 1);
+          drawPacketAlong(svg, seg, prog, "#fd7e14", "amber", "IMPEACH (-30)");
+        });
+      } else if (anim.censorPhase === "repropose") {
+        const lSpec = nodeBoxSpec(leaderId, pts);
+        pts.forEach(function (pt) {
+          if (pt.node.node_id === leaderId || !pt.node.online) return;
+          const seg = trimSegment(lSpec, nodeBoxSpec(pt.node.node_id, pts));
+          drawPacketAlong(svg, seg, prog, "#0d6efd", "blue", "PROPOSE (E" + (anim.newEpoch || 2) + ")");
+        });
+      } else if (anim.censorPhase === "ballot") {
+        const lSpec = nodeBoxSpec(leaderId, pts);
+        pts.forEach(function (pt) {
+          const nid = pt.node.node_id;
+          if (nid === leaderId || !pt.node.online || pt.node.quarantined ||
+              pt.node.state === "BYZANTINE_SILENT" || pt.node.state === "BYZANTINE_CENSOR") return;
+          const seg = trimSegment(nodeBoxSpec(nid, pts), lSpec);
+          drawPacketAlong(svg, seg, prog, "#198754", "green", "APPROVE");
+        });
+      } else if (anim.stage === 4) {
+        const lSpec = nodeBoxSpec(leaderId, pts);
+        pts.forEach(function (pt) {
+          if (!pt.node.online || pt.node.node_id === leaderId || pt.node.state === "BYZANTINE_SILENT") return;
+          const seg = trimSegment(lSpec, nodeBoxSpec(pt.node.node_id, pts));
+          drawPacketAlong(svg, seg, prog, "#198754", "green", "COMMIT");
+        });
       }
-    }, 520);
+      rafId = requestAnimationFrame(renderPacketFrame);
+      return;
+    }
+
+    if (anim.stage === 1) {
+      const src = nodeBoxSpec(anim.sourceKind === "internal" ? anim.sourceId : "external", pts);
+      const dst = nodeBoxSpec(anim.targetId, pts);
+      const seg = trimSegment(src, dst);
+      if (anim.kind === "benign") {
+        drawPacketAlong(svg, seg, prog, "#198754", "green", "HTTP 202");
+      } else if (anim.kind === "blocked") {
+        const bounce = prog < 0.55 ? (prog / 0.55) : (1 - ((prog - 0.55) / 0.45) * 0.72);
+        if (prog >= 0.52 && shieldFlashNode !== anim.targetId) {
+          shieldFlashNode = anim.targetId;
+          shieldFlashUntil = now + 750;
+          topologyKey = "";
+          renderTopology();
+        }
+        drawPacketAlong(svg, seg, bounce, "#dc3545", "red", prog < 0.55 ? "POST" : "BLOCKED <1µs", prog >= 0.55);
+      } else {
+        drawPacketAlong(svg, seg, prog, "#dc3545", "red", "THREAT 403");
+      }
+    } else if (anim.stage === 2) {
+      const needEscalation = Boolean(anim.targetId && anim.targetId !== leaderId);
+      if (needEscalation && prog < 0.45) {
+        const segEsc = trimSegment(nodeBoxSpec(anim.targetId, pts), nodeBoxSpec(leaderId, pts));
+        drawPacketAlong(svg, segEsc, prog / 0.45, "#fd7e14", "amber", "ESCALATE");
+      } else {
+        const fanProg = needEscalation ? (prog - 0.45) / 0.55 : prog;
+        const lSpec = nodeBoxSpec(leaderId, pts);
+        pts.forEach(function (pt) {
+          if (pt.node.node_id === leaderId || !pt.node.online) return;
+          const seg = trimSegment(lSpec, nodeBoxSpec(pt.node.node_id, pts));
+          drawPacketAlong(svg, seg, fanProg, "#0d6efd", "blue", "PROPOSE");
+        });
+      }
+    } else if (anim.stage === 3) {
+      const lSpec = nodeBoxSpec(leaderId, pts);
+      const isFalseFlag = Boolean(anim.isFalseFlag || (pData && pData.framingRejected));
+      pts.forEach(function (pt) {
+        const nid = pt.node.node_id;
+        if (nid === leaderId || !pt.node.online || pt.node.quarantined ||
+            pt.node.state === "BYZANTINE_SILENT" || pt.node.state === "BYZANTINE_CENSOR") return;
+        const isEquivocator = pt.node.state === "BYZANTINE_EQUIVOCATOR" ||
+          Boolean(pData && pData.equivocators && pData.equivocators.has(nid));
+        if (isEquivocator) {
+          drawPacketAlong(svg, trimSegment(nodeBoxSpec(nid, pts), lSpec, 1.3), prog, "#198754", "green", "APPROVE");
+          drawPacketAlong(svg, trimSegment(nodeBoxSpec(nid, pts), lSpec, -1.3), prog, "#dc3545", "red", "REJECT (⚡ -50)");
+          return;
+        }
+        let color = "#198754";
+        let mKey = "green";
+        let lbl = "APPROVE";
+        if (isFalseFlag || pt.node.state === "BYZANTINE_LIAR" || (pData && pData.rejections.has(nid))) {
+          color = "#dc3545";
+          mKey = "red";
+          lbl = "REJECT";
+        } else if (pt.node.state === "BYZANTINE_FORGER" || (pData && pData.invalid.has(nid))) {
+          color = "#dc3545";
+          mKey = "red";
+          lbl = "FORGED";
+        }
+        const seg = trimSegment(nodeBoxSpec(nid, pts), lSpec);
+        drawPacketAlong(svg, seg, prog, color, mKey, lbl);
+      });
+    } else if (anim.stage === 4) {
+      const lSpec = nodeBoxSpec(leaderId, pts);
+      pts.forEach(function (pt) {
+        if (!pt.node.online || pt.node.node_id === leaderId || pt.node.state === "BYZANTINE_SILENT") return;
+        const seg = trimSegment(lSpec, nodeBoxSpec(pt.node.node_id, pts));
+        drawPacketAlong(svg, seg, prog, "#198754", "green", "COMMIT");
+      });
+    }
+
+    rafId = requestAnimationFrame(renderPacketFrame);
+  }
+
+  function computeRoundReachability(targetProposal, isFalseFlag) {
+    const bft = bftParams();
+    const health = data.quorum_health;
+    if (isFalseFlag) return {ok: false, reason: "framing"};
+    if (targetProposal) {
+      if (targetProposal.framingRejected) return {ok: false, reason: "framing"};
+      if (targetProposal.committed || targetProposal.approvals.size >= bft.q) return {ok: true};
+    }
+    if (health && health.quorum_reachable === false) return {ok: false, reason: "quorum"};
+    const onlineHonest = (data.nodes || []).filter(function (n) {
+      return n.online && !n.quarantined && n.state !== "BYZANTINE_LIAR" &&
+        n.state !== "BYZANTINE_FORGER" && n.state !== "BYZANTINE_SILENT" && n.state !== "BYZANTINE_EQUIVOCATOR";
+    }).length;
+    return {ok: onlineHonest >= bft.q, reason: onlineHonest >= bft.q ? "" : "quorum"};
+  }
+
+  function advanceCensorImpeachIfReady() {
+    if (!anim || anim.finished || anim.kind !== "censor" || anim.impeachStarted) return;
+    if (anim.censorPhase !== "blocked_at_leader" && anim.censorPhase !== "escalate") return;
+    const nodes = onlineNodes();
+    const currentEpoch = nodes.reduce(function (m, n) { return Math.max(m, n.epoch || 1); }, 1);
+    const latestProp = proposals().find(function (p) { return p.domain === anim.domain; });
+    if (currentEpoch <= (anim.startEpoch || 1) && !(latestProp && latestProp.committed)) return;
+
+    anim.impeachStarted = true;
+    const roundId = anim.id;
+    const mult = isSlowMo() ? 1.9 : 1.0;
+    const isAlive = function () { return anim && anim.id === roundId && !anim.finished; };
+    const refreshVisuals = function () {
+      topologyKey = "";
+      incidentKey = "";
+      renderTopology();
+      renderIncident();
+    };
+
+    anim.oldLeaderId = anim.leaderId;
+    anim.leaderId = activeLeaderId();
+    anim.newEpoch = currentEpoch;
+    anim.stage = 3;
+    anim.censorPhase = "impeach";
+    anim.stageStartedAt = performance.now();
+    anim.stageDuration = Math.round(620 * mult);
+    refreshVisuals();
+
+    anim.timerIds.push(setTimeout(function () {
+      if (!isAlive()) return;
+      anim.censorPhase = "repropose";
+      anim.leaderId = activeLeaderId();
+      anim.stageStartedAt = performance.now();
+      anim.stageDuration = Math.round(450 * mult);
+      refreshVisuals();
+    }, Math.round(620 * mult)));
+
+    anim.timerIds.push(setTimeout(function () {
+      if (!isAlive()) return;
+      anim.censorPhase = "ballot";
+      anim.stageStartedAt = performance.now();
+      anim.stageDuration = Math.round(450 * mult);
+      refreshVisuals();
+    }, Math.round(1080 * mult)));
+
+    anim.timerIds.push(setTimeout(function () {
+      if (!isAlive()) return;
+      anim.stage = 4;
+      anim.censorPhase = "commit";
+      anim.stageStartedAt = performance.now();
+      anim.stageDuration = Math.round(480 * mult);
+      committedFlashUntil = performance.now() + 1800;
+      refreshVisuals();
+    }, Math.round(1540 * mult)));
+
+    anim.timerIds.push(setTimeout(function () {
+      if (!isAlive()) return;
+      anim.finished = true;
+      refreshVisuals();
+    }, Math.round(2120 * mult)));
+
+    anim.timerIds.push(setTimeout(function () {
+      topologyKey = "";
+      renderTopology();
+    }, Math.round(2120 * mult) + 1800));
+  }
+
+  function startAnimationRound(opts) {
+    clearAnimationTimers();
+    const mult = isSlowMo() ? 1.9 : 1.0;
+    const roundId = ++roundCounter;
+    const leaderId = activeLeaderId();
+    const currentEpoch = onlineNodes().reduce(function (m, n) { return Math.max(m, n.epoch || 1); }, 1);
+
+    anim = {
+      id: roundId,
+      domain: opts.domain || "",
+      sourceKind: opts.sourceKind || "external",
+      sourceId: opts.sourceId || "external",
+      targetId: opts.targetId || leaderId,
+      leaderId: leaderId,
+      oldLeaderId: leaderId,
+      startEpoch: opts.startEpoch || currentEpoch,
+      newEpoch: currentEpoch,
+      kind: opts.kind || "consensus",
+      censorPhase: opts.kind === "censor" ? "ingress" : "",
+      impeachStarted: false,
+      isFalseFlag: Boolean(opts.isFalseFlag),
+      stage: opts.startStage || 1,
+      stageStartedAt: performance.now(),
+      stageDuration: Math.round((opts.kind === "blocked" ? 650 : 400) * mult),
+      finished: false,
+      proposal: opts.proposal || null,
+      timerIds: []
+    };
+
+    function isAlive() {
+      return anim && anim.id === roundId;
+    }
+
+    function refreshVisuals() {
+      topologyKey = "";
+      incidentKey = "";
+      renderTopology();
+      renderIncident();
+    }
+
+    refreshVisuals();
+    rafId = requestAnimationFrame(renderPacketFrame);
+
+    if (anim.kind === "censor") {
+      anim.timerIds.push(setTimeout(function () {
+        if (!isAlive()) return;
+        anim.stage = 2;
+        anim.censorPhase = "escalate";
+        anim.stageStartedAt = performance.now();
+        anim.stageDuration = Math.round(380 * mult);
+        refreshVisuals();
+      }, Math.round(420 * mult)));
+
+      anim.timerIds.push(setTimeout(function () {
+        if (!isAlive()) return;
+        anim.censorPhase = "blocked_at_leader";
+        anim.stageStartedAt = performance.now();
+        anim.stageDuration = Math.round(8000 * mult);
+        shieldFlashNode = anim.leaderId;
+        shieldFlashUntil = performance.now() + 1200;
+        refreshVisuals();
+        advanceCensorImpeachIfReady();
+        const pollWait = setInterval(function () {
+          if (!isAlive() || anim.impeachStarted || anim.finished) {
+            clearInterval(pollWait);
+            return;
+          }
+          refresh();
+        }, 700);
+        anim.timerIds.push(setTimeout(function () { clearInterval(pollWait); }, 10500));
+      }, Math.round(800 * mult)));
+
+      anim.timerIds.push(setTimeout(function () {
+        if (!isAlive() || anim.impeachStarted) return;
+        anim.finished = true;
+        refreshVisuals();
+      }, Math.round(10500 * mult)));
+      return;
+    }
+
+    if (anim.kind === "benign" || anim.kind === "blocked") {
+      anim.timerIds.push(setTimeout(function () {
+        if (!isAlive()) return;
+        anim.finished = true;
+        refreshVisuals();
+      }, anim.stageDuration + 80));
+      return;
+    }
+
+    const t2 = Math.round(420 * mult);
+    const t3 = Math.round(920 * mult);
+    const t4 = Math.round(1450 * mult);
+    const dStage = Math.round(480 * mult);
+
+    if (anim.stage < 2) {
+      anim.timerIds.push(setTimeout(function () {
+        if (!isAlive()) return;
+        anim.stage = 2;
+        anim.stageStartedAt = performance.now();
+        anim.stageDuration = dStage;
+        refreshVisuals();
+      }, t2));
+    }
+
+    if (anim.stage < 3) {
+      anim.timerIds.push(setTimeout(function () {
+        if (!isAlive()) return;
+        anim.stage = 3;
+        anim.stageStartedAt = performance.now();
+        anim.stageDuration = dStage;
+        refreshVisuals();
+      }, anim.stage === 2 ? Math.round(500 * mult) : t3));
+    }
+
+    anim.timerIds.push(setTimeout(function () {
+      if (!isAlive()) return;
+      const latestProp = proposals().find(function (p) { return p.domain === anim.domain; }) || anim.proposal;
+      const verdict = computeRoundReachability(latestProp, anim.isFalseFlag);
+      if (!verdict.ok) {
+        anim.finished = true;
+        refreshVisuals();
+        return;
+      }
+      anim.stage = 4;
+      anim.stageStartedAt = performance.now();
+      anim.stageDuration = Math.round(450 * mult);
+      committedFlashUntil = performance.now() + 1800;
+      refreshVisuals();
+
+      anim.timerIds.push(setTimeout(function () {
+        if (!isAlive()) return;
+        anim.finished = true;
+        refreshVisuals();
+      }, anim.stageDuration + 100));
+
+      anim.timerIds.push(setTimeout(function () {
+        topologyKey = "";
+        renderTopology();
+      }, 1850));
+    }, anim.stage === 3 ? Math.round(500 * mult) : anim.stage === 2 ? Math.round(1000 * mult) : t4));
+  }
+
+  function nodeBallotState(node, proposal) {
+    const id = node.node_id;
+    const isAnimVoteHidden = Boolean(anim && !anim.finished && (anim.kind === "consensus" || anim.kind === "censor") && anim.stage < 3 && anim.domain === (proposal && proposal.domain));
+    if (!node.online) return {key: "OFFLINE", text: "OFFLINE", sig: "Unreachable", badge: "text-bg-secondary"};
+    if (node.quarantined) return {key: "QUARANTINED", text: "QUARANTINED", sig: "Excluded (<30)", badge: "text-bg-danger"};
+    if (String(node.state) === "BYZANTINE_SILENT") return {key: "SILENT", text: "⏳ SILENT", sig: "Dropped gRPC", badge: "text-bg-warning text-dark"};
+    if (String(node.state) === "BYZANTINE_CENSOR") return {key: "CENSOR", text: "✕ CENSOR", sig: "Leader dropping reports (-30 on impeach)", badge: "text-bg-danger"};
+    if (!proposal) return null;
+    if (isAnimVoteHidden) return {key: "WAITING", text: "AUDITING…", sig: "Pending ballot", badge: "text-bg-info text-dark"};
+    if (proposal.equivocators && proposal.equivocators.has(id)) {
+      return {key: "EQUIVOCATED", text: "⚡ DOUBLE-VOTE", sig: "Sent APPROVE + REJECT (-50)", badge: "text-bg-danger"};
+    }
+    if (proposal.framingRejectors && proposal.framingRejectors.has(id)) {
+      return {key: "REJECT", text: "✗ REJECT", sig: "Origin sig invalid", badge: "text-bg-danger"};
+    }
+    if (proposal.approvals.has(id)) {
+      return {key: "APPROVE", text: "✓ APPROVE", sig: "Valid Ed25519", badge: "text-bg-success"};
+    }
+    if (proposal.rejections.has(id)) {
+      return {key: "REJECT", text: "✗ REJECT", sig: "Dissenting vote (Liar)", badge: "text-bg-danger"};
+    }
+    if (proposal.invalid.has(id)) {
+      return {key: "FORGED", text: "⚠ FORGED", sig: "Invalid Ed25519 (-40)", badge: "text-bg-danger"};
+    }
+    return {key: "WAITING", text: "… WAITING", sig: "Awaiting ballot", badge: "text-bg-secondary"};
+  }
+
+  function renderTopology() {
+    const svgLines = $("network-lines");
+    const layer = $("network-nodes");
+    if (!svgLines || !layer) return;
+
+    const nodes = data.nodes || [];
+    const stage = $("network-stage");
+    if (stage) stage.classList.toggle("topo-stage-scaled", nodes.length > 5);
+    const pts = nodePositions(nodes);
+    const latest = (data.events || []).length ? data.events[data.events.length - 1] : null;
+    lastSender = rememberSender(data.events || [], pts, lastSender);
+    const activeTarget = $("control-node") ? $("control-node").value : "";
+    const coordId = activeCoordinator();
+    const leaderId = activeLeaderId();
+    const allProps = proposals();
+    const activeProp = allProps.find(function (p) { return p.domain === selectedDomain; }) || allProps[0] || null;
+    const now = performance.now();
+    const inCommitFlash = now < committedFlashUntil;
+    const inShieldFlash = now < shieldFlashUntil ? shieldFlashNode : "";
+    const stageTag = anim && !anim.finished ? anim.stage + ":" + (anim.censorPhase || "") + ":" + anim.domain : "settled";
+    const health = data.quorum_health;
+
+    const trustMap = {};
+    nodes.forEach(function (n) { trustMap[n.node_id] = nodeTrustSummary(n.node_id); });
+
+    const nextKey = JSON.stringify([
+      nodes.map(function (n) {
+        return [n.node_id, n.online, n.state, n.quarantined, n.org, trustMap[n.node_id]];
+      }),
+      activeTarget, coordId, leaderId, stageTag, inCommitFlash, inShieldFlash,
+      activeProp ? [activeProp.domain, activeProp.committed, Array.from(activeProp.approvals).sort(),
+                    Array.from(activeProp.rejections).sort(),
+                    activeProp.equivocators ? Array.from(activeProp.equivocators).sort() : [],
+                    Array.from(activeProp.invalid).sort(),
+                    activeProp.framingRejected] : null,
+      lastSender, latest ? latest.id : "", health && health.quorum_reachable
+    ]);
+    if (nextKey === topologyKey) return;
+    topologyKey = nextKey;
+
+    svgLines.replaceChildren();
+    layer.replaceChildren();
+
+    for (let i = 0; i < pts.length; i++) {
+      for (let j = i + 1; j < pts.length; j++) {
+        const offlineLink = !pts[i].node.online || !pts[j].node.online;
+        svgLines.append(svgEl("line", {
+          x1: pts[i].sx.toFixed(1), y1: pts[i].sy.toFixed(1),
+          x2: pts[j].sx.toFixed(1), y2: pts[j].sy.toFixed(1),
+          class: "mesh-line" + (offlineLink ? " offline" : "")
+        }));
+      }
+    }
+
+    const activeVotingView = Boolean((anim && !anim.finished) || (activeProp && !activeProp.committed));
+
+    pts.forEach(function (pt) {
+      const node = pt.node;
+      const trust = trustMap[node.node_id];
+      const isFault = node.online && (node.quarantined || String(node.state).startsWith("BYZANTINE"));
+      const isSelected = node.node_id === activeTarget;
+      const isLeader = node.online && (node.state === "LEADER" || node.node_id === leaderId);
+      const isCompact = pts.length > 5;
+      const slotClass = !isCompact ? " topo-n5-" + pt.idx : " topo-compact";
+
+      let cardClasses = "card shadow-sm topo-node-card" + slotClass;
+      if (isSelected) cardClasses += " topo-selected";
+      else if (inCommitFlash && node.online && !isFault && (!activeProp || activeProp.committed)) cardClasses += " topo-committed";
+      else if (isFault) cardClasses += " topo-fault";
+      if (!node.online) cardClasses += " topo-offline";
+      if (inShieldFlash === node.node_id) cardClasses += " topo-shield-flash";
+
+      const card = el("div", cardClasses);
+      card.setAttribute("role", "button");
+      card.setAttribute("tabindex", "0");
+      card.setAttribute("aria-label", "Select " + node.node_id + " as active Target Node");
+      if (isCompact) {
+        card.style.left = pt.x.toFixed(2) + "%";
+        card.style.top = pt.y.toFixed(2) + "%";
+      }
+      card.addEventListener("click", function () { selectTrafficNode(node.node_id); });
+      card.addEventListener("keydown", function (evt) {
+        if (evt.key === "Enter" || evt.key === " ") {
+          evt.preventDefault();
+          selectTrafficNode(node.node_id);
+        }
+      });
+
+      const body = el("div", "card-body p-2");
+      const topRow = el("div", "d-flex justify-content-between align-items-center gap-1");
+      topRow.append(
+        el("span", "fw-bold topo-meta log-mono text-nowrap", node.node_id),
+        el("span", "badge px-1 " + (isLeader ? "text-bg-primary" : "text-bg-light text-dark border"),
+          !node.online ? "OFFLINE" : isLeader ? "LEADER ★" : "FOLLOWER")
+      );
+
+      const domRow = el("div", "topo-meta text-muted text-truncate mt-1", node.org || node.node_id + ".social");
+
+      const modeName = !node.online ? "OFFLINE" :
+        String(node.state).startsWith("BYZANTINE_") ? String(node.state).slice(10) : "NONE";
+      const modeClass = modeName === "NONE" ? "text-bg-light text-dark border" :
+        modeName === "OFFLINE" ? "text-bg-secondary" : "text-bg-warning text-dark";
+      const trustClass = trust.score < 30 ? "text-danger" : trust.score < 70 ? "text-warning-emphasis" : "text-success";
+
+      const metaRow = el("div", "d-flex justify-content-between align-items-center mt-1 gap-1");
+      metaRow.append(
+        el("span", "badge " + modeClass, modeName),
+        el("span", "topo-meta fw-semibold " + trustClass, trust.score + "/100")
+      );
+
+      const footRow = el("div", "d-flex justify-content-between align-items-center mt-1 gap-1");
+      const ballot = nodeBallotState(node, activeProp);
+      if (ballot && (activeVotingView || ballot.key !== "APPROVE" || (activeProp && activeProp.domain === (anim && anim.domain)))) {
+        const badgeText = inCommitFlash && ballot.key === "APPROVE" ? "✓ WAL+RAM" : ballot.text;
+        const bPill = el("span", "badge " + ballot.badge, badgeText);
+        bPill.title = ballot.sig;
+        footRow.append(bPill);
+      } else {
+        footRow.append(el("span", "badge text-bg-light text-muted border", "READY"));
+      }
+      const inspectBtn = el("button", "btn btn-link btn-sm p-0 topo-meta text-decoration-none", "Inspect");
+      inspectBtn.type = "button";
+      inspectBtn.addEventListener("click", function (evt) {
+        evt.stopPropagation();
+        openNode(node.node_id);
+      });
+      footRow.append(inspectBtn);
+
+      body.append(topRow, domRow, metaRow, footRow);
+      card.append(body);
+      layer.append(card);
+    });
+
+    const senderBox = $("external-sender");
+    if (senderBox) {
+      const showAnimSender = anim && !anim.finished;
+      const senderLabel = showAnimSender
+        ? (anim.sourceKind === "internal" ? anim.sourceId + " (INTERNAL)" : (anim.domain || "attacker.lab.example"))
+        : (lastSender ? lastSender.source.label : "Awaiting sender");
+      const isBad = showAnimSender ? (anim.kind !== "benign") : Boolean(lastSender && lastSender.attack);
+      senderBox.className = "card shadow-sm external-sender " +
+        (isBad ? "border-danger bg-danger-subtle" : lastSender ? "border-success bg-success-subtle" : "");
+      $("sender-type").className = "badge mb-1 " + (isBad ? "text-bg-danger" : lastSender ? "text-bg-success" : "text-bg-secondary");
+      $("sender-type").textContent = (showAnimSender && anim.sourceKind === "internal") ||
+        (lastSender && lastSender.source.kind === "node") ? "INTERNAL SENDER" : "EXTERNAL SENDER";
+      $("sender-domain").textContent = senderLabel;
+      $("sender-domain").title = senderLabel;
+      $("sender-status").textContent = showAnimSender
+        ? (anim.kind === "benign" ? "Sending benign post" : anim.kind === "blocked" ? "Testing RAM drop" : "Sending attack payload")
+        : (!lastSender ? "Waiting for traffic" : lastSender.attack ? "Last post flagged" : "Last post accepted");
+    }
+
+    if ($("mesh-caption")) {
+      $("mesh-caption").textContent = onlineNodes().length + " / " + nodes.length + " reachable";
+    }
+    if ($("message-label")) {
+      const label = $("message-label");
+      label.classList.toggle("text-danger", Boolean(latest && isAttack(latest)));
+      let cleanTarget = latest ? latest.target : "";
+      if (cleanTarget === "firewall") cleanTarget = "Local O(1) RAM Firewall";
+      if (cleanTarget === "consortium") cleanTarget = "P2P gRPC Consortium";
+      label.textContent = latest ? "Latest: " + latest.source + " → " + cleanTarget + " · " + latest.kind :
+        "No observed transmissions yet";
+      label.title = latest ? label.textContent + " · " + formatTime(latest.timestamp) : label.textContent;
+    }
   }
 
   function openNode(nodeId) {
     selectedNode = nodeId;
     renderNodeDetails();
-    if (!$("node-dialog").open) $("node-dialog").showModal();
+    if ($("node-dialog") && !$("node-dialog").open) {
+      $("node-dialog").showModal();
+    }
   }
+
   function renderNodeDetails() {
-    const node = data.nodes.find(function (n) { return n.node_id === selectedNode; });
-    if (!node) return;
+    const node = (data.nodes || []).find(function (n) { return n.node_id === selectedNode; });
+    if (!node || !$("node-details")) return;
     $("node-dialog-title").textContent = node.node_id;
     const details = $("node-details");
     details.replaceChildren();
@@ -287,50 +1028,56 @@
     const allDomains = Array.from(new Set(clusterDomains.concat(localDomains)));
     const missingCount = clusterDomains.filter(function (d) { return !localSet.has(d); }).length;
 
-    const tabs = el("div", "dialog-tabs");
-    const statusBtn = el("button", "dialog-tab" + (selectedNodeTab === "status" ? " active" : ""), "Status & Reputation");
-    const ramLabel = "Banned Domains · RAM (" + localDomains.length + "/" + allDomains.length + ")" + (missingCount > 0 ? " ⚠" : "");
-    const ramBtn = el("button", "dialog-tab" + (selectedNodeTab === "ram" ? " active" : "") + (missingCount > 0 ? " out-of-sync" : ""), ramLabel);
+    const tabs = el("ul", "nav nav-tabs mb-3");
+    const statusLi = el("li", "nav-item");
+    const statusBtn = el("button", "nav-link" + (selectedNodeTab === "status" ? " active" : ""), "Status & Reputation");
     statusBtn.type = "button";
-    ramBtn.type = "button";
     statusBtn.addEventListener("click", function () { selectedNodeTab = "status"; renderNodeDetails(); });
+    statusLi.append(statusBtn);
+
+    const ramLi = el("li", "nav-item");
+    const ramLabel = "Banned Domains · RAM (" + localDomains.length + "/" + allDomains.length + ")" + (missingCount > 0 ? " ⚠" : "");
+    const ramBtn = el("button", "nav-link" + (selectedNodeTab === "ram" ? " active" : "") + (missingCount > 0 ? " text-danger" : ""), ramLabel);
+    ramBtn.type = "button";
     ramBtn.addEventListener("click", function () { selectedNodeTab = "ram"; renderNodeDetails(); });
-    tabs.append(statusBtn, ramBtn);
+    ramLi.append(ramBtn);
+
+    tabs.append(statusLi, ramLi);
     details.append(tabs);
 
     if (selectedNodeTab === "ram") {
-      const syncBanner = el("div", "ram-sync-banner " + (missingCount === 0 && node.online ? "synced" : "behind"));
-      syncBanner.append(
-        el("strong", "", missingCount === 0 && node.online
-          ? "✓ " + node.node_id + "'s Local RAM Firewall: In Sync (Seq #" + (node.last_sequence || 0) + ")"
-          : !node.online
-          ? "⚠ " + node.node_id + " Offline · " + missingCount + " Ban(s) Missing in Local RAM"
-          : "↻ " + node.node_id + " Syncing " + missingCount + " Missed Ban(s) via gRPC CatchupSync…"),
-        el("p", "", node.node_id + " stores its persistent ledger in its own isolated SQLite database (/data/wal.db). Its RAM firewall is an in-memory hash set (< 1 µs lookup) that instantly drops incoming requests from banned domains at /inbox.")
-      );
+      const syncBanner = el("div", "alert " + (missingCount === 0 && node.online ? "alert-success" : "alert-warning"));
+      const bannerTitle = el("div", "fw-semibold mb-1", missingCount === 0 && node.online
+        ? "✓ " + node.node_id + "'s Local RAM Firewall: In Sync (Seq #" + (node.last_sequence || 0) + ")"
+        : !node.online
+        ? "⚠ " + node.node_id + " Offline · " + missingCount + " Ban(s) Missing in Local RAM"
+        : "↻ " + node.node_id + " Syncing " + missingCount + " Missed Ban(s) via gRPC CatchupSync…");
+      const bannerDesc = el("div", "small mb-0", node.node_id + " stores its persistent ledger in its own isolated SQLite database (/data/wal.db). Its RAM firewall is an in-memory hash set (< 1 µs lookup) that drops requests from banned domains at /inbox.");
+      syncBanner.append(bannerTitle, bannerDesc);
       details.append(syncBanner);
 
       if (!allDomains.length) {
-        details.append(el("p", "ledger-note", "No domains are currently blocked in this node's RAM Firewall or the consortium."));
+        details.append(el("p", "text-muted small mb-0", "No domains are currently blocked in this node's RAM Firewall or the consortium."));
         return;
       }
-      const scrollBox = el("div", "dialog-scroll-box");
-      const ramTable = el("table");
-      const ramHead = el("thead");
+
+      const scrollBox = el("div", "table-responsive log-scroll-box");
+      const ramTable = el("table", "table table-sm table-bordered align-middle mb-0");
+      const ramHead = el("thead", "table-light");
       const ramHeader = el("tr");
       ["Domain", "Local O(1) RAM State", "Verification Source"].forEach(function (t) { ramHeader.append(el("th", "", t)); });
       ramHead.append(ramHeader);
       const ramBody = el("tbody");
       allDomains.forEach(function (domain) {
         const inRam = localSet.has(domain);
-        const tr = el("tr", inRam ? "" : "attack-row");
+        const tr = el("tr", inRam ? "" : "table-danger");
         const stateCell = el("td");
-        stateCell.append(el("span", "ram-pill " + (inRam ? "active" : "missing"),
+        stateCell.append(el("span", "badge " + (inRam ? "text-bg-success" : "text-bg-danger"),
           inRam ? "✓ Active in RAM" : "× Missing (Offline)"));
         tr.append(
-          el("td", "mono", domain),
+          el("td", "log-mono", domain),
           stateCell,
-          el("td", "", inRam ? "SQLite WAL + Ed25519 QC" : "Awaiting CatchupSync")
+          el("td", "small", inRam ? "SQLite WAL + Ed25519 QC" : "Awaiting CatchupSync")
         );
         ramBody.append(tr);
       });
@@ -340,37 +1087,43 @@
       return;
     }
 
-    const grid = el("div", "detail-grid");
+    const grid = el("div", "row g-2 mb-3");
     const orgLabel = node.org ? node.org + " (" + node.address + ")" : node.address;
     [
       ["Connection", node.online ? "Active / reachable" : "Inactive / unreachable"],
       ["Reported role", !node.online ? (node.last_known_state || "Offline") :
         String(node.state).startsWith("BYZANTINE") ? node.state :
+        node.state === "LEADER" ? "LEADER ★" :
         node.node_id === activeCoordinator() ? "PROPOSER ★" : "PEER VALIDATOR"],
       ["Organisation / Endpoint", orgLabel],
       ["Architecture", "Shared-Nothing · Zero central DB"],
-      ["Local Database (Storage)", "Isolated SQLite WAL (/data/wal.db)"],
-      ["Perimeter Defense (Ingress)", "Local in-memory RAM cache (< 1 µs O(1))"],
-      ["Last committed sequence", node.last_sequence === undefined ? "Unknown" : "Seq #" + node.last_sequence],
+      ["Local Database", "Isolated SQLite WAL (/data/wal.db)"],
+      ["Perimeter Defense", "Local RAM cache (< 1 µs O(1))"],
+      ["Last sequence", node.last_sequence === undefined ? "Unknown" : "Seq #" + node.last_sequence],
       ["Epoch", node.epoch === undefined ? "Unknown" : "Epoch " + node.epoch]
     ].forEach(function (item) {
-      const field = el("div", "detail-item");
-      field.append(el("span", "", item[0]), el("strong", "", item[1]));
-      grid.append(field);
+      const col = el("div", "col-sm-6");
+      const field = el("div", "border rounded p-2 bg-light h-100");
+      field.append(el("div", "small text-muted", item[0]), el("div", "fw-semibold small", item[1]));
+      col.append(field);
+      grid.append(col);
     });
-    details.append(grid, el("h3", "ledger-heading", node.node_id + "'s peer reputation ledger"),
-      el("p", "ledger-note", "These are this node's observations, not a shared trust percentage." +
-        (node.online ? "" : " Showing last-known data.")));
+    details.append(
+      grid,
+      el("h3", "h6 mb-1", node.node_id + "'s peer reputation ledger"),
+      el("p", "small text-muted mb-2", "Observations recorded on this node." + (node.online ? "" : " Showing last-known data."))
+    );
     if ((node.quarantined_by || []).length) {
-      details.append(el("p", "ledger-note", "Quarantine reported by: " + node.quarantined_by.join(", ")));
+      details.append(el("div", "alert alert-danger py-2 px-3 small", "Quarantine reported by: " + node.quarantined_by.join(", ")));
     }
     if (!(node.reputations || []).length) {
-      details.append(el("p", "ledger-note", "No peer reputation records reported."));
+      details.append(el("p", "small text-muted mb-0", "No peer reputation records reported."));
       return;
     }
-    const repScrollBox = el("div", "dialog-scroll-box");
-    const table = el("table");
-    const head = el("thead");
+
+    const repScrollBox = el("div", "table-responsive log-scroll-box");
+    const table = el("table", "table table-sm table-bordered align-middle mb-0");
+    const head = el("thead", "table-light");
     const header = el("tr");
     ["Peer", "Score", "Voting eligibility"].forEach(function (text) { header.append(el("th", "", text)); });
     head.append(header);
@@ -378,385 +1131,369 @@
     node.reputations.forEach(function (rep) {
       const row = el("tr");
       const eligible = rep.trust_score >= 30 && Boolean(rep.is_active);
-      row.append(el("td", "", rep.peer_id), el("td", "", rep.trust_score + " / 100"),
-        el("td", "", eligible ? "Eligible" : "Quarantined"));
+      const statusCell = el("td");
+      statusCell.append(el("span", "badge " + (eligible ? "text-bg-success" : "text-bg-danger"), eligible ? "Eligible" : "Quarantined"));
+      row.append(el("td", "log-mono", rep.peer_id), el("td", "", rep.trust_score + " / 100"), statusCell);
       body.append(row);
     });
     table.append(head, body);
     repScrollBox.append(table);
     details.append(repScrollBox);
   }
-  function svgLine(x1, y1, x2, y2, className) {
-    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-    Object.entries({x1: x1, y1: y1, x2: x2, y2: y2, class: className}).forEach(function (entry) {
-      line.setAttribute(entry[0], String(entry[1]));
-    });
-    return line;
-  }
-  function transmission(svg, route, recent) {
-    const ns = "http://www.w3.org/2000/svg";
-    const defs = document.createElementNS(ns, "defs");
-    const marker = document.createElementNS(ns, "marker");
-    Object.entries({id: "message-arrow", viewBox: "0 0 10 10", refX: 5, refY: 5,
-      markerWidth: 8, markerHeight: 8, orient: "auto", markerUnits: "userSpaceOnUse"}).forEach(function (entry) {
-      marker.setAttribute(entry[0], String(entry[1]));
-    });
-    const arrow = document.createElementNS(ns, "path");
-    arrow.setAttribute("d", "M 0 0 L 10 5 L 0 10 Z");
-    arrow.setAttribute("fill", route.attack ? "var(--red)" : "var(--cyan)");
-    marker.append(arrow);
-    defs.append(marker);
-    svg.append(defs);
-    const path = document.createElementNS(ns, "path");
-    const from = route.source, to = route.target;
-    const x1 = from.x * 6, y1 = from.y * 3.1;
-    const x2 = to.x * 6, y2 = to.y * 3.1;
-    let cx = (x1 + x2) / 2, cy = (y1 + y2) / 2;
 
-    if (from.kind === "external" || from.kind === "endpoint") {
-      if (to.y < 25) {
-        cx = 210; cy = 16; // Arc over top-left above fednode-4
-      } else if (to.x > 80) {
-        cx = 345; cy = 8;  // Arc over top to fednode-1
-      } else if (to.y > 60 && to.x > 65) {
-        cx = 295; cy = 296; // Arc below fednode-3 to fednode-2
-      } else if (to.y > 60) {
-        cx = 212; cy = 232; // Smooth lower arc to fednode-3
-      } else {
-        cx = 204; cy = 132; // Direct arc to fednode-4
-      }
-    } else if (from.kind === "node" && to.kind === "node") {
-      let vx = cx - 390, vy = cy - 155;
-      let vlen = Math.hypot(vx, vy);
-      if (vlen < 25) {
-        vx = -(y2 - y1);
-        vy = x2 - x1;
-        vlen = Math.hypot(vx, vy) || 1;
-      }
-      cx += (vx / vlen) * 68;
-      cy += (vy / vlen) * 58;
+  function renderNodesTable() {
+    const tbody = $("network-nodes-rows");
+    if (!tbody) return;
+
+    const nodes = data.nodes || [];
+    const activeCount = onlineNodes().length;
+    if ($("nodes-tab-count")) {
+      $("nodes-tab-count").textContent = activeCount + "/" + nodes.length;
     }
 
-    const rStart = from.kind === "node" ? 28 : from.kind === "service" ? 56 : 6;
-    const rEnd = to.kind === "node" ? 28 : to.kind === "service" ? 56 : 6;
-    const d1 = Math.hypot(cx - x1, cy - y1) || 1;
-    const d2 = Math.hypot(x2 - cx, y2 - cy) || 1;
-    const sx = x1 + ((cx - x1) / d1) * rStart;
-    const sy = y1 + ((cy - y1) / d1) * rStart;
-    const ex = x2 - ((x2 - cx) / d2) * rEnd;
-    const ey = y2 - ((y2 - cy) / d2) * rEnd;
-
-    const c1x = (sx + cx) / 2, c1y = (sy + cy) / 2;
-    const c2x = (cx + ex) / 2, c2y = (cy + ey) / 2;
-    const qx = (c1x + c2x) / 2, qy = (c1y + c2y) / 2;
-
-    path.setAttribute("d", [
-      "M", sx.toFixed(1), sy.toFixed(1),
-      "Q", c1x.toFixed(1), c1y.toFixed(1), qx.toFixed(1), qy.toFixed(1),
-      "Q", c2x.toFixed(1), c2y.toFixed(1), ex.toFixed(1), ey.toFixed(1)
-    ].join(" "));
-    path.setAttribute("class", "message-path" + (route.attack ? " attack" : "") + (recent ? "" : " historical"));
-    path.setAttribute("marker-mid", "url(#message-arrow)");
-    svg.append(path);
-  }
-  function renderNetwork() {
-    let latest = data.events[data.events.length - 1];
-    if (liveVoteAnim && liveVoteAnim.step < liveVoteAnim.maxSteps) {
-      const voter = liveVoteAnim.order[liveVoteAnim.step];
-      latest = {
-        source: voter,
-        target: liveVoteAnim.step === 0 ? "consortium" : liveVoteAnim.proposer,
-        kind: liveVoteAnim.step === 0 ? "proposal" : "vote",
-        timestamp: Date.now()
-      };
-    }
-    const positions = data.nodes.map(function (node, index) {
-      const point = data.nodes.length <= 5 ? points[index] :
-        [65 + 23 * Math.cos(2 * Math.PI * index / data.nodes.length - Math.PI / 2),
-         43 + 31 * Math.sin(2 * Math.PI * index / data.nodes.length - Math.PI / 2)];
-      return {node: node, x: point[0], y: point[1]};
-    });
-    lastSender = rememberSender(data.events, positions, lastSender);
+    const activeTarget = $("control-node") ? $("control-node").value : "";
     const coordId = activeCoordinator();
-    const nextKey = JSON.stringify([
-      data.nodes.map(function (n) { return [n.node_id, n.online, n.state, n.quarantined, n.org]; }),
-      coordId, latest, lastSender, Boolean(latest && Date.now() - latest.timestamp < 8000)
-    ]);
-    if (nextKey === networkKey) return;
-    networkKey = nextKey;
-    const svg = $("network-lines");
-    const layer = $("network-nodes");
-    svg.replaceChildren();
-    layer.replaceChildren();
-    positions.forEach(function (point) {
-      const nx = point.x * 6, ny = point.y * 3.1;
-      const dx = 390 - nx, dy = 155 - ny, dist = Math.hypot(dx, dy) || 1;
-      svg.append(svgLine(
-        (nx + (dx / dist) * 28).toFixed(1),
-        (ny + (dy / dist) * 28).toFixed(1),
-        (390 - (dx / dist) * 56).toFixed(1),
-        (155 - (dy / dist) * 56).toFixed(1),
-        "mesh-line" + (point.node.online ? "" : " offline")
-      ));
-      const node = point.node;
-      const fault = node.online && (node.quarantined || String(node.state).startsWith("BYZANTINE"));
-      const button = el("button", "mesh-node" + (!node.online ? " offline" : fault ? " fault" : ""));
-      button.style.left = point.x + "%";
-      button.style.top = point.y + "%";
-      button.setAttribute("aria-label", "Inspect " + node.node_id + ", " + (node.online ? node.state : "inactive"));
-      const isCoord = node.online && !fault && node.node_id === coordId;
-      const circle = el("span", "node-circle", node.node_id.split("-").pop());
-      if (isCoord) circle.append(el("span", "node-star", "★"));
-      const role = !node.online ? "INACTIVE" : node.quarantined ? "QUARANTINE REPORTED" : fault ? "FAULT MODE" :
-        isCoord ? "PROPOSER ★" : node.org ? node.org.toUpperCase() : "PEER";
-      const specs = el("div", "node-specs");
-      specs.append(
-        el("span", "node-spec-tag fw", "Memory"),
-        el("span", "node-spec-tag db", "Database")
-      );
-      button.append(circle, el("span", "node-name", node.node_id), el("span", "node-role", role), specs);
-      button.addEventListener("click", function () { openNode(node.node_id); });
-      layer.append(button);
+    const leaderId = activeLeaderId();
+    const trustMap = {};
+    nodes.forEach(function (n) {
+      trustMap[n.node_id] = nodeTrustSummary(n.node_id);
     });
-    $("mesh-caption").textContent = onlineNodes().length + " / " + data.nodes.length + " reachable";
-    const label = $("message-label");
-    label.classList.toggle("attack", Boolean(latest && isAttack(latest)));
-    let cleanSource = latest ? latest.source : "";
-    let cleanTarget = latest ? latest.target : "";
-    if (cleanTarget === "firewall") cleanTarget = "Local O(1) RAM Firewall";
-    if (cleanTarget === "consortium") cleanTarget = "P2P gRPC Consortium";
-    label.textContent = latest ? "Latest: " + cleanSource + " → " + cleanTarget + " · " + latest.kind :
-      "No observed transmissions yet";
-    label.title = latest ? label.textContent + " · " + time(latest.timestamp) : label.textContent;
-    const route = networkRoute(latest, positions);
-    const sender = $("external-sender");
-    const serviceEndpoint = $("service-endpoint");
-    sender.classList.toggle("attack", Boolean(lastSender && lastSender.attack));
-    $("sender-type").textContent = lastSender && lastSender.source.kind === "endpoint" ? "SENDER ENDPOINT" : "EXTERNAL SERVER";
-    $("sender-domain").textContent = lastSender ? lastSender.source.label : "Awaiting sender";
-    $("sender-domain").title = lastSender ? lastSender.source.label : "";
-    $("sender-status").textContent = !lastSender ? "Waiting for traffic" :
-      lastSender.attack ? "Last message flagged" : "Last message received";
-    sender.setAttribute("aria-label", lastSender ? "Last sender: " + lastSender.source.label : "External server: waiting for traffic");
-    
-    // Do not show central bubble for local RAM firewall or consortium broadcasts; keep P2P gRPC mesh visible
-    const isLocalService = route && (route.target.label === "firewall" || route.target.label === "consortium");
-    serviceEndpoint.hidden = !route || (route.source.kind !== "service" && route.target.kind !== "service") || isLocalService;
-    $("mesh-center").hidden = !serviceEndpoint.hidden;
-    if (route) {
-      const endpoint = route.target.kind === "service" ? route.target : route.source;
-      $("service-label").textContent = endpoint.label === "firewall" ? "LOCAL RAM" : endpoint.label;
-      $("service-type").textContent = route.target.kind === "service" ? "LOCAL DESTINATION" : "SOURCE";
-      transmission(svg, route, Date.now() - latest.timestamp < 8000);
+
+    const nextKey = JSON.stringify([
+      nodes.map(function (n) {
+        return [n.node_id, n.online, n.telemetry_available, n.state, n.last_known_state,
+                n.quarantined, n.org, n.epoch, n.last_sequence, trustMap[n.node_id]];
+      }),
+      activeTarget, coordId
+    ]);
+    if (nextKey === nodesKey) return;
+    nodesKey = nextKey;
+
+    tbody.replaceChildren();
+    nodes.forEach(function (node) {
+      const isSelected = node.node_id === activeTarget;
+      const tr = el("tr", "node-row" + (isSelected ? " table-primary" : !node.online ? " table-secondary text-muted" : node.quarantined ? " table-danger" : ""));
+      tr.addEventListener("click", function () { selectTrafficNode(node.node_id); });
+
+      const idTd = el("td", "fw-semibold font-monospace small");
+      idTd.textContent = node.node_id + (isSelected ? " ●" : "");
+
+      const domainTd = el("td", "small", node.org || "—");
+
+      const isFault = Boolean(node.online && String(node.state || "").startsWith("BYZANTINE_"));
+      const roleTd = el("td");
+      if (!node.online) {
+        roleTd.append(el("span", "badge text-bg-secondary", node.last_known_state === "LEADER" ? "Leader (last)" : "Follower"));
+      } else if (node.state === "LEADER" || node.node_id === leaderId) {
+        roleTd.append(el("span", "badge text-bg-primary", "LEADER ★"));
+      } else if (!isFault && !node.quarantined && node.node_id === coordId) {
+        roleTd.append(el("span", "badge text-bg-info text-dark", "FOLLOWER · Proposer ★"));
+      } else {
+        roleTd.append(el("span", "badge text-bg-light text-dark border", "FOLLOWER"));
+      }
+
+      const epochTd = el("td", "small",
+        (node.epoch !== undefined ? "Epoch " + node.epoch : "—") +
+        (node.last_sequence !== undefined ? " (Seq #" + node.last_sequence + ")" : ""));
+
+      const modeTd = el("td");
+      const modeName = !node.online ? "—" :
+        !node.telemetry_available ? "UNKNOWN" :
+        isFault ? String(node.state).slice(10) : "NONE";
+      if (isFault) {
+        modeTd.append(el("span", "badge text-bg-warning text-dark", modeName));
+      } else if (modeName === "NONE") {
+        modeTd.append(el("span", "badge text-bg-light text-dark border", "NONE"));
+      } else {
+        modeTd.append(el("span", "small text-muted", modeName));
+      }
+
+      const trust = trustMap[node.node_id];
+      const trustClass = trust.score < 30 ? "text-danger" : trust.score < 70 ? "text-warning-emphasis" : "text-success";
+      const trustTd = el("td", "fw-semibold small " + trustClass, trust.score + " / 100");
+
+      const statusTd = el("td");
+      if (!node.online) {
+        statusTd.append(el("span", "badge text-bg-secondary", "OFFLINE"));
+      } else if (!node.telemetry_available) {
+        statusTd.append(el("span", "badge text-bg-warning text-dark", "NO TELEMETRY"));
+      } else if (node.quarantined || !trust.eligible) {
+        statusTd.append(el("span", "badge text-bg-danger", "QUARANTINED (< 30)"));
+      } else if (isFault) {
+        statusTd.append(el("span", "badge text-bg-warning text-dark", "FAULT MODE"));
+      } else {
+        statusTd.append(el("span", "badge text-bg-success", "ONLINE"));
+      }
+
+      const inspectTd = el("td");
+      const inspectBtn = el("button", "btn btn-outline-secondary btn-sm py-0 px-2", "Inspect");
+      inspectBtn.type = "button";
+      inspectBtn.addEventListener("click", function (evt) {
+        evt.stopPropagation();
+        openNode(node.node_id);
+      });
+      inspectTd.append(inspectBtn);
+
+      tr.append(idTd, domainTd, roleTd, epochTd, modeTd, trustTd, statusTd, inspectTd);
+      tbody.append(tr);
+    });
+
+    if (!nodes.length) {
+      const emptyRow = el("tr");
+      const emptyCell = el("td", "text-center text-muted py-3", "No nodes configured.");
+      emptyCell.colSpan = 8;
+      emptyRow.append(emptyCell);
+      tbody.append(emptyRow);
     }
   }
-  function updateOptions(select, options) {
-    if (!select || !select.options) return;
-    const existing = Array.from(select.options).map(function (option) { return [option.text, option.value]; });
-    if (JSON.stringify(existing) !== JSON.stringify(options)) {
-      select.replaceChildren();
-      options.forEach(function (option) { select.append(new Option(option[0], option[1])); });
-    }
+
+  function renderPhaseStepperInto(container, activeStage, isFailed, isCommitted, bft, customLabels) {
+    if (!container) return;
+    container.replaceChildren();
+    const steps = [
+      [1, (customLabels && customLabels[1]) || "1. Ingress & Classify"],
+      [2, (customLabels && customLabels[2]) || "2. Leader Proposal"],
+      [3, (customLabels && customLabels[3]) || ("3. BFT Ballot Audit (Q=" + bft.q + "/" + bft.n + ")")],
+      [4, (customLabels && customLabels[4]) || "4. Quorum Commit"]
+    ];
+    steps.forEach(function (step) {
+      const num = step[0];
+      let cls = "border rounded py-1 px-2 text-center small fw-semibold bg-light text-muted";
+      if (isFailed && num === (customLabels && customLabels.failStep ? customLabels.failStep : 3)) {
+        cls = "border border-danger rounded py-1 px-2 text-center small fw-semibold bg-danger-subtle text-danger-emphasis";
+      } else if (isCommitted && num <= 4) {
+        cls = "border border-success rounded py-1 px-2 text-center small fw-semibold bg-success-subtle text-success-emphasis";
+      } else if (activeStage === num) {
+        cls = "border border-primary rounded py-1 px-2 text-center small fw-semibold bg-primary text-white";
+      } else if (activeStage > num) {
+        cls = "border border-success rounded py-1 px-2 text-center small fw-semibold bg-success-subtle text-success-emphasis";
+      }
+      const col = el("div", "col-6 col-md-3");
+      col.append(el("div", cls, step[1]));
+      container.append(col);
+    });
   }
+
   function renderIncident() {
     const all = proposals();
     if (!initialLoadDone) {
-      all.forEach(function (p) { seenDomains.add(p.domain); });
+      all.forEach(function (p) {
+        seenDomains.add(p.domain);
+        if (p.committed) seenCommitted.add(p.domain);
+      });
       initialLoadDone = true;
-    } else if (all.length && !seenDomains.has(all[0].domain)) {
-      seenDomains.add(all[0].domain);
-      selectedDomain = all[0].domain;
-      startLiveVoteAnimation(all[0]);
+    } else {
+      const newestUnseen = all.find(function (p) { return !seenDomains.has(p.domain); });
+      if (newestUnseen) {
+        all.forEach(function (p) { seenDomains.add(p.domain); });
+        selectedDomain = newestUnseen.domain;
+        userPinnedDomain = "";
+        if (newestUnseen.domain === lastStartedRoundDomain) {
+          lastStartedRoundDomain = "";
+          if (anim && !anim.finished && anim.domain === newestUnseen.domain) {
+            anim.proposal = newestUnseen;
+            if (newestUnseen.framingRejected) anim.isFalseFlag = true;
+          }
+        } else if (!anim || anim.finished || anim.domain !== newestUnseen.domain) {
+          startAnimationRound({
+            domain: newestUnseen.domain,
+            sourceKind: "external",
+            targetId: newestUnseen.proposer || activeLeaderId(),
+            kind: "consensus",
+            isFalseFlag: newestUnseen.framingRejected,
+            proposal: newestUnseen
+          });
+        } else {
+          anim.proposal = newestUnseen;
+          if (newestUnseen.framingRejected) anim.isFalseFlag = true;
+        }
+      } else {
+        const newlyCommitted = all.find(function (p) { return p.committed && !seenCommitted.has(p.domain); });
+        if (newlyCommitted) {
+          seenCommitted.add(newlyCommitted.domain);
+          selectedDomain = newlyCommitted.domain;
+          if (!anim || anim.finished || anim.domain !== newlyCommitted.domain) {
+            startAnimationRound({
+              domain: newlyCommitted.domain,
+              sourceKind: "external",
+              targetId: newlyCommitted.proposer || activeLeaderId(),
+              kind: "consensus",
+              startStage: 3,
+              proposal: newlyCommitted
+            });
+          }
+        }
+      }
+      all.forEach(function (p) {
+        if (p.committed) seenCommitted.add(p.domain);
+      });
     }
 
-    if (!selectedDomain || !all.some(function (p) { return p.domain === selectedDomain; })) {
-      selectedDomain = all.length ? all[0].domain : "";
+    if (userPinnedDomain && all.some(function (p) { return p.domain === userPinnedDomain; })) {
+      selectedDomain = userPinnedDomain;
+    } else if (!selectedDomain || !all.some(function (p) { return p.domain === selectedDomain; })) {
+      const activePending = all.find(function (p) { return !p.committed && !p.framingRejected; });
+      selectedDomain = activePending ? activePending.domain : (all.length ? all[0].domain : "");
     }
     const proposal = all.find(function (p) { return p.domain === selectedDomain; }) || all[0];
-
-    const isAnimating = Boolean(liveVoteAnim && proposal && liveVoteAnim.domain === proposal.domain && liveVoteAnim.step < liveVoteAnim.maxSteps);
-    const animStep = isAnimating ? liveVoteAnim.step : -1;
-
     const health = data.quorum_health || null;
     const quorumBlocked = Boolean(health && health.quorum_reachable === false);
+    const isAnimActive = Boolean(anim && !anim.finished && (anim.kind === "consensus" || anim.kind === "censor"));
+    const activeAnimStage = isAnimActive ? anim.stage : 0;
+    const censorPhaseTag = anim && !anim.finished ? (anim.censorPhase || "") : "";
+    const curEpoch = onlineNodes().reduce(function (m, n) { return Math.max(m, n.epoch || 1); }, 1);
+
     const nextKey = JSON.stringify([
-      proposal ? [proposal.domain, proposal.committed, Array.from(proposal.approvals).sort(),
-                  Array.from(proposal.rejections).sort(), Array.from(proposal.invalid).sort()] : null,
-      animStep,
-      data.nodes.map(function (n) { return [n.node_id, n.online, n.quarantined, n.state]; }),
-      health
+      proposal ? [proposal.domain, proposal.committed, proposal.framingRejected, proposal.epoch, proposal.sequence,
+                  Array.from(proposal.approvals).sort(),
+                  Array.from(proposal.rejections).sort(),
+                  proposal.equivocators ? Array.from(proposal.equivocators).sort() : [],
+                  Array.from(proposal.invalid).sort(),
+                  Array.from(proposal.quarantined).sort()] : null,
+      (data.nodes || []).map(function (n) { return [n.node_id, n.online, n.quarantined, n.state, n.epoch]; }),
+      health, activeAnimStage, censorPhaseTag, curEpoch, anim && anim.finished, anim && anim.domain
     ]);
     if (nextKey === incidentKey) return;
     incidentKey = nextKey;
 
-    const content = $("incident-content");
-    content.replaceChildren();
+    const stepper = $("phase-stepper");
+    const verdictBar = $("verdict-bar");
+    const verdictFooter = $("verdict-footer");
     const state = $("incident-state");
+    const panel = $("topology-panel");
+    const phaseBadge = $("topology-phase-badge");
+    if (!stepper || !verdictBar || !state || !panel) return;
+
+    verdictBar.replaceChildren();
+    const bft = bftParams();
+    const isCensorAnim = Boolean(anim && !anim.finished && anim.kind === "censor" && (!proposal || anim.domain === proposal.domain));
+    const censorStepperLabels = isCensorAnim ? {
+      2: (anim.censorPhase === "escalate" || anim.censorPhase === "blocked_at_leader") ? "2. Censored (3s Watch)" : "2. Leader Impeached",
+      3: anim.censorPhase === "impeach" ? ("3. Impeach → Epoch " + (anim.newEpoch || curEpoch)) :
+         anim.censorPhase === "repropose" ? ("3. Epoch " + (anim.newEpoch || curEpoch) + " Proposal") : "3. BFT Ballot Audit",
+      failStep: (anim.censorPhase === "blocked_at_leader") ? 2 : 0
+    } : null;
 
     if (!proposal) {
-      $("incident-panel").classList.remove("has-threat");
-      const latestThreat = data.events.slice().reverse().find(function (e) { return e.kind === "threat"; });
-      state.className = "pill " + (latestThreat ? "danger" : "neutral");
-      state.textContent = latestThreat ? "THREAT DETECTED" : "FLEET IDLE";
-      content.append(empty(latestThreat ? "!" : "◇", latestThreat ? latestThreat.domain || latestThreat.source : "Consensus Engine Idle",
-        latestThreat ? latestThreat.message + " Voting proposal will start shortly." :
-        "Trigger a phishing or malware attack on the left to watch live 3-phase Byzantine consensus voting across all " + bftParams().n + " nodes."));
+      panel.classList.remove("border-danger");
+      if (verdictFooter) verdictFooter.className = "card-footer d-flex flex-wrap justify-content-between align-items-center gap-2 py-2 small";
+      const latestThreat = (data.events || []).slice().reverse().find(function (e) { return e.kind === "threat"; });
+      if (isCensorAnim) {
+        state.className = anim.censorPhase === "blocked_at_leader" ? "badge text-bg-danger" : "badge text-bg-primary";
+        state.textContent = anim.stage === 1 ? "STAGE 1 · INGRESS" :
+          anim.censorPhase === "impeach" ? "STAGE 3 · IMPEACHMENT (-30)" :
+          "STAGE 2 · LEADER CENSORED (3s)";
+      } else {
+        state.className = "badge " + (latestThreat ? "text-bg-danger" : "text-bg-secondary");
+        state.textContent = latestThreat ? "THREAT DETECTED" : "FLEET IDLE";
+      }
+      if (phaseBadge) {
+        phaseBadge.className = state.className + " d-none";
+        phaseBadge.textContent = state.textContent;
+      }
+      renderPhaseStepperInto(stepper, anim && !anim.finished ? anim.stage : 0, isCensorAnim && anim.censorPhase === "blocked_at_leader", false, bft, censorStepperLabels);
+      verdictBar.append(el("span", "text-muted",
+        isCensorAnim ? ((anim.domain || "threat") + " — Censored by Leader; waiting 3s follower impeachment…")
+          : latestThreat ? (latestThreat.domain || latestThreat.source) + " — " + latestThreat.message
+          : "Trigger an attack on the left to watch 4-phase BFT consensus live."));
       return;
     }
 
-    const revealedSet = isAnimating
-      ? new Set(liveVoteAnim.order.slice(0, liveVoteAnim.step + 1))
-      : new Set((data.nodes || []).map(function (n) { return n.node_id; }));
-    const activeVoter = isAnimating ? liveVoteAnim.order[liveVoteAnim.step] : null;
-
-    const bft = bftParams();
-    const visibleApprovals = Array.from(proposal.approvals).filter(function (id) { return revealedSet.has(id); }).length;
+    const visibleApprovals = proposal.approvals.size;
     const quorumNeeded = bft.q;
-    const isFinalCommitted = !isAnimating && (proposal.committed || visibleApprovals >= quorumNeeded);
+    const isFramingRejected = Boolean(proposal.framingRejected);
+    const isFinalCommitted = !isFramingRejected && Boolean(proposal.committed || visibleApprovals >= quorumNeeded);
+    const unreachable = !isFramingRejected && !isFinalCommitted && quorumBlocked;
+    const isAnimPlaying = Boolean(anim && !anim.finished && anim.domain === proposal.domain);
+    const stepperStage = isAnimPlaying ? anim.stage : (isFinalCommitted ? 4 : 3);
+    const stepperFailed = isCensorAnim
+      ? (anim.censorPhase === "blocked_at_leader")
+      : ((!isAnimPlaying || anim.stage >= 3) && (unreachable || isFramingRejected || (!isFinalCommitted && !isAnimPlaying)));
 
-    $("incident-panel").classList.toggle("has-threat", isAnimating || !isFinalCommitted);
-    const unreachable = !isAnimating && !isFinalCommitted && quorumBlocked;
+    panel.classList.toggle("border-danger", !isFinalCommitted || (isCensorAnim && anim.censorPhase === "blocked_at_leader"));
 
-    if (unreachable) {
-      state.className = "pill danger";
+    if (isCensorAnim && activeAnimStage < 4) {
+      if (anim.censorPhase === "blocked_at_leader") {
+        state.className = "badge text-bg-danger";
+        state.textContent = "STAGE 2 · CENSORED BY LEADER";
+      } else if (anim.censorPhase === "impeach") {
+        state.className = "badge text-bg-warning text-dark";
+        state.textContent = "STAGE 3 · IMPEACHMENT (-30 TRUST)";
+      } else if (anim.censorPhase === "repropose") {
+        state.className = "badge text-bg-primary";
+        state.textContent = "EPOCH " + (anim.newEpoch || curEpoch) + " · NEW LEADER PROPOSE";
+      } else {
+        state.className = "badge text-bg-primary";
+        state.textContent = activeAnimStage === 1 ? "STAGE 1 · INGRESS" : "STAGE 3 · BALLOT AUDIT";
+      }
+    } else if (isAnimPlaying && activeAnimStage < 4) {
+      state.className = "badge text-bg-primary";
+      state.textContent = activeAnimStage === 1 ? "STAGE 1 · INGRESS" :
+        activeAnimStage === 2 ? "STAGE 2 · PROPOSE" : "STAGE 3 · BALLOT AUDIT";
+    } else if (isFramingRejected) {
+      state.className = "badge text-bg-danger";
+      state.textContent = "FRAMING REJECTED (-25)";
+    } else if (unreachable) {
+      state.className = "badge text-bg-danger";
       state.textContent = "QUORUM UNREACHABLE (" + health.eligible_voters + "/" + health.quorum + " eligible)";
-    } else if (isAnimating && liveVoteAnim.step === 0) {
-      state.className = "pill danger";
-      state.textContent = "PHASE 1 · PROPOSING BLOCK";
-    } else if (isAnimating) {
-      state.className = "pill danger";
-      state.textContent = "PHASE 2 · LIVE VOTING (" + visibleApprovals + "/" + quorumNeeded + ")";
     } else if (isFinalCommitted) {
-      state.className = "pill success";
+      state.className = "badge text-bg-success";
       state.textContent = "PHASE 3 · QUORUM REACHED & BANNED";
     } else {
-      state.className = "pill danger";
-      state.textContent = "QUORUM FAILED (" + visibleApprovals + "/" + quorumNeeded + ")";
+      state.className = "badge text-bg-warning text-dark";
+      state.textContent = "QUORUM PENDING (" + visibleApprovals + "/" + quorumNeeded + ")";
+    }
+    if (phaseBadge) {
+      phaseBadge.className = state.className + " d-none";
+      phaseBadge.textContent = state.textContent;
     }
 
-    const inner = el("div", "incident-content-inner");
-    inner.append(
-      el("span", "threat-eyebrow",
-        unreachable ? "CONSENSUS CANNOT PROGRESS" :
-        isAnimating ? "LIVE BYZANTINE VOTING ROUND IN PROGRESS" :
-        isFinalCommitted ? "CONSORTIUM DEFEDERATION (COMMITTED)" : "CONSENSUS THRESHOLD NOT REACHED"),
-      el("h3", "threat-domain", proposal.domain)
-    );
+    renderPhaseStepperInto(stepper, stepperStage, stepperFailed, isFinalCommitted && !isAnimPlaying, bft, censorStepperLabels);
 
-    const threatEvent = data.events.slice().reverse().find(function (e) {
-      return e.domain === proposal.domain && e.kind === "threat";
-    });
-    const defaultReason = reasonNames[proposal.reason] ? (reasonNames[proposal.reason] + " detected") : "Malicious activity flagged for consensus";
-    const evidenceText = threatEvent ? threatEvent.message : defaultReason;
-    const evidenceBox = el("div", "evidence", evidenceText);
-    if (isFinalCommitted) {
-      evidenceBox.style.borderLeftColor = "#3dd68c";
-      evidenceBox.style.background = "#132b1e";
-      evidenceBox.style.color = "#a3e8c3";
+    if (verdictFooter) {
+      verdictFooter.className = "card-footer d-flex flex-wrap justify-content-between align-items-center gap-2 py-2 small " +
+        (isFramingRejected || unreachable ? "bg-danger-subtle text-danger-emphasis" :
+         isFinalCommitted ? "bg-success-subtle" : "");
     }
-    inner.append(evidenceBox);
 
     const latencyMs = proposal.latency_ms || 18;
     const scoreVal = Number(proposal.threat_score || 0.85).toFixed(2);
-    const specs = el("div", "bft-specs-grid");
-    [
-      ["⏱ BFT Commit Time", isAnimating ? "Voting live…" : isFinalCommitted ? latencyMs + " ms (< 300ms SLA)" : "Stalled (No Quorum)", isFinalCommitted ? "spec-ok" : ""],
-      ["🎯 Threat Score", scoreVal + " (≥ 0.60 Trigger)", "spec-danger"],
-      ["🔐 Cryptographic QC", "Ed25519 · Epoch " + (proposal.epoch || 1) + " · Seq #" + (proposal.sequence || 1), ""],
-      ["Enforcement", isFinalCommitted ? "SQLite WAL + Memory Firewall (< 1 µs)" : "Awaiting " + quorumNeeded + "/" + bft.n + " Quorum", isFinalCommitted ? "spec-ok" : ""]
-    ].forEach(function (item) {
-      const box = el("div", "bft-spec-item " + item[2]);
-      box.append(el("span", "bft-spec-label", item[0]), el("strong", "bft-spec-val", item[1]));
-      specs.append(box);
+    const threatEvent = (data.events || []).slice().reverse().find(function (e) {
+      return e.domain === proposal.domain && e.kind === "threat";
     });
-    inner.append(specs);
+    const defaultReason = reasonNames[proposal.reason] ? (reasonNames[proposal.reason] + " detected") : "Malicious activity";
+    const evidenceText = isFramingRejected
+      ? "Invalid Origin Sig (-25 trust)"
+      : unreachable
+      ? quorumUnreachableText(health)
+      : (threatEvent ? threatEvent.message : defaultReason);
 
-    const status = el("div", "decision-status");
-    status.append(
-      el("span", "",
-        isAnimating ? "Collecting signed ballots from peers…" :
-        isFinalCommitted ? "Quorum threshold achieved" : "Insufficient honest approvals"),
-      el("strong", "", visibleApprovals + " / " + quorumNeeded + " needed")
-    );
-    inner.append(status);
+    const domBadge = el("span", "fw-bold log-mono text-dark", proposal.domain);
+    const metaSpan = el("span", "text-muted",
+      "· " + (isFinalCommitted ? latencyMs + " ms" : isFramingRejected ? "Rejected" : "Stalled") +
+      " · Score " + scoreVal + " · Seq #" + (proposal.sequence || 1) +
+      " · Quorum " + visibleApprovals + "/" + quorumNeeded);
+    metaSpan.title = evidenceText;
 
-    const progress = el("div", "progress");
+    const pct = Math.min(100, Math.round((Math.min(visibleApprovals, quorumNeeded) / quorumNeeded) * 100));
+    const progress = el("div", "progress progress-thin");
     progress.setAttribute("role", "progressbar");
     progress.setAttribute("aria-label", "Recorded approvals");
     progress.setAttribute("aria-valuemin", "0");
     progress.setAttribute("aria-valuemax", String(quorumNeeded));
-    const currentProgress = Math.min(visibleApprovals, quorumNeeded);
-    progress.setAttribute("aria-valuenow", String(currentProgress));
-    const fill = el("div", "progress-fill");
-    fill.style.width = Math.min(100, (currentProgress / quorumNeeded) * 100) + "%";
+    progress.setAttribute("aria-valuenow", String(Math.min(visibleApprovals, quorumNeeded)));
+    const fill = el("div", "progress-bar " + (isFinalCommitted ? "bg-success" : "bg-danger"));
+    fill.style.width = pct + "%";
     progress.append(fill);
-    inner.append(progress);
 
-    const votes = el("div", "vote-grid");
-    (data.nodes || []).forEach(function (node) {
-      const id = node.node_id;
-      let decision = "WAITING";
-      let title = "Awaiting ballot in current consensus round";
+    const summaryPill = el("span", "verdict-evidence text-truncate text-muted", evidenceText);
+    summaryPill.title = evidenceText;
 
-      if (!revealedSet.has(id)) {
-        if (!node.online) {
-          decision = "OFFLINE";
-          title = "Node unreachable";
-        } else {
-          decision = "WAITING";
-          title = "Verifying origin signature and auditing threat score…";
-        }
-      } else if (proposal.approvals.has(id)) {
-        decision = "APPROVE";
-        title = "Signed and verified Ed25519 approval ballot";
-      } else if (proposal.rejections && proposal.rejections.has(id)) {
-        decision = "REJECT";
-        title = "Byzantine LIAR: cast dissenting REJECT ballot";
-      } else if (proposal.invalid && proposal.invalid.has(id)) {
-        decision = "INVALID";
-        title = "Byzantine FORGER: ballot rejected due to invalid signature";
-      } else if ((proposal.quarantined && proposal.quarantined.has(id)) || node.quarantined) {
-        decision = "QUARANTINED";
-        title = "Quarantined (score < 30): ballot excluded from quorum";
-      } else if (!node.online) {
-        decision = "OFFLINE";
-        title = "Node offline / killed";
-      } else if (String(node.state) === "BYZANTINE_SILENT") {
-        decision = "OFFLINE";
-        title = "Byzantine SILENT: dropped gRPC proposal";
-      }
-
-      const names = {
-        APPROVE: "Approved",
-        REJECT: "Rejected",
-        INVALID: "Forged",
-        QUARANTINED: "Excluded",
-        OFFLINE: "Dropped",
-        WAITING: "Waiting…"
-      };
-
-      const card = el("div", "vote-card " + decision.toLowerCase() + (activeVoter === id ? " voting-now" : ""));
-      card.append(
-        el("span", "vote-icon", decision === "APPROVE" ? "✓" : ["INVALID", "REJECT", "QUARANTINED", "OFFLINE"].includes(decision) ? "×" : "…"),
-        el("span", "vote-name", id),
-        el("span", "vote-state", names[decision] || decision)
-      );
-      card.title = title;
-      votes.append(card);
-    });
-    inner.append(votes);
-
-    inner.append(el("p", "observation",
-      isAnimating
-        ? "⚡ Step " + (liveVoteAnim.step + 1) + " of " + liveVoteAnim.maxSteps + ": " + activeVoter + " broadcasting signed cryptographic ballot…"
-        : unreachable
-        ? "⚠ " + quorumUnreachableText(health) + ". Pending proposals cannot commit until enough voters are back online and eligible."
-        : isFinalCommitted
-        ? "✓ Quorum Proof verified in " + latencyMs + " ms (N=" + bft.n + ", f=" + bft.f + ", Q=" + quorumNeeded + "). Defederation rule committed to SQLite WAL and O(1) RAM Firewall across active nodes."
-        : "⚠ Quorum threshold (Q=" + quorumNeeded + " of " + bft.n + ") was not met. Domain remains unblocked due to insufficient honest votes."));
+    verdictBar.append(domBadge, metaSpan, progress, summaryPill);
 
     if (isFinalCommitted) {
-      const fwTestBtn = el("button", "action-button firewall-test-btn", "🛡️ Test Perimeter Firewall Drop (Re-send from " + proposal.domain + ")");
+      const fwTestBtn = el("button", "btn btn-outline-danger btn-sm py-0 px-2 flex-shrink-0", "Test Firewall Drop");
+      fwTestBtn.type = "button";
       fwTestBtn.addEventListener("click", function () {
         runAction({
           action: "inject",
@@ -766,182 +1503,281 @@
           domain: proposal.domain
         });
       });
-      inner.append(fwTestBtn);
+      verdictBar.append(fwTestBtn);
     }
-
-    content.append(inner);
   }
+
   function renderEvents() {
     const rows = $("event-rows");
+    if (!rows) return;
     rows.replaceChildren();
-    const events = data.events.filter(function (event) {
-      return $("event-filter").value === "all" || securityKinds.includes(event.kind);
+    const filterValue = $("event-filter") ? $("event-filter").value : "all";
+    const events = (data.events || []).filter(function (event) {
+      return filterValue === "all" || securityKinds.includes(event.kind);
     }).slice(-40).reverse();
+
     events.forEach(function (event) {
-      const row = el("tr", isAttack(event) ? "attack-row" : "");
-      const route = el("td", "traffic-route");
-      route.append(el("span", "", event.source), el("span", "arrow", " → "), el("span", "", event.target));
-      const kind = el("td");
-      kind.append(el("span", "activity-tag", event.kind.toUpperCase()));
-      const detail = el("td", "traffic-detail", event.message);
+      const row = el("tr", isAttack(event) ? "table-danger" : "");
+      const route = el("td", "text-nowrap");
+      route.append(el("span", "", event.source), el("span", "text-muted", " → "), el("span", "", event.target));
+
+      const kindClass = isAttack(event) ? "text-bg-danger" :
+        event.kind === "commit" ? "text-bg-success" :
+        event.kind === "proposal" || event.kind === "vote" ? "text-bg-primary" : "text-bg-secondary";
+      const kindTd = el("td");
+      kindTd.append(el("span", "badge " + kindClass, String(event.kind || "").toUpperCase()));
+
+      const detail = el("td", "", event.message);
       detail.title = "Observed by " + event.observer;
-      row.append(el("td", "", time(event.timestamp)), route, kind, detail);
+      row.append(el("td", "text-nowrap", formatTime(event.timestamp)), route, kindTd, detail);
       rows.append(row);
     });
+
     if (!events.length) {
       const row = el("tr");
-      const cell = el("td", "table-empty", "No activity observed yet. Incoming posts and consensus messages will appear here.");
+      const cell = el("td", "text-center text-muted py-3", "No activity observed yet. Incoming posts and consensus messages will appear here.");
       cell.colSpan = 4;
       row.append(cell);
       rows.append(row);
     }
   }
-  let activeEnforcementTab = "bans";
+
   function renderBans() {
     const list = $("banned-list");
+    if (!list) return;
     list.replaceChildren();
     const query = $("ban-search") ? $("ban-search").value.trim().toLowerCase() : "";
-    const bans = data.bans.filter(function (ban) { return ban.domain.toLowerCase().includes(query); });
+    const bans = (data.bans || []).filter(function (ban) { return ban.domain.toLowerCase().includes(query); });
     const propMap = new Map(proposals().map(function (p) { return [p.domain, p]; }));
+
     if ($("banned-badge")) {
-      $("banned-badge").textContent = activeEnforcementTab === "bans" ? data.bans.length : data.nodes.length;
+      $("banned-badge").textContent = (data.bans || []).length;
     }
+
     bans.forEach(function (ban) {
-      const row = el("div", "ban-item");
-      const text = el("div");
-      const complete = ban.applied_on.length === data.nodes.length;
+      const row = el("tr", "node-row");
+      const complete = ban.applied_on.length === (data.nodes || []).length;
       const pInfo = propMap.get(ban.domain);
       const ms = (pInfo && pInfo.latency_ms) ? pInfo.latency_ms : 18;
-      const topRow = el("div", "ban-header-row");
-      topRow.append(
-        el("div", "ban-domain", ban.domain),
-        el("span", "ban-time-badge", "⏱ " + ms + " ms · Ed25519 QC")
-      );
-      text.append(topRow,
-        el("div", "ban-coverage" + (complete ? " complete" : ""),
-          "Enforced on " + ban.applied_on.length + " / " + data.nodes.length + " servers · O(1) RAM Firewall"),
-        el("div", "ban-nodes", ban.applied_on.join(" · ") || "No current confirmations"));
-      if (ban.last_known_on.length) text.append(el("div", "ban-nodes", "Last known: " + ban.last_known_on.join(" · ")));
-      row.append(el("span", "ban-icon", "⊘"), text);
+
+      const domainTd = el("td", "fw-semibold log-mono", ban.domain);
+      const coverageTd = el("td");
+      coverageTd.append(el("span", "badge " + (complete ? "text-bg-success" : "text-bg-warning text-dark"),
+        ban.applied_on.length + " / " + (data.nodes || []).length + " servers"));
+
+      const nodesText = (ban.applied_on.join(", ") || "None") +
+        (ban.last_known_on.length ? " (last known: " + ban.last_known_on.join(", ") + ")" : "");
+      const nodesTd = el("td", "small text-muted", nodesText);
+      const proofTd = el("td", "small log-mono text-nowrap", ms + " ms · Ed25519 QC");
+
+      row.append(domainTd, coverageTd, nodesTd, proofTd);
       row.addEventListener("click", function () {
+        userPinnedDomain = ban.domain;
         selectedDomain = ban.domain;
-        if ($("traffic-domain")) {
-          $("traffic-domain").value = ban.domain;
-        }
+        if ($("traffic-domain")) $("traffic-domain").value = ban.domain;
         incidentKey = "";
         renderIncident();
       });
       list.append(row);
     });
-    if (!bans.length) list.append(el("div", "ban-empty", query ? "No domains match your search." : "No reported domain blocks."));
 
-    // Render Peer Trust Scores list
-    const repsContainer = $("reps-list");
-    if (repsContainer) {
-      repsContainer.replaceChildren();
-      const table = el("table");
-      const head = el("thead");
-      const header = el("tr");
-      ["Platform Node", "Trust Score", "BFT Status"].forEach(function (text) { header.append(el("th", "", text)); });
-      head.append(header);
-      const tbody = el("tbody");
-      data.nodes.forEach(function (n) {
-        const row = el("tr");
-        let minScore = 100;
-        let isEligible = true;
-        data.nodes.forEach(function (observer) {
-          if (!observer.online) return;
-          const r = (observer.reputations || []).find(function (entry) {
-            return entry.peer_id === n.node_id;
-          });
-          if (r) {
-            if (r.trust_score < minScore) minScore = r.trust_score;
-            if (r.trust_score < 30 || !r.is_active) isEligible = false;
-          }
-        });
-        if (n.quarantined) isEligible = false;
-
-        const displayName = n.node_id + (n.org ? " (" + n.org + ")" : "");
-        const statusText = !n.online ? "Offline" : isEligible ? "Eligible (Active)" : "QUARANTINED (< 30)";
-        const statusClass = !n.online ? "neutral" : isEligible ? "success" : "danger";
-
-        const scoreLevel = minScore < 30 ? "bad" : minScore < 70 ? "warn" : "ok";
-        const scoreCell = el("td", "rep-score " + scoreLevel, minScore + " / 100");
-        const statusCell = el("td");
-        statusCell.append(el("span", "pill " + statusClass, statusText));
-
-        row.append(
-          el("td", "", displayName),
-          scoreCell,
-          statusCell
-        );
-        tbody.append(row);
-      });
-      table.append(head, tbody);
-      repsContainer.append(table);
+    if (!bans.length) {
+      const row = el("tr");
+      const cell = el("td", "text-center text-muted py-3", query ? "No domains match your search." : "No reported domain blocks.");
+      cell.colSpan = 4;
+      row.append(cell);
+      list.append(row);
     }
   }
+
+  function updateOptions(select, options) {
+    if (!select || !select.options) return;
+    const existing = Array.from(select.options).map(function (option) { return [option.text, option.value]; });
+    if (JSON.stringify(existing) !== JSON.stringify(options)) {
+      select.replaceChildren();
+      options.forEach(function (option) { select.append(new Option(option[0], option[1])); });
+    }
+  }
+
+  function renderControls() {
+    const nodes = data.nodes || [];
+    const options = nodes.map(function (node) {
+      const label = node.node_id + (node.org ? " (" + node.org + ")" : "") + (node.online ? "" : " · offline");
+      return [label, node.node_id];
+    });
+    const fallbackOpts = options.length ? options : [["No configured nodes", ""]];
+
+    const select = $("control-node");
+    if (select) {
+      const previous = select.value;
+      updateOptions(select, fallbackOpts);
+      if (options.some(function (o) { return o[1] === previous; })) select.value = previous;
+    }
+    const selected = select ? select.value : "";
+
+    const chaosSelect = $("chaos-node");
+    if (chaosSelect) {
+      const prevChaos = chaosSelect.value;
+      updateOptions(chaosSelect, fallbackOpts);
+      if (options.some(function (o) { return o[1] === prevChaos; })) {
+        chaosSelect.value = prevChaos;
+      } else if (options.some(function (o) { return o[1] === selected; })) {
+        chaosSelect.value = selected;
+      }
+    }
+    const chaosSelected = chaosSelect ? chaosSelect.value : selected;
+
+    const trafficSource = $("traffic-source");
+    if (trafficSource) {
+      const prevOrigin = trafficSource.value;
+      const originOptions = [["External Server (Internet)", "external"]];
+      nodes.forEach(function (n) {
+        if (n.node_id !== selected) {
+          originOptions.push(["Internal Node: " + n.node_id + " (sends to " + (selected || "target") + ")", n.node_id]);
+        }
+      });
+      updateOptions(trafficSource, originOptions);
+      if (originOptions.some(function (o) { return o[1] === prevOrigin; })) trafficSource.value = prevOrigin;
+    }
+
+    const node = nodes.find(function (item) { return item.node_id === selected; });
+    if (controlledNode !== selected && node) controlledNode = selected;
+
+    const chaosNodeObj = nodes.find(function (item) { return item.node_id === chaosSelected; });
+    if (controlledChaosNode !== chaosSelected && chaosNodeObj) {
+      controlledChaosNode = chaosSelected;
+      if ($("fault-mode")) {
+        $("fault-mode").value = String(chaosNodeObj.state).startsWith("BYZANTINE_")
+          ? chaosNodeObj.state.slice(10) : "NONE";
+      }
+    }
+
+    if ($("trust-peer")) $("trust-peer").value = chaosSelected || "fednode-0";
+    if ($("operator-target-badge")) $("operator-target-badge").textContent = "Target: " + (selected || "—");
+    if ($("traffic-target-badge")) $("traffic-target-badge").textContent = "Targeting: " + (selected || "—");
+    if ($("chaos-target-badge")) {
+      const isLeaderChaos = chaosNodeObj && (chaosNodeObj.state === "LEADER" || chaosSelected === activeLeaderId());
+      $("chaos-target-badge").className = "badge " + (isLeaderChaos ? "text-bg-danger" : "text-bg-warning text-dark");
+      $("chaos-target-badge").textContent = "Targeting: " + (chaosSelected || "—") + (isLeaderChaos ? " (LEADER!)" : "");
+    }
+    if ($("controlled-node-status")) {
+      $("controlled-node-status").textContent = node ? (node.online ? "Online" : "Offline") +
+        " · " + (node.quarantined ? "Quarantined (<30)" : node.state) : "";
+    }
+    if ($("chaos-node-status")) {
+      const chaosTrust = chaosSelected ? nodeTrustSummary(chaosSelected).score : 100;
+      $("chaos-node-status").textContent = chaosNodeObj ? (chaosNodeObj.online ? "Online" : "Offline") +
+        " · " + chaosNodeObj.state + " · Trust: " + chaosTrust + "/100" : "";
+    }
+    if ($("controls-state")) {
+      $("controls-state").textContent = controls.connected ? "Connected · Actions use real node identities" : controls.message || "Connecting…";
+    }
+    document.querySelectorAll(".control-action-btn").forEach(function (button) {
+      button.disabled = actionBusy || !controls.enabled || !controls.connected;
+    });
+    if ($("stop-node")) $("stop-node").disabled = actionBusy || !chaosNodeObj || !chaosNodeObj.online;
+    if ($("revive-node")) $("revive-node").disabled = actionBusy || !chaosNodeObj || chaosNodeObj.online;
+    if ($("apply-settings")) $("apply-settings").disabled = actionBusy || !controls.connected || !chaosNodeObj;
+    if ($("restore-peer")) $("restore-peer").disabled = actionBusy || !controls.connected || !chaosNodeObj;
+  }
+
   function render() {
+    const nodes = data.nodes || [];
     const active = onlineNodes().length;
     const allProposals = proposals();
     const committed = new Set(allProposals.filter(function (p) { return p.committed; }).map(function (p) { return p.domain; }));
-    const pending = new Set(allProposals.filter(function (p) { return !p.committed && !committed.has(p.domain); }).map(function (p) { return p.domain; }));
+    const pending = new Set(allProposals.filter(function (p) { return !p.committed && !committed.has(p.domain) && !p.framingRejected; }).map(function (p) { return p.domain; }));
     const bft = bftParams();
-    $("active-count").textContent = active;
-    $("inactive-count").textContent = data.nodes.length - active;
-    $("total-label").textContent = "/ " + data.nodes.length + " configured";
-    $("threat-count").textContent = pending.size;
-    $("ban-count").textContent = data.bans.length;
     const health = data.quorum_health;
-    const quorumUnreachable = Boolean(health && !health.quorum_reachable && pending.size > 0);
-    if ($("threat-label")) {
-      $("threat-label").textContent = quorumUnreachable ? "quorum unreachable" : "awaiting a decision";
+    const quorumBlocked = Boolean(health && health.quorum_reachable === false);
+    const quorumUnreachable = Boolean(quorumBlocked && pending.size > 0);
+    const coordId = activeCoordinator();
+    const maxEpoch = nodes.reduce(function (m, n) { return Math.max(m, n.epoch || 1); }, 1);
+
+    $("active-count").textContent = active;
+    $("inactive-count").textContent = nodes.length - active;
+    $("total-label").textContent = "/ " + nodes.length;
+    $("threat-count").textContent = pending.size;
+    $("ban-count").textContent = (data.bans || []).length;
+
+    const banner = $("quorum-banner");
+    const bannerTitle = $("quorum-banner-title");
+    const bannerDetail = $("quorum-banner-detail");
+    const bannerBadge = $("quorum-banner-badge");
+    if (banner && bannerBadge) {
+      if (!nodes.length || !active) {
+        banner.className = "alert alert-danger d-flex flex-wrap justify-content-between align-items-center gap-2 py-2 px-3 mb-2 shadow-sm small";
+        if (bannerTitle) bannerTitle.textContent = "Cluster Offline";
+        bannerBadge.className = "badge text-bg-danger";
+        bannerBadge.textContent = "CLUSTER OFFLINE (0/" + nodes.length + ")";
+      } else if (quorumBlocked) {
+        banner.className = "alert alert-danger d-flex flex-wrap justify-content-between align-items-center gap-2 py-2 px-3 mb-2 shadow-sm small";
+        if (bannerTitle) bannerTitle.textContent = "QUORUM UNREACHABLE";
+        if (bannerDetail) bannerDetail.textContent = quorumUnreachableText(health);
+        bannerBadge.className = "badge text-bg-danger";
+        bannerBadge.textContent = "QUORUM UNREACHABLE (" + health.eligible_voters + "/" + health.quorum + ")";
+      } else {
+        banner.className = "alert alert-success d-flex flex-wrap justify-content-between align-items-center gap-2 py-2 px-3 mb-2 shadow-sm small";
+        if (bannerTitle) bannerTitle.textContent = "Consortium Quorum Healthy";
+        bannerBadge.className = "badge text-bg-success";
+        bannerBadge.textContent = "QUORUM READY (" + (health ? health.eligible_voters : active) + "/" + bft.n + ")";
+      }
     }
+
+    if ($("threat-label")) $("threat-label").textContent = quorumUnreachable ? "quorum unreachable" : "awaiting";
     if ($("threat-subtext")) {
       $("threat-subtext").textContent = quorumUnreachable ? quorumUnreachableText(health) :
-        "Quorum rule: Q = " + bft.q + "/" + bft.n + " (N=" + bft.n + ", f=" + bft.f + ")";
-      const card = $("threat-subtext").closest(".metric");
-      if (card) card.classList.toggle("quorum-unreachable", quorumUnreachable);
+        "Rule: Q = " + bft.q + "/" + bft.n + " (N=" + bft.n + ", f=" + bft.f + ")";
     }
     if ($("bft-tolerance-hint")) {
       $("bft-tolerance-hint").textContent = "With N=" + bft.n + ", consortium tolerates f=" + bft.f + " rogue/offline node(s) and requires Q=" + bft.q + " votes.";
     }
-    const coordId = activeCoordinator();
-    const maxEpoch = data.nodes.reduce(function (m, n) { return Math.max(m, n.epoch || 1); }, 1);
+    const leaderId = activeLeaderId();
     if ($("active-subtext")) {
-      $("active-subtext").textContent = coordId
-        ? "Epoch " + maxEpoch + " · Active Proposer: " + coordId + " ★"
-        : "Epoch " + maxEpoch + " · Awaiting online proposer…";
+      $("active-subtext").textContent = active
+        ? "Epoch " + maxEpoch + " (Leader: " + leaderId + " ★)" +
+          (coordId && coordId !== leaderId ? " · Proposer: " + coordId : "")
+        : "Epoch " + maxEpoch + " (No leader online)";
     }
     if ($("ban-subtext")) {
       const committedList = allProposals.filter(function (p) { return p.committed; });
       if (committedList.length) {
         const avgMs = Math.round(committedList.reduce(function (s, p) { return s + (p.latency_ms || 18); }, 0) / committedList.length);
-        $("ban-subtext").textContent = "Avg BFT commit: " + avgMs + " ms (< 300ms SLA)";
+        $("ban-subtext").textContent = "(Avg: " + avgMs + " ms)";
       } else {
-        $("ban-subtext").textContent = "SQLite WAL + O(1) RAM (< 1 µs drop)";
+        $("ban-subtext").textContent = "(WAL + O(1) RAM)";
       }
     }
-    $("updated").textContent = "Updated " + time(data.updated_at);
-    $("connection").textContent = "";
-    $("connection").append(el("i"), document.createTextNode(active ? "Live observations" : "No nodes reachable"));
-    $("connection").classList.toggle("connected", active > 0);
+
+    $("updated").textContent = "Updated " + formatTime(data.updated_at);
+    const conn = $("connection");
+    conn.className = "badge text-bg-light text-dark";
+    conn.replaceChildren(
+      el("span", "status-dot " + (active ? "dot-green" : "dot-red") + " me-1"),
+      document.createTextNode(active ? "Live observations" : "No nodes reachable")
+    );
+
     const notice = $("live-notice");
-    const oldNodes = data.nodes.filter(function (n) { return n.online && !n.telemetry_available; }).length;
+    const oldNodes = nodes.filter(function (n) { return n.online && !n.telemetry_available; }).length;
     notice.hidden = active > 0 && !oldNodes;
-    notice.textContent = !active ? "No servers are reachable. Start the cluster with start-cluster.bat." :
-      oldNodes + " server(s) are online without telemetry. Rebuild or restart updated nodes to see votes and activity.";
-    renderNetwork();
+    notice.textContent = !active
+      ? "No servers are reachable. Start the cluster with start-cluster.bat."
+      : oldNodes + " server(s) are online without telemetry. Rebuild or restart updated nodes to see votes and activity.";
+
+    advanceCensorImpeachIfReady();
+    renderTopology();
+    renderNodesTable();
     renderIncident();
     renderEvents();
     renderBans();
     renderControls();
-    if ($("node-dialog").open) renderNodeDetails();
+    if ($("node-dialog") && $("node-dialog").open) renderNodeDetails();
   }
+
   async function refresh() {
     if (fetching) return;
     fetching = true;
-    $("refresh").disabled = true;
+    if ($("refresh")) $("refresh").disabled = true;
     try {
       const responses = await Promise.all([
         fetch("/api/cluster", {cache: "no-store", signal: AbortSignal.timeout(5000)}),
@@ -950,18 +1786,19 @@
       const response = responses[0];
       if (!response.ok) throw new Error("Dashboard API unavailable");
       const next = await response.json();
-      if (responses[1].ok) controls = await responses[1].json();
-      else controls = {enabled: false, connected: false, runtime: {}, message: "Restart the updated dashboard to enable live controls."};
+      controls = responses[1].ok ? await responses[1].json()
+        : {enabled: false, connected: false, runtime: {}, message: "Restart the updated dashboard to enable live controls."};
       data = next;
-    } catch (error) {
-      $("connection").textContent = "Connection lost";
-      $("connection").classList.remove("connected");
+    } catch (_) {
+      const conn = $("connection");
+      conn.className = "badge text-bg-light text-dark";
+      conn.replaceChildren(el("span", "status-dot dot-red me-1"), document.createTextNode("Connection lost"));
       $("live-notice").hidden = false;
       $("live-notice").textContent = "Dashboard connection lost. Displayed observations are stale; retrying automatically.";
       return;
     } finally {
       fetching = false;
-      $("refresh").disabled = false;
+      if ($("refresh")) $("refresh").disabled = false;
     }
 
     try {
@@ -970,129 +1807,303 @@
       console.error("Dashboard render error:", renderError);
     }
   }
-  function renderControls() {
-    const options = data.nodes.map(function (node) {
-      const label = node.node_id + (node.org ? " (" + node.org + ")" : "") + (node.online ? "" : " · offline");
-      return [label, node.node_id];
-    });
-    const select = $("control-node");
-    if (select) {
-      const previous = select.value;
-      updateOptions(select, options.length ? options : [["No configured nodes", ""]]);
-      if (options.some(function (o) { return o[1] === previous; })) select.value = previous;
-    }
-    const selected = select ? select.value : "";
-    const trafficSource = $("traffic-source");
-    if (trafficSource) {
-      const prevOrigin = trafficSource.value;
-      const originOptions = [["External Server (Internet)", "external"]];
-      data.nodes.forEach(function (n) {
-        if (n.node_id !== selected) {
-          originOptions.push(["Internal Node: " + n.node_id + " (sends to " + (selected || "target") + ")", n.node_id]);
-        }
-      });
-      updateOptions(trafficSource, originOptions);
-      if (originOptions.some(function (o) { return o[1] === prevOrigin; })) {
-        trafficSource.value = prevOrigin;
-      }
-    }
-    if ($("trust-peer")) $("trust-peer").value = selected || "fednode-0";
-    const node = data.nodes.find(function (item) { return item.node_id === selected; });
-    if (controlledNode !== selected && node) {
-      controlledNode = selected;
-      if ($("fault-mode")) $("fault-mode").value = String(node.state).startsWith("BYZANTINE_") ? node.state.slice(10) : "NONE";
-    }
-    if ($("controlled-node-status")) {
-      $("controlled-node-status").textContent = node ? (node.online ? "Online" : "Offline") +
-        " · " + (node.quarantined ? "Quarantined (score < 30)" : node.state) : "";
-    }
-    if ($("controls-state")) {
-      $("controls-state").textContent = controls.connected ? "Connected · Actions use real node identities" : controls.message || "Connecting…";
-    }
-    const buttons = document.querySelectorAll(".control-body button");
-    buttons.forEach(function (button) {
-      button.disabled = actionBusy || !controls.enabled || !controls.connected;
-    });
-    if ($("stop-node")) $("stop-node").disabled = actionBusy || !node || !node.online;
-    if ($("revive-node")) $("revive-node").disabled = actionBusy || !node || node.online;
-    if ($("apply-settings")) $("apply-settings").disabled = actionBusy || !controls.connected || !node;
-  }
+
   async function runAction(body) {
-    if (actionBusy) return;
+    if (actionBusy) return false;
     actionBusy = true;
+    let ok = false;
     const result = $("action-result");
-    result.className = "action-result busy";
+    result.className = "alert alert-info py-2 px-2 small mb-0";
     result.textContent = "Working: " + body.action + "…";
     renderControls();
     try {
       const response = await fetch("/api/actions", {
-        method: "POST", headers: {"Content-Type": "application/json", "X-CSRF-Token": controls.csrf},
-        body: JSON.stringify(body), signal: AbortSignal.timeout(120000)
+        method: "POST",
+        headers: {"Content-Type": "application/json", "X-CSRF-Token": controls.csrf},
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(120000)
       });
       const value = await response.json();
       if (!response.ok) throw new Error(value.error || "Action failed");
-      result.className = "action-result " + (value.accepted === false ? "failure-result" : "success-result");
+      result.className = "alert py-2 px-2 small mb-0 " + (value.accepted === false ? "alert-danger" : "alert-success");
       result.textContent = value.message || "Action completed";
-      if (value.inbox_results) result.textContent += " · " + value.inbox_results.map(function (r) {
-        return "HTTP " + r.http_status + " / " + (r.status || "unknown");
-      }).filter(function (item, index, all) { return all.indexOf(item) === index; }).join(", ");
+      if (value.inbox_results) {
+        result.textContent += " · " + value.inbox_results.map(function (r) {
+          return "HTTP " + r.http_status + " / " + (r.status || "unknown");
+        }).filter(function (item, index, all) { return all.indexOf(item) === index; }).join(", ");
+      }
       if (value.outcomes && body.action === "trust") result.textContent += " in " + value.outcomes.length + " ledger(s)";
       if (body.action === "inject" && value.domain) {
+        userPinnedDomain = "";
         seenDomains.delete(value.domain);
         selectedDomain = value.domain;
+        const firstRes = (value.inbox_results && value.inbox_results[0]) || {};
+        const ingressStatus = String(firstRes.status || "");
+        const leaderIdNow = activeLeaderId();
+        const leaderObj = (data.nodes || []).find(function (n) { return n.node_id === leaderIdNow; });
+        const targetIdNow = body.node || leaderIdNow;
+        let animKind = ingressStatus === "ACCEPTED" ? "benign" :
+          ingressStatus === "BLOCKED" ? "blocked" : "consensus";
+        if (animKind === "consensus" && leaderObj && leaderObj.state === "BYZANTINE_CENSOR" && targetIdNow !== leaderIdNow) {
+          animKind = "censor";
+        }
+        lastStartedRoundDomain = (animKind === "consensus" || animKind === "censor") ? value.domain : "";
+        startAnimationRound({
+          domain: value.domain,
+          sourceKind: body.source || "external",
+          sourceId: body.source === "internal" ? body.source_node : "external",
+          targetId: targetIdNow,
+          kind: animKind,
+          isFalseFlag: body.scenario === "false_flag"
+        });
       }
-      if (body.action === "add_org" && $("org-domain")) {
-        $("org-domain").value = "";
+      if (body.action === "add_org" && $("org-domain")) $("org-domain").value = "";
+      if (body.action === "revive" || body.action === "reset_all") {
+        controlledChaosNode = "";
+        if (body.action === "reset_all") {
+          userPinnedDomain = "";
+          if ($("traffic-domain")) $("traffic-domain").value = "";
+          if ($("fault-mode")) $("fault-mode").value = "NONE";
+          if ($("chaos-role-guide")) $("chaos-role-guide").hidden = true;
+        }
       }
-
+      ok = true;
     } catch (error) {
-      result.className = "action-result failure-result";
-      result.textContent = error.name === "TimeoutError" ? "Action timed out. Refresh and inspect actual node state before retrying." : error.message;
+      result.className = "alert alert-danger py-2 px-2 small mb-0";
+      result.textContent = error.name === "TimeoutError"
+        ? "Action timed out. Refresh and inspect actual node state before retrying."
+        : error.message;
     } finally {
       actionBusy = false;
       await refresh();
       renderControls();
     }
+    return ok;
   }
-  function actor() { return $("control-node") ? $("control-node").value : "fednode-0"; }
+
+  function actor() {
+    return $("control-node") ? $("control-node").value : "fednode-0";
+  }
+
+  function chaosActor() {
+    return $("chaos-node") && $("chaos-node").value ? $("chaos-node").value : actor();
+  }
+
   function traffic(scenario) {
     const rawOrigin = $("traffic-source") ? $("traffic-source").value : "external";
     const isInternal = rawOrigin !== "external";
     const sourceType = isInternal ? "internal" : "external";
     const sourceNode = isInternal ? (rawOrigin === "internal" ? ($("source-node") ? $("source-node").value : "fednode-1") : rawOrigin) : "";
     const customDomain = $("traffic-domain") ? $("traffic-domain").value.trim().toLowerCase() : "";
-    return runAction({action: "inject", node: actor(), scenario: scenario,
-      source: sourceType, source_node: sourceNode, domain: customDomain,
-      content: $("traffic-content") ? $("traffic-content").value : ""});
+    return runAction({
+      action: "inject",
+      node: actor(),
+      scenario: scenario,
+      source: sourceType,
+      source_node: sourceNode,
+      domain: customDomain,
+      content: $("traffic-content") ? $("traffic-content").value : ""
+    });
   }
-  if ($("control-node")) $("control-node").addEventListener("change", renderControls);
+
+  function setControlTab(name) {
+    [
+      ["traffic", "tab-btn-traffic", "pane-traffic"],
+      ["chaos", "tab-btn-chaos", "pane-chaos"],
+      ["scale", "tab-btn-scale", "pane-scale"]
+    ].forEach(function (spec) {
+      const active = spec[0] === name;
+      const btn = $(spec[1]);
+      const pane = $(spec[2]);
+      if (btn) {
+        btn.classList.toggle("active", active);
+        btn.setAttribute("aria-selected", active ? "true" : "false");
+      }
+      if (pane) pane.hidden = !active;
+    });
+  }
+
+  function setDataTab(name) {
+    [
+      ["activity", "tab-btn-activity", "activity-view-container"],
+      ["bans", "toggle-bans-btn", "bans-view-container"],
+      ["reps", "toggle-reps-btn", "reps-view-container"]
+    ].forEach(function (spec) {
+      const active = spec[0] === name;
+      const btn = $(spec[1]);
+      const pane = $(spec[2]);
+      if (btn) {
+        btn.classList.toggle("active", active);
+        btn.setAttribute("aria-selected", active ? "true" : "false");
+      }
+      if (pane) pane.hidden = !active;
+    });
+    if ($("activity-filter-wrap")) $("activity-filter-wrap").hidden = name !== "activity";
+    if (name === "bans") renderBans();
+    if (name === "reps") renderNodesTable();
+  }
+
+  if ($("tab-btn-traffic")) $("tab-btn-traffic").addEventListener("click", function () { setControlTab("traffic"); });
+  if ($("tab-btn-chaos")) $("tab-btn-chaos").addEventListener("click", function () { setControlTab("chaos"); });
+  if ($("tab-btn-scale")) $("tab-btn-scale").addEventListener("click", function () { setControlTab("scale"); });
+
+  if ($("toggle-custom-payload") && $("custom-payload-box")) {
+    $("toggle-custom-payload").addEventListener("click", function () {
+      const nextHidden = !$("custom-payload-box").hidden;
+      $("custom-payload-box").hidden = nextHidden;
+      $("toggle-custom-payload").textContent = nextHidden ? "+ Custom payload" : "− Custom payload";
+      $("toggle-custom-payload").setAttribute("aria-expanded", nextHidden ? "false" : "true");
+    });
+  }
+
+  if ($("control-node")) {
+    $("control-node").addEventListener("change", function () {
+      topologyKey = "";
+      nodesKey = "";
+      renderControls();
+      renderTopology();
+      renderNodesTable();
+    });
+  }
+  if ($("chaos-node")) {
+    $("chaos-node").addEventListener("change", function () {
+      controlledChaosNode = "";
+      renderControls();
+      updateChaosRoleGuide($("fault-mode") ? $("fault-mode").value : "NONE", "selected");
+    });
+  }
+  if ($("sync-chaos-node")) {
+    $("sync-chaos-node").addEventListener("click", function () {
+      if ($("chaos-node")) {
+        $("chaos-node").value = actor();
+        controlledChaosNode = "";
+        renderControls();
+        updateChaosRoleGuide($("fault-mode") ? $("fault-mode").value : "NONE", "selected");
+      }
+    });
+  }
   if ($("traffic-source")) $("traffic-source").addEventListener("change", renderControls);
+
   document.querySelectorAll("[data-scenario]").forEach(function (button) {
     button.addEventListener("click", function () { traffic(button.dataset.scenario); });
   });
   if ($("send-custom")) $("send-custom").addEventListener("click", function () { traffic("custom"); });
 
+  function healthyFollowerId(excludeId) {
+    const nodes = data.nodes || [];
+    const clean = nodes.find(function (n) {
+      return n.online && n.node_id !== excludeId && !n.quarantined && !String(n.state).startsWith("BYZANTINE_");
+    });
+    if (clean) return clean.node_id;
+    const anyOnline = nodes.find(function (n) { return n.online && n.node_id !== excludeId; });
+    return anyOnline ? anyOnline.node_id : (excludeId === "fednode-0" ? "fednode-1" : "fednode-0");
+  }
+
+  function updateChaosRoleGuide(mode, phase) {
+    const guide = $("chaos-role-guide");
+    if (!guide) return;
+    const leaderId = activeLeaderId();
+    const followerId = healthyFollowerId(leaderId);
+    const chaosId = chaosActor();
+
+    if (mode === "CENSOR") {
+      guide.hidden = false;
+      if (phase === "applied") {
+        guide.className = "alert alert-success py-1 px-2 small mb-0";
+        guide.textContent = "Leader " + leaderId + " set to CENSOR. Inject an attack to Follower " +
+          followerId + " to trigger 3s Censorship Impeachment.";
+      } else {
+        guide.className = "alert alert-warning py-1 px-2 small mb-0";
+        guide.textContent = "CENSOR targets Leader " + leaderId + ". Simulator set to Follower " +
+          followerId + ". Click Apply, then send an attack.";
+      }
+    } else if (mode === "EQUIVOCATOR") {
+      guide.hidden = false;
+      if (chaosId === leaderId) {
+        guide.className = "alert alert-warning py-1 px-2 small mb-0";
+        guide.textContent = "Tip: EQUIVOCATOR works on Followers during voting (target e.g. " + followerId + ").";
+      } else {
+        guide.className = "alert alert-info py-1 px-2 small mb-0";
+        guide.textContent = "Follower " + chaosId + " will cast split APPROVE + REJECT ballots (-50 trust).";
+      }
+    } else if ((mode === "LIAR" || mode === "FORGER") && chaosId === leaderId) {
+      guide.hidden = false;
+      guide.className = "alert alert-warning py-1 px-2 small mb-0";
+      guide.textContent = "Tip: " + mode + " is best demonstrated on a Follower (e.g. " + followerId + ").";
+    } else {
+      guide.hidden = true;
+      guide.textContent = "";
+    }
+  }
+
+  if ($("fault-mode")) {
+    $("fault-mode").addEventListener("change", function () {
+      const mode = $("fault-mode").value;
+      const leaderId = activeLeaderId();
+      const followerId = healthyFollowerId(leaderId);
+      if (mode === "CENSOR") {
+        if ($("chaos-node")) {
+          $("chaos-node").value = leaderId;
+          controlledChaosNode = leaderId;
+        }
+        if ($("control-node")) {
+          $("control-node").value = followerId;
+          controlledNode = followerId;
+        }
+        topologyKey = "";
+        nodesKey = "";
+        renderControls();
+        renderTopology();
+        renderNodesTable();
+      }
+      updateChaosRoleGuide(mode, "selected");
+    });
+  }
+
   if ($("apply-settings")) {
-    $("apply-settings").addEventListener("click", function () {
-      runAction({action: "settings", node: actor(), fault: $("fault-mode").value});
+    $("apply-settings").addEventListener("click", async function () {
+      const fault = $("fault-mode") ? $("fault-mode").value : "NONE";
+      const targetNode = fault === "CENSOR" ? activeLeaderId() : chaosActor();
+      if (fault === "CENSOR" && $("chaos-node")) {
+        $("chaos-node").value = targetNode;
+        controlledChaosNode = targetNode;
+      }
+      const ok = await runAction({action: "settings", node: targetNode, fault: fault});
+      if (!ok) return;
+      if (fault === "CENSOR") {
+        const followerId = healthyFollowerId(targetNode);
+        if ($("control-node")) {
+          $("control-node").value = followerId;
+          controlledNode = followerId;
+          topologyKey = "";
+          nodesKey = "";
+          renderControls();
+          renderTopology();
+          renderNodesTable();
+        }
+        const msg = "Leader " + targetNode + " set to CENSOR. Inject an attack to Follower " +
+          followerId + " to trigger 3s Censorship Impeachment.";
+        if ($("action-result")) {
+          $("action-result").className = "alert alert-success py-2 px-2 small mb-0";
+          $("action-result").textContent = msg;
+        }
+        updateChaosRoleGuide("CENSOR", "applied");
+      } else {
+        updateChaosRoleGuide(fault, "applied");
+      }
     });
   }
   ["stop", "revive"].forEach(function (action) {
     const btn = $(action + "-node");
-    if (btn) {
-      btn.addEventListener("click", function () { runAction({action: action, node: actor()}); });
-    }
+    if (btn) btn.addEventListener("click", function () { runAction({action: action, node: chaosActor()}); });
   });
-  if ($("quarantine-peer")) {
-    $("quarantine-peer").addEventListener("click", function () {
-      if ($("trust-score")) $("trust-score").value = "20";
-      runAction({action: "trust", node: "fednode-0", peer: actor(), score: 20, scope: "all"});
-    });
+  if ($("reset-lab")) {
+    $("reset-lab").addEventListener("click", function () { runAction({action: "reset_all"}); });
   }
   if ($("restore-peer")) {
     $("restore-peer").addEventListener("click", function () {
       if ($("trust-score")) $("trust-score").value = "100";
-      runAction({action: "trust", node: "fednode-0", peer: actor(), score: 100, scope: "all"});
+      runAction({action: "trust", node: "fednode-0", peer: chaosActor(), score: 100, scope: "all"});
     });
   }
   if ($("add-org-node")) {
@@ -1102,47 +2113,24 @@
     });
   }
   if ($("autoscale-up")) {
-    $("autoscale-up").addEventListener("click", function () {
-      runAction({action: "autoscale", delta: 2});
-    });
+    $("autoscale-up").addEventListener("click", function () { runAction({action: "autoscale", delta: 2}); });
   }
   if ($("reset-scale")) {
-    $("reset-scale").addEventListener("click", function () {
-      runAction({action: "reset_scale"});
-    });
+    $("reset-scale").addEventListener("click", function () { runAction({action: "reset_scale"}); });
   }
-  if ($("trust-form")) {
-    $("trust-form").addEventListener("submit", function (event) {
-      event.preventDefault();
-      runAction({action: "trust", node: "fednode-0", peer: actor(),
-        score: Number($("trust-score").value), scope: "all"});
-    });
+
+  if ($("tab-btn-activity")) $("tab-btn-activity").addEventListener("click", function () { setDataTab("activity"); });
+  if ($("toggle-bans-btn")) $("toggle-bans-btn").addEventListener("click", function () { setDataTab("bans"); });
+  if ($("toggle-reps-btn")) $("toggle-reps-btn").addEventListener("click", function () { setDataTab("reps"); });
+
+  if ($("refresh")) $("refresh").addEventListener("click", refresh);
+  if ($("event-filter")) $("event-filter").addEventListener("change", renderEvents);
+  if ($("ban-search")) $("ban-search").addEventListener("input", renderBans);
+  if ($("close-dialog")) $("close-dialog").addEventListener("click", function () { $("node-dialog").close(); });
+  if ($("node-dialog")) {
+    $("node-dialog").addEventListener("click", function (event) { if (event.target === this) this.close(); });
   }
-  if ($("toggle-bans-btn")) {
-    $("toggle-bans-btn").addEventListener("click", function () {
-      activeEnforcementTab = "bans";
-      $("toggle-bans-btn").classList.add("active");
-      if ($("toggle-reps-btn")) $("toggle-reps-btn").classList.remove("active");
-      if ($("bans-view-container")) $("bans-view-container").hidden = false;
-      if ($("reps-view-container")) $("reps-view-container").hidden = true;
-      renderBans();
-    });
-  }
-  if ($("toggle-reps-btn")) {
-    $("toggle-reps-btn").addEventListener("click", function () {
-      activeEnforcementTab = "reps";
-      $("toggle-reps-btn").classList.add("active");
-      if ($("toggle-bans-btn")) $("toggle-bans-btn").classList.remove("active");
-      if ($("bans-view-container")) $("bans-view-container").hidden = true;
-      if ($("reps-view-container")) $("reps-view-container").hidden = false;
-      renderBans();
-    });
-  }
-  $("refresh").addEventListener("click", refresh);
-  $("event-filter").addEventListener("change", renderEvents);
-  $("ban-search").addEventListener("input", renderBans);
-  $("close-dialog").addEventListener("click", function () { $("node-dialog").close(); });
-  $("node-dialog").addEventListener("click", function (event) { if (event.target === this) this.close(); });
+
   refresh();
-  setInterval(refresh, 2000);
+  setInterval(refresh, 1500);
 })();

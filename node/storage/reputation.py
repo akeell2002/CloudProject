@@ -34,6 +34,7 @@ class ReputationManager:
         self.self_id = self_id
         self._penalty_keys: "OrderedDict[Tuple[str, str, str], None]" = OrderedDict()
         self._penalty_lock = threading.Lock()
+        self._reset_until: Dict[str, float] = {}
 
     def _claim_penalty(self, violation_type: str, peer_id: str, proposal_id: Optional[str]) -> bool:
         """Returns True if the penalty should be applied (first time for this key)."""
@@ -88,12 +89,35 @@ class ReputationManager:
             now_ms=int(round(now_s * 1000)),
         )
 
+    def mark_reset(self, peer_id: str, ttl: float = 12.0):
+        """Suppresses stale peer gossip overwriting an explicit operator score reset."""
+        with self._penalty_lock:
+            self._reset_until[peer_id] = time.time() + ttl
+            stale_keys = [k for k in self._penalty_keys if k[1] == peer_id]
+            for k in stale_keys:
+                self._penalty_keys.pop(k, None)
+
+    def set_operator_reputation(self, peer_id: str, score: int, ttl: float = 12.0):
+        """Applies an operator score change under the lock so sync gossip cannot race it."""
+        with self._penalty_lock:
+            if score >= 100:
+                self._reset_until[peer_id] = time.time() + ttl
+                stale_keys = [k for k in self._penalty_keys if k[1] == peer_id]
+                for k in stale_keys:
+                    self._penalty_keys.pop(k, None)
+            else:
+                self._reset_until.pop(peer_id, None)
+            self.db.set_reputation(peer_id, score)
+
     def adopt_peer_view(self, peer_id: str, remote_score: int, remote_violations: Optional[int] = None) -> bool:
         """Adopts a peer's lower score for ``peer_id``; never touches the own entry."""
         if self.self_id is not None and peer_id == self.self_id:
             return False
-        self.db.adopt_lower_reputation(peer_id, remote_score, violations_count=remote_violations)
-        return True
+        with self._penalty_lock:
+            if time.time() < self._reset_until.get(peer_id, 0.0):
+                return False
+            self.db.adopt_lower_reputation(peer_id, remote_score, violations_count=remote_violations)
+            return True
 
     def is_peer_eligible_to_vote(self, peer_id: str) -> bool:
         """

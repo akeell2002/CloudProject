@@ -82,6 +82,18 @@ class ControlTests(unittest.TestCase):
                 self.operator.handle({"action": "trust", "node": "fednode-0",
                                       "peer": "fednode-2", "score": score})
 
+    def test_censor_equivocator_modes_and_reset_all_baseline(self):
+        from dashboard.control import normalise_fault_mode
+        for mode in ("NONE", "SILENT", "LIAR", "FORGER", "CENSOR", "EQUIVOCATOR"):
+            self.assertEqual(normalise_fault_mode(mode.lower()), mode)
+        with patch.object(self.monitor, "refresh"), \
+             patch.object(self.operator.opener, "open", side_effect=OSError("offline in unit test")):
+            res = self.operator.handle({"action": "reset_all"})
+        self.assertIn("100/100 trust restored", res["message"])
+        trust_calls = [call for call in self.runtime.calls if isinstance(call[1], dict) and call[1].get("operation") == "trust"]
+        self.assertEqual(len(trust_calls), 25)
+        self.assertTrue(all(call[1]["score"] == 100 for call in trust_calls))
+
     def test_runtime_scale_updates_observed_addresses_not_backend_membership(self):
         with patch.object(self.monitor, "refresh"):
             response = self.operator.handle({"action": "scale", "replicas": 7})

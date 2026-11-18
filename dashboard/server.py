@@ -14,6 +14,16 @@ from urllib.request import ProxyHandler, Request, build_opener
 from dashboard.control import Operator
 
 STATIC = Path(__file__).parent / "static"
+STATIC_ROUTES = {
+    "/": "/index.html",
+    "/index.html": "/index.html",
+    "/style.css": "/style.css",
+    "/app.js": "/app.js",
+    "/static/style.css": "/style.css",
+    "/static/app.js": "/app.js",
+    "/static/vendor/bootstrap.min.css": "/vendor/bootstrap.min.css",
+    "/static/vendor/bootstrap.bundle.min.js": "/vendor/bootstrap.bundle.min.js",
+}
 
 
 def validate_telemetry(data):
@@ -247,8 +257,8 @@ def make_handler(monitor, operator=None):
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
-            elif route in ("/", "/index.html", "/style.css", "/app.js"):
-                self.path = "/index.html" if route == "/" else route
+            elif route in STATIC_ROUTES:
+                self.path = STATIC_ROUTES[route]
                 super().do_GET()
             else:
                 self.send_error(404)

@@ -47,6 +47,7 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
 
         # Configurable fault mode: NONE, SILENT, LIAR, FORGER, EQUIVOCATOR, CENSOR
         self.byzantine_mode = self.config.byzantine_mode
+        self.simulated_offline = False
         self._channels: Dict[str, grpc.Channel] = {}
         self._stubs: Dict[str, pb2_grpc.FedConsensusServiceStub] = {}
         self._channel_lock = threading.Lock()
@@ -76,7 +77,13 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
 
         # Byzantine simulation: drop proposal if in CENSOR mode
         if self.byzantine_mode == "CENSOR":
-            logger.warning(f"[{self.config.node_id}] Byzantine CENSOR ignoring proposal for {request.target_domain}!")
+            reporter = request.proposer_id or "consortium"
+            logger.warning(f"[{self.config.node_id}] Byzantine CENSOR: silently dropped threat report from {reporter}!")
+            self.consensus.telemetry.record(
+                "censor", self.config.node_id, reporter,
+                f"Byzantine CENSOR: silently dropped threat report from {reporter}",
+                proposal_id=request.proposal_id, domain=request.target_domain,
+            )
             return pb2.ProposeResponse(accepted=False, reason="Node is in CENSOR mode", node_id=self.config.node_id)
 
         logger.info(f"[{self.config.node_id}] Received proposal for: {request.target_domain}")
@@ -249,16 +256,25 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
                 }),
                 timestamp=int(time.time() * 1000)
             )
+            with self.consensus._lock:
+                prop_state = self.consensus.active_proposals.get(request.proposal_id)
+                if prop_state:
+                    prop_state.approved_votes.pop(self.config.node_id, None)
+            self.consensus.telemetry.record(
+                "invalid", self.config.node_id, request.proposer_id,
+                "Sending conflicting APPROVE + REJECT ballots (Byzantine EQUIVOCATOR)",
+                proposal_id=request.proposal_id, domain=request.target_domain,
+                decision="INVALID",
+            )
             if request.proposer_id != self.config.node_id:
-                threading.Thread(
-                    target=lambda: (self._send_vote_to_proposer(request.proposer_id, vote_req),
-                                   self._send_vote_to_proposer(request.proposer_id, reject_vote)),
-                    daemon=True
-                ).start()
+                def _send_equivocating():
+                    self._send_vote_to_proposer(request.proposer_id, reject_vote)
+                    self._send_vote_to_proposer(request.proposer_id, vote_req)
+                threading.Thread(target=_send_equivocating, daemon=True).start()
 
         # If proposal accepted and vote created, process locally
         if accepted and vote_req:
-            if self.byzantine_mode not in ("LIAR", "FORGER"):
+            if self.byzantine_mode not in ("LIAR", "FORGER", "EQUIVOCATOR"):
                 proof = self.consensus.handle_vote(vote_req)
                 if proof and self.consensus.commit_defederation(proof):
                     self.consensus.telemetry.record(
@@ -277,7 +293,7 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
                         daemon=True
                     ).start()
 
-            if request.proposer_id != self.config.node_id:
+            if request.proposer_id != self.config.node_id and self.byzantine_mode != "EQUIVOCATOR":
                 threading.Thread(
                     target=self._send_vote_to_proposer,
                     args=(request.proposer_id, vote_req),
@@ -364,12 +380,29 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
         accuser_pubkey = self.consensus.peer_public_keys.get(request.accuser_id, "")
         impeached = self.leader.handle_impeachment(request, accuser_pubkey)
         self.consensus.current_epoch = self.leader.current_epoch
-        if impeached and self.leader.current_epoch > prev_epoch:
+        if impeached and self.leader.current_epoch > prev_epoch and self.leader.claim_epoch_announcement(self.leader.current_epoch):
             new_leader = self.leader.get_leader_for_epoch(self.leader.current_epoch)
             self.consensus.telemetry.record(
                 "message", self.config.node_id, new_leader,
                 f"Leader {request.leader_id} impeached; elected {new_leader} for Epoch {self.leader.current_epoch}",
             )
+
+        # Co-sign and propagate once per epoch so every reachable peer reaches Q and advances together.
+        if impeached and self.config.node_id != request.leader_id and self.leader.claim_impeachment_broadcast(request.target_epoch):
+            co_vote = self.leader.create_impeachment_request(
+                justification=request.justification,
+                target_epoch=request.target_epoch,
+                leader_id=request.leader_id,
+            )
+            self.consensus.telemetry.record(
+                "message", self.config.node_id, request.leader_id,
+                f"Co-signed impeachment vote against {request.leader_id} (Epoch {request.target_epoch})",
+            )
+            threading.Thread(
+                target=self._propagate_impeachment,
+                args=(co_vote, request.accuser_id),
+                daemon=True,
+            ).start()
 
         return pb2.ImpeachResponse(
             vote_impeach=impeached,
@@ -478,6 +511,26 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
                     logger.info(f"[{self.config.node_id}] Peer {peer_addr} accepted proposal")
             except Exception as e:
                 logger.debug(f"[{self.config.node_id}] Failed to send proposal to {peer_addr}: {e}")
+        list(self._rpc_executor.map(_send, targets))
+
+    def _propagate_impeachment(self, co_vote: pb2.ImpeachRequest, origin_accuser: str = ""):
+        targets = [p for p in self.config.peers if not self._is_self_peer(p)]
+        def _send(peer_addr):
+            try:
+                stub = self._get_stub(peer_addr)
+                res = stub.ImpeachLeader(co_vote, timeout=1.5)
+                if res and res.vote_impeach and res.voter_id:
+                    prev_ep = self.leader.current_epoch
+                    if self.leader.record_impeachment_vote(co_vote.target_epoch, co_vote.leader_id, res.voter_id):
+                        self.consensus.current_epoch = self.leader.current_epoch
+                        if self.leader.current_epoch > prev_ep and self.leader.claim_epoch_announcement(self.leader.current_epoch):
+                            new_leader = self.leader.get_leader_for_epoch(self.leader.current_epoch)
+                            self.consensus.telemetry.record(
+                                "message", self.config.node_id, new_leader,
+                                f"Leader {co_vote.leader_id} impeached; elected {new_leader} for Epoch {self.leader.current_epoch}",
+                            )
+            except Exception as e:
+                logger.debug(f"[{self.config.node_id}] Failed to propagate impeachment to {peer_addr}: {e}")
         list(self._rpc_executor.map(_send, targets))
 
     def _broadcast_commit(self, commit_req: pb2.CommitRequest):
