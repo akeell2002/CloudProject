@@ -185,6 +185,45 @@ class CatchupEngine:
 
         return replayed_count
 
+    def sync_epoch_from_peers(self, consensus=None) -> int:
+        """Fast parallel GetStatus probe so a reviving node adopts any higher cluster epoch before serving /telemetry."""
+        import grpc
+        from concurrent.futures import ThreadPoolExecutor
+        from proto import fedconsensus_pb2_grpc as pb2_grpc
+
+        if not self.leader:
+            return 1
+        peer_addrs = [
+            p for p in self.config.peers
+            if p.split(":")[0].split(".")[0] != self.config.node_id
+            and not (p.split(":")[0] in ("localhost", "127.0.0.1") and f":{self.config.grpc_port}" in p)
+        ]
+        if not peer_addrs:
+            return self.leader.current_epoch
+
+        def _probe(addr):
+            try:
+                if addr not in self._stubs:
+                    ch = grpc.insecure_channel(addr)
+                    self._channels[addr] = ch
+                    self._stubs[addr] = pb2_grpc.FedConsensusServiceStub(ch)
+                res = self._stubs[addr].GetStatus(pb2.StatusRequest(caller_id=self.config.node_id), timeout=0.5)
+                return getattr(res, "current_epoch", 1) if res else 0
+            except Exception:
+                return 0
+
+        with ThreadPoolExecutor(max_workers=max(1, len(peer_addrs))) as pool:
+            epochs = list(pool.map(_probe, peer_addrs))
+        max_peer_epoch = max(epochs, default=0)
+        with self.leader._lock:
+            if max_peer_epoch > self.leader.current_epoch:
+                self.leader.current_epoch = max_peer_epoch
+                self.leader.lease_expires_at = time.time() + self.leader.LEASE_DURATION_SECONDS
+            cur = self.leader.current_epoch
+        if consensus is not None:
+            consensus.current_epoch = cur
+        return cur
+
     def sync_with_consortium(self, consensus=None) -> int:
         """Queries online consortium peers via gRPC CatchupSync and replays any missed bans."""
         import grpc

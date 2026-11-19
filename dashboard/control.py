@@ -236,6 +236,7 @@ class VirtualOrgNode:
             "node_id": self.node_id,
             "org": self.org_domain,
             "state": state_str,
+            "is_leader": False,
             "epoch": self.epoch,
             "last_sequence": self.last_sequence,
             "quorum": quorum,

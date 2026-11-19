@@ -145,13 +145,15 @@ def node_snapshot(service):
             }
             for p in list(engine.active_proposals.values())[-50:]
         ]
-    state = "LEADER" if service.leader.is_current_leader() else "FOLLOWER"
+    is_leader = bool(service.leader.is_current_leader())
+    state = "LEADER" if is_leader else "FOLLOWER"
     if service.byzantine_mode != "NONE":
         state = "BYZANTINE_" + service.byzantine_mode
     return {
         "node_id": service.config.node_id,
         "org": getattr(service.config, "org_domain", f"{service.config.node_id}.social"),
         "state": state,
+        "is_leader": is_leader,
         "epoch": service.leader.current_epoch,
         "last_sequence": service.db.get_latest_sequence_number(),
         "quorum": service.config.quorum_size,

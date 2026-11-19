@@ -182,6 +182,8 @@ class ActivityPubHTTPHandler(BaseHTTPRequestHandler):
                     was_offline = bool(getattr(self.service, "simulated_offline", False))
                     self.service.simulated_offline = False
                     self.service.set_byzantine_mode(mode)
+                    if was_offline and self.service.catchup:
+                        self.service.catchup.sync_epoch_from_peers(self.service.consensus)
                     if self.service.leader:
                         self.service.leader.lease_expires_at = (
                             time.time() + self.service.leader.LEASE_DURATION_SECONDS

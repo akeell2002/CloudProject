@@ -338,18 +338,22 @@
 
   function activeLeaderId() {
     const nodes = data.nodes || [];
-    const leader = nodes.find(function (n) { return n.online && n.state === "LEADER"; });
-    if (leader) return leader.node_id;
     const online = nodes.filter(function (n) { return n.online; });
-    const epoch = online.reduce(function (m, n) { return Math.max(m, n.epoch || 1); }, 1);
-    const nCount = Math.max(nodes.length, 1);
-    const baseIdx = (epoch - 1) % nCount;
-    for (let offset = 0; offset < nCount; offset++) {
-      const candidate = "fednode-" + ((baseIdx + offset) % nCount);
-      const found = nodes.find(function (n) { return n.node_id === candidate; });
-      if (found && found.online && !found.quarantined) return candidate;
+    if (!online.length) return "";
+    const maxEpoch = online.reduce(function (m, n) { return Math.max(m, n.epoch || 1); }, 1);
+    const realLeaders = online.filter(function (n) {
+      return n.is_leader === true || (n.is_leader === undefined && n.state === "LEADER");
+    });
+    if (realLeaders.length) {
+      realLeaders.sort(function (a, b) { return (b.epoch || 1) - (a.epoch || 1); });
+      return realLeaders[0].node_id;
     }
-    return "fednode-" + baseIdx;
+    const baseCount = Math.min(nodes.length, 5);
+    const byzLeader = online.find(function (n) {
+      return n.is_leader === undefined && String(n.state || "").startsWith("BYZANTINE_") &&
+        n.node_id === "fednode-" + ((maxEpoch - 1) % Math.max(baseCount, 1));
+    });
+    return byzLeader ? byzLeader.node_id : "";
   }
 
   function activeCoordinator() {
@@ -991,7 +995,7 @@
       const trust = trustMap[node.node_id];
       const isFault = node.online && (node.quarantined || String(node.state).startsWith("BYZANTINE"));
       const isSelected = node.node_id === activeTarget;
-      const isLeader = node.online && (node.state === "LEADER" || node.node_id === leaderId);
+      const isLeader = Boolean(node.online && leaderId && node.node_id === leaderId);
       const isCompact = pts.length > 5;
       const slotClass = !isCompact ? " topo-n5-" + pt.idx : " topo-compact";
 
@@ -1254,10 +1258,10 @@
 
     const nextKey = JSON.stringify([
       nodes.map(function (n) {
-        return [n.node_id, n.online, n.telemetry_available, n.state, n.last_known_state,
+        return [n.node_id, n.online, n.telemetry_available, n.state, n.is_leader, n.last_known_state,
                 n.quarantined, n.org, n.epoch, n.last_sequence, trustMap[n.node_id]];
       }),
-      activeTarget, coordId, maxActiveSeq
+      activeTarget, coordId, leaderId, maxActiveSeq
     ]);
     if (nextKey === nodesKey) return;
     nodesKey = nextKey;
@@ -1277,7 +1281,7 @@
       const roleTd = el("td");
       if (!node.online) {
         roleTd.append(el("span", "badge text-bg-secondary", node.last_known_state === "LEADER" ? "Leader (last)" : "Follower"));
-      } else if (node.state === "LEADER" || node.node_id === leaderId) {
+      } else if (leaderId && node.node_id === leaderId) {
         roleTd.append(el("span", "badge text-bg-primary", "LEADER ★"));
       } else if (!isFault && !node.quarantined && node.node_id === coordId) {
         roleTd.append(el("span", "badge text-bg-info text-dark", "FOLLOWER · Proposer ★"));
@@ -1761,7 +1765,8 @@
     if ($("operator-target-badge")) $("operator-target-badge").textContent = "Target: " + (selected || "—");
     if ($("traffic-target-badge")) $("traffic-target-badge").textContent = "Targeting: " + (selected || "—");
     if ($("chaos-target-badge")) {
-      const isLeaderChaos = chaosNodeObj && (chaosNodeObj.state === "LEADER" || chaosSelected === activeLeaderId());
+      const leaderNow = activeLeaderId();
+      const isLeaderChaos = Boolean(chaosNodeObj && leaderNow && chaosSelected === leaderNow);
       $("chaos-target-badge").className = "badge " + (isLeaderChaos ? "text-bg-danger" : "text-bg-warning text-dark");
       $("chaos-target-badge").textContent = "Targeting: " + (chaosSelected || "—") + (isLeaderChaos ? " (LEADER!)" : "");
     }
@@ -1841,10 +1846,12 @@
     }
     const leaderId = activeLeaderId();
     if ($("active-subtext")) {
-      $("active-subtext").textContent = active
-        ? "Epoch " + maxEpoch + " (Leader: " + leaderId + " ★)" +
-          (coordId && coordId !== leaderId ? " · Proposer: " + coordId : "")
-        : "Epoch " + maxEpoch + " (No leader online)";
+      $("active-subtext").textContent = !active
+        ? "Epoch " + maxEpoch + " (No leader online)"
+        : leaderId
+          ? "Epoch " + maxEpoch + " (Leader: " + leaderId + " ★)" +
+            (coordId && coordId !== leaderId ? " · Proposer: " + coordId : "")
+          : "Epoch " + maxEpoch + " (Leader offline — electing…)";
     }
     if ($("ban-subtext")) {
       const committedList = allProposals.filter(function (p) { return p.committed; });
@@ -2166,7 +2173,7 @@
   if ($("fault-mode")) {
     $("fault-mode").addEventListener("change", function () {
       const mode = $("fault-mode").value;
-      const leaderId = activeLeaderId();
+      const leaderId = activeLeaderId() || chaosActor();
       const followerId = healthyFollowerId(leaderId);
       if (mode === "CENSOR") {
         if ($("chaos-node")) {
@@ -2190,7 +2197,7 @@
   if ($("apply-settings")) {
     $("apply-settings").addEventListener("click", async function () {
       const fault = $("fault-mode") ? $("fault-mode").value : "NONE";
-      const targetNode = fault === "CENSOR" ? activeLeaderId() : chaosActor();
+      const targetNode = fault === "CENSOR" ? (activeLeaderId() || chaosActor()) : chaosActor();
       if (fault === "CENSOR" && $("chaos-node")) {
         $("chaos-node").value = targetNode;
         controlledChaosNode = targetNode;
