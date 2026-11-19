@@ -139,7 +139,7 @@ def node_snapshot(service):
                 "invalids": sorted(getattr(p, "invalid_voters", set())),
                 "equivocators": sorted(getattr(p, "equivocator_voters", set())),
                 "quarantined": sorted(getattr(p, "quarantined_voters", set())),
-                "quorum": service.config.quorum_size,
+                "quorum": getattr(p, "quorum_threshold", None) or service.config.quorum_size,
                 "observer": service.config.node_id,
                 "quorum_state": _quorum_state(p.is_committed, health),
             }

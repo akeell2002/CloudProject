@@ -15,7 +15,7 @@ from node.telemetry import EventLog
 
 class ProposalState:
     """Tracks in-flight voting state for a single proposal."""
-    def __init__(self, proposal_id: str, sequence_number: int, epoch: int, target_domain: str, reason: int, threat_score: float = 0.85, request: Optional[pb2.ProposeRequest] = None):
+    def __init__(self, proposal_id: str, sequence_number: int, epoch: int, target_domain: str, reason: int, threat_score: float = 0.85, request: Optional[pb2.ProposeRequest] = None, quorum_threshold: Optional[int] = None):
         self.proposal_id = proposal_id
         self.sequence_number = sequence_number
         self.epoch = epoch
@@ -23,6 +23,7 @@ class ProposalState:
         self.reason = reason
         self.threat_score = round(threat_score, 3)
         self.request = request
+        self.quorum_threshold = quorum_threshold
         # voter_id -> pb2.VoterSignature
         self.approved_votes: Dict[str, pb2.VoterSignature] = {}
         self.recorded_decisions: Dict[str, int] = {}
@@ -136,7 +137,8 @@ class ConsensusEngine:
                 target_domain=target_domain,
                 reason=reason,
                 threat_score=threat_score,
-                request=prop_req
+                request=prop_req,
+                quorum_threshold=self.config.quorum_size
             )
 
             # Auto-cast the leader's own vote using standard ballot format
@@ -284,7 +286,8 @@ class ConsensusEngine:
                     target_domain=req.target_domain,
                     reason=req.reason,
                     threat_score=req.threat_score,
-                    request=req
+                    request=req,
+                    quorum_threshold=self.config.quorum_size
                 )
 
             # Record leader's vote and follower's own vote
@@ -540,7 +543,8 @@ class ConsensusEngine:
                     sequence_number=proof.sequence_number,
                     epoch=proof.epoch,
                     target_domain=proof.target_domain,
-                    reason=proof.reason
+                    reason=proof.reason,
+                    quorum_threshold=None if historical else self.config.quorum_size
                 )
             qc_voters = {s.voter_id: s for s in proof.signatures}
             prop_state = self.active_proposals[proof.proposal_id]
@@ -553,6 +557,7 @@ class ConsensusEngine:
                     p.approved_votes = dict(qc_voters)
                     if not p.committed_at:
                         p.committed_at = time.time()
-                        p.latency_ms = min(2500, max(1, int((p.committed_at - p.created_at) * 1000)))
+                        if not historical:
+                            p.latency_ms = min(2500, max(1, int((p.committed_at - p.created_at) * 1000)))
 
             return True

@@ -926,6 +926,9 @@
     if (node.quarantined) {
       return {key: "QUARANTINED", text: "QUARANTINED", sig: "Excluded (<30)", badge: "text-bg-danger"};
     }
+    if (proposal.committed && Array.isArray(node.blocked_domains) && node.blocked_domains.includes(proposal.domain)) {
+      return {key: "SYNCED", text: "↻ SYNCED", sig: "Caught up via gRPC CatchupSync (did not vote in this round)", badge: "text-bg-info text-dark"};
+    }
     return {key: "WAITING", text: "… WAITING", sig: "Awaiting ballot", badge: "text-bg-secondary"};
   }
 
@@ -961,7 +964,7 @@
 
     const nextKey = JSON.stringify([
       nodes.map(function (n) {
-        return [n.node_id, n.online, n.state, n.quarantined, n.org, trustMap[n.node_id]];
+        return [n.node_id, n.online, n.state, n.quarantined, n.org, (n.blocked_domains || []).length, trustMap[n.node_id]];
       }),
       activeTarget, coordId, leaderId, stageTag, inCommitFlash, inShieldFlash,
       activeProp ? [activeProp.domain, activeProp.committed, Array.from(activeProp.approvals).sort(),
