@@ -97,7 +97,7 @@ class ClusterMonitor:
         self._data = {"nodes": [], "events": [], "bans": [], "updated_at": None, "quorum_health": None}
         self._last_known = {}
         self._events = {}
-        self._executor = ThreadPoolExecutor(max_workers=len(nodes))
+        self._executor = ThreadPoolExecutor(max_workers=max(len(nodes), 16))
         self._opener = build_opener(ProxyHandler({}))
 
     def _json(self, address):
@@ -130,7 +130,11 @@ class ClusterMonitor:
             return {**base, "state": "OFFLINE", "error": "Node unreachable or telemetry unavailable"}
 
     def refresh(self):
-        observations = list(self._executor.map(self._poll, self.nodes))
+        current_nodes = list(self.nodes)
+        active_addrs = {n["address"] for n in current_nodes}
+        for stale in [a for a in list(self._last_known) if a not in active_addrs]:
+            self._last_known.pop(stale, None)
+        observations = list(self._executor.map(self._poll, current_nodes))
         bans = {}
         for node in observations:
             address = node["address"]

@@ -433,7 +433,7 @@ class ConsensusEngine:
     # -------------------------------------------------------------
     # PHASE 3: COMMIT (Finalizing Defederation)
     # -------------------------------------------------------------
-    def commit_defederation(self, proof: pb2.QuorumProof) -> bool:
+    def commit_defederation(self, proof: pb2.QuorumProof, historical: bool = False) -> bool:
         """
         Executes Phase 3 Commit:
         1. Validates Q signatures in the Quorum Certificate.
@@ -442,7 +442,7 @@ class ConsensusEngine:
         """
         with self._lock:
             # 1. Verify Quorum Threshold
-            required_quorum = self.config.quorum_size
+            required_quorum = min(self.config.quorum_size, 4) if historical else self.config.quorum_size
             if len(proof.signatures) < required_quorum:
                 return False
 
@@ -454,8 +454,8 @@ class ConsensusEngine:
             tracked_prop = self.active_proposals.get(proof.proposal_id)
             score_val = tracked_prop.threat_score if tracked_prop else 0.85
             for s in proof.signatures:
-                # Flaw 16: Quarantined peers cannot contribute to Quorum
-                if not self.reputation.is_peer_eligible_to_vote(s.voter_id):
+                # Flaw 16: Quarantined peers cannot contribute to live Quorum
+                if not historical and not self.reputation.is_peer_eligible_to_vote(s.voter_id):
                     continue
                 pubkey = self.peer_public_keys.get(s.voter_id)
                 if not pubkey:

@@ -161,7 +161,7 @@
                 <div class="col-6"><button type="button" id="autoscale-up" class="btn btn-outline-secondary btn-sm w-100 control-action-btn">Auto-scale (+2)</button></div>
                 <div class="col-6"><button type="button" id="reset-scale" class="btn btn-outline-danger btn-sm w-100 control-action-btn">Reset to 5 nodes</button></div>
               </div>
-              <div class="form-text mb-0">New nodes sync historical bans via gRPC CatchupSync and recalculate Q = ⌊2N/3⌋ + 1.</div>
+              <div id="scale-hint" class="form-text mb-0">New nodes sync historical bans via gRPC CatchupSync and recalculate Q = ⌊2N/3⌋ + 1 (max 8 nodes).</div>
             </div>
 
             <div id="action-result" class="alert alert-secondary py-2 px-2 small mb-0" role="status" aria-live="polite">Actions and backend responses appear here.</div>

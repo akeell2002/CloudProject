@@ -177,7 +177,7 @@
             sequence: p.sequence || 1,
             threat_score: p.threat_score || 0.85,
             latency_ms: p.latency_ms || 0,
-            quorum: bft.q,
+            quorum: p.quorum || bft.q,
             created_at: p.created_at || 0,
             committed: Boolean(p.committed),
             framingRejected: false,
@@ -284,8 +284,8 @@
 
     byDomain.forEach(function (entry) {
       if (!entry.proposer) entry.proposer = "fednode-0";
-      entry.quorum = bft.q;
       if (bannedDomains.has(entry.domain)) entry.committed = true;
+      if (!entry.committed) entry.quorum = bft.q;
       if (!entry.latency_ms || entry.latency_ms > 280) {
         entry.latency_ms = entry.committed ? 24 : 0;
       }
@@ -1507,9 +1507,9 @@
     }
 
     const visibleApprovals = proposal.approvals.size;
-    const quorumNeeded = bft.q;
     const isFramingRejected = Boolean(proposal.framingRejected);
     const isFinalCommitted = !isFramingRejected && Boolean(proposal.committed);
+    const quorumNeeded = (isFinalCommitted && proposal.quorum) ? proposal.quorum : bft.q;
     const unreachable = !isFramingRejected && !isFinalCommitted && quorumBlocked;
     const isAnimPlaying = Boolean(anim && !anim.finished && anim.domain === proposal.domain);
     const stepperStage = isAnimPlaying ? anim.stage : (isFinalCommitted ? 4 : 3);
@@ -1790,6 +1790,15 @@
     if ($("revive-node")) $("revive-node").disabled = actionBusy || !chaosNodeObj || chaosNodeObj.online;
     if ($("apply-settings")) $("apply-settings").disabled = actionBusy || !controls.connected || !chaosNodeObj;
     if ($("restore-peer")) $("restore-peer").disabled = actionBusy || !controls.connected || !chaosNodeObj;
+    const atMaxScale = nodes.length >= 8;
+    if ($("add-org-node")) $("add-org-node").disabled = actionBusy || !controls.connected || atMaxScale;
+    if ($("autoscale-up")) $("autoscale-up").disabled = actionBusy || !controls.connected || atMaxScale;
+    if ($("reset-scale")) $("reset-scale").disabled = actionBusy || !controls.connected || nodes.length <= 5;
+    if ($("scale-hint")) {
+      $("scale-hint").textContent = atMaxScale
+        ? "Maximum cluster size reached (N=8, f=2, Q=6). Click Reset to 5 nodes to scale back down."
+        : "New nodes sync historical bans via gRPC CatchupSync and recalculate Q = ⌊2N/3⌋ + 1 (max 8 nodes).";
+    }
   }
 
   function render() {

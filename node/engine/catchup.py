@@ -117,11 +117,12 @@ class CatchupEngine:
 
             proof = rec.quorum_proof
 
-            # Verify Quorum size threshold (Must have at least Q matching signatures)
-            if len(proof.signatures) < self.config.quorum_size:
+            # Verify Quorum size threshold (historical QCs from N=5 had Q=4)
+            min_quorum = min(self.config.quorum_size, 4)
+            if len(proof.signatures) < min_quorum:
                 logger.warning(
                     f"[Catchup] Insufficient signatures on seq {rec.sequence_number} "
-                    f"({len(proof.signatures)} < {self.config.quorum_size}). Skipping."
+                    f"({len(proof.signatures)} < {min_quorum}). Skipping."
                 )
                 continue
 
@@ -145,7 +146,7 @@ class CatchupEngine:
                 if verify_signature(pubkey, vote_meta, sig.signature):
                     valid_voters.add(sig.voter_id)
 
-            if len(valid_voters) < self.config.quorum_size:
+            if len(valid_voters) < min_quorum:
                 logger.warning(
                     f"[Catchup] Signature verification failed on seq {rec.sequence_number}. Rejecting."
                 )
@@ -195,7 +196,7 @@ class CatchupEngine:
             return 1
         peer_addrs = [
             p for p in self.config.peers
-            if p.split(":")[0].split(".")[0] != self.config.node_id
+            if peer_id_from_addr(p) != self.config.node_id
             and not (p.split(":")[0] in ("localhost", "127.0.0.1") and f":{self.config.grpc_port}" in p)
         ]
         if not peer_addrs:
@@ -232,12 +233,11 @@ class CatchupEngine:
         total_replayed = 0
         self_quarantined_reporters = set()
         reachable_peers_checked = 0
-        for peer_addr in self.config.peers:
+        for peer_addr in list(self.config.peers):
             host = peer_addr.split(":")[0]
-            node_name = host.split(".")[0]
-            if node_name == self.config.node_id or (host in ("localhost", "127.0.0.1") and f":{self.config.grpc_port}" in peer_addr):
-                continue
             peer_id = peer_id_from_addr(peer_addr)
+            if peer_id == self.config.node_id or (host in ("localhost", "127.0.0.1") and f":{self.config.grpc_port}" in peer_addr):
+                continue
             try:
                 start_seq = self.db.get_latest_sequence_number() + 1
                 if peer_addr not in self._stubs:
@@ -257,7 +257,7 @@ class CatchupEngine:
                     if count > 0 and consensus is not None:
                         for rec in res.records:
                             if rec.target_domain in new_domains:
-                                consensus.commit_defederation(rec.quorum_proof)
+                                consensus.commit_defederation(rec.quorum_proof, historical=True)
                                 consensus.telemetry.record(
                                     "commit", self.config.node_id, "firewall",
                                     f"Self-healed missed ban via CatchupSync from {res.node_id}",

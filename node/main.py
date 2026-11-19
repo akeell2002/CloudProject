@@ -252,15 +252,34 @@ class ActivityPubHTTPHandler(BaseHTTPRequestHandler):
             req_json = self._read_json_object()
             if req_json is None:
                 return
+            action = str(req_json.get("action", "add")).strip().lower()
+            if action == "sync":
+                if self.service and self.service.catchup:
+                    self.service.catchup.sync_epoch_from_peers(self.service.consensus)
+                    self.service.catchup.sync_with_consortium(self.service.consensus)
+                self._send_json(200, {
+                    "status": "OK",
+                    "epoch": self.service.leader.current_epoch if (self.service and self.service.leader) else 1,
+                    "blocked_domains": self.service.firewall.count() if (self.service and self.service.firewall) else 0,
+                })
+                return
             peer_addr = req_json.get("peer_address")
             if not _valid_peer_address(peer_addr):
                 self._send_json(400, {"error": "peer_address must be host:port"})
                 return
             if self.service:
-                self.service.config.add_peer(peer_addr)
-                p_host = peer_addr.split(":")[0].split(".")[0]
-                if p_host in self.service.config.known_peer_keys:
-                    self.service.consensus.register_peer_key(p_host, self.service.config.known_peer_keys[p_host])
+                p_id = peer_id_from_addr(peer_addr)
+                if action == "remove":
+                    self.service.config.remove_peer(peer_addr)
+                    if getattr(self.service, "catchup", None):
+                        self.service.catchup.peer_reachability.pop(p_id, None)
+                else:
+                    self.service.config.add_peer(peer_addr)
+                    if p_id in self.service.config.known_peer_keys:
+                        pub = self.service.config.known_peer_keys[p_id]
+                        self.service.consensus.register_peer_key(p_id, pub)
+                        if getattr(self.service, "catchup", None):
+                            self.service.catchup.register_peer_key(p_id, pub)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -420,7 +439,7 @@ class FedNodeRunner:
         if leader_addr and not self._is_self_peer(leader_addr):
             try:
                 self.consensus.telemetry.record(
-                    "proposal", self.config.node_id, leader_addr, "Forwarding block proposal to leader",
+                    "proposal", self.config.node_id, expected_leader, "Forwarding block proposal to leader",
                     proposal_id=prop_req.proposal_id, domain=prop_req.target_domain,
                 )
                 res = self._get_stub(leader_addr).ProposeDefederation(prop_req, timeout=1.0)
@@ -435,10 +454,9 @@ class FedNodeRunner:
         # and cleanly impeach the leader without premature follower broadcast race conditions!
 
     def _is_self_peer(self, peer_addr: str) -> bool:
-        host = peer_addr.split(":")[0]
-        node_name = host.split(".")[0]
-        if node_name == self.config.node_id:
+        if peer_id_from_addr(peer_addr) == self.config.node_id:
             return True
+        host = peer_addr.split(":")[0]
         if host in ("localhost", "127.0.0.1") and f":{self.config.grpc_port}" in peer_addr:
             return True
         return False
@@ -463,13 +481,13 @@ class FedNodeRunner:
                 stub = self._get_stub(peer_addr)
                 if not known_offline:
                     self.consensus.telemetry.record(
-                        "proposal", self.config.node_id, peer_addr, "Sending block proposal",
+                        "proposal", self.config.node_id, peer_id, "Sending block proposal",
                         proposal_id=prop_req.proposal_id, domain=prop_req.target_domain,
                     )
                 res = stub.ProposeDefederation(prop_req, timeout=1.5)
                 if known_offline:
                     self.consensus.telemetry.record(
-                        "proposal", self.config.node_id, peer_addr, "Sending block proposal",
+                        "proposal", self.config.node_id, peer_id, "Sending block proposal",
                         proposal_id=prop_req.proposal_id, domain=prop_req.target_domain,
                     )
                 with self.consensus._lock:
@@ -516,6 +534,12 @@ class FedNodeRunner:
 
     def _heartbeat_loop(self):
         """Background thread: Leader heartbeats, lease failover election, pending proposal retry, and catchup sync."""
+        if self.catchup and not getattr(self.service, "simulated_offline", False):
+            try:
+                self.catchup.sync_epoch_from_peers(self.consensus)
+                self.catchup.sync_with_consortium(self.consensus)
+            except Exception:
+                pass
         tick = 0
         while self.running:
             time.sleep(2.0)

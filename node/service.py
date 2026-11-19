@@ -8,7 +8,7 @@ import grpc
 from proto import fedconsensus_pb2 as pb2
 from proto import fedconsensus_pb2_grpc as pb2_grpc
 
-from node.config import NodeConfig
+from node.config import NodeConfig, peer_id_from_addr
 from node.storage.database import Database
 from node.storage.reputation import ReputationManager
 from node.ingress.firewall import FirewallFilter
@@ -598,19 +598,16 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
     # Helper Network Methods for Consensus Automation
     # -------------------------------------------------------------
     def _is_self_peer(self, peer_addr: str) -> bool:
-        host = peer_addr.split(":")[0]
-        node_name = host.split(".")[0]
-        if node_name == self.config.node_id:
+        if peer_id_from_addr(peer_addr) == self.config.node_id:
             return True
+        host = peer_addr.split(":")[0]
         if host in ("localhost", "127.0.0.1") and f":{self.config.grpc_port}" in peer_addr:
             return True
         return False
 
     def _find_peer_address(self, peer_id: str) -> Optional[str]:
         for addr in self.config.peers:
-            host = addr.split(":")[0]
-            node_name = host.split(".")[0]
-            if node_name == peer_id:
+            if peer_id_from_addr(addr) == peer_id:
                 return addr
         if peer_id.startswith("fednode-"):
             try:
@@ -631,7 +628,7 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
         try:
             stub = self._get_stub(addr)
             self.consensus.telemetry.record(
-                "vote", self.config.node_id, addr, "Transmitting vote to proposer",
+                "vote", self.config.node_id, proposer_id, "Transmitting vote to proposer",
                 proposal_id=vote_req.proposal_id, decision="APPROVE" if vote_req.decision == pb2.VOTE_APPROVE else "REJECT"
             )
             stub.CastVote(vote_req, timeout=2.0)
@@ -643,19 +640,19 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
         targets = [p for p in self.config.peers if not self._is_self_peer(p)]
         def _send(peer_addr):
             try:
-                peer_id = peer_addr.split(":")[0].split(".")[0]
+                peer_id = peer_id_from_addr(peer_addr)
                 reach = (getattr(self.catchup, "peer_reachability", None) or {}).get(peer_id)
                 known_offline = isinstance(reach, dict) and reach.get("reachable") is False
                 stub = self._get_stub(peer_addr)
                 if not known_offline:
                     self.consensus.telemetry.record(
-                        "proposal", self.config.node_id, peer_addr, "Sending block proposal",
+                        "proposal", self.config.node_id, peer_id, "Sending block proposal",
                         proposal_id=prop_req.proposal_id, domain=prop_req.target_domain,
                     )
                 res = stub.ProposeDefederation(prop_req, timeout=1.5)
                 if known_offline:
                     self.consensus.telemetry.record(
-                        "proposal", self.config.node_id, peer_addr, "Sending block proposal",
+                        "proposal", self.config.node_id, peer_id, "Sending block proposal",
                         proposal_id=prop_req.proposal_id, domain=prop_req.target_domain,
                     )
                 with self.consensus._lock:

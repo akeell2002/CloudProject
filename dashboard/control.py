@@ -4,6 +4,10 @@ import json
 import os
 import re
 import secrets
+import shutil
+import subprocess
+import sys
+import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -14,6 +18,84 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import time
 
 from dashboard.runtime import Runtime, ROOT
+
+MAX_NODES = 8
+
+
+def _can_spawn_real_nodes():
+    """Return True when the full node package + gRPC runtime are available locally."""
+    if not (Path(ROOT) / "node" / "main.py").is_file():
+        return False
+    try:
+        import grpc  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+class ManagedFedNode:
+    """Real FedNodeRunner subprocess for dynamically scaled consortium members (fednode-5..7)."""
+
+    def __init__(self, node_id, org_domain, grpc_port, http_port, grpc_addr, peers, operator_token, opener):
+        self.node_id = node_id
+        self.org_domain = org_domain or f"{node_id}.social"
+        self.grpc_port = grpc_port
+        self.http_port = http_port
+        self.grpc_addr = grpc_addr
+        self.address = f"http://127.0.0.1:{http_port}"
+        self.opener = opener
+        self.data_dir = Path(tempfile.gettempdir()) / "fedconsensus-scaled" / node_id
+        shutil.rmtree(self.data_dir, ignore_errors=True)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+
+        env = os.environ.copy()
+        env.update({
+            "NODE_ID": node_id,
+            "ORG_DOMAIN": self.org_domain,
+            "GRPC_PORT": str(grpc_port),
+            "HTTP_PORT": str(http_port),
+            "DATA_DIR": str(self.data_dir),
+            "PEER_ADDRESSES": ",".join(peers),
+            "BYZANTINE_MODE": "NONE",
+            "QUORUM_MODE": os.getenv("QUORUM_MODE", "STRICT"),
+            "FEDCONSENSUS_OPERATOR_TOKEN": operator_token or "",
+            "PYTHONPATH": str(ROOT),
+        })
+        self.process = subprocess.Popen(
+            [sys.executable, "-m", "node.main"],
+            cwd=str(ROOT),
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        self._wait_ready()
+
+    def _wait_ready(self, timeout=10.0):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self.process.poll() is not None:
+                raise RuntimeError(f"Scaled node {self.node_id} exited prematurely (code {self.process.returncode})")
+            try:
+                with self.opener.open(Request(self.address + "/health"), timeout=1.0) as resp:
+                    if resp.status == 200:
+                        resp.read()
+                        return
+            except Exception:
+                time.sleep(0.12)
+        self.close()
+        raise RuntimeError(f"Scaled node {self.node_id} did not become ready on {self.address}")
+
+    def close(self):
+        if getattr(self, "process", None) is not None and self.process.poll() is None:
+            try:
+                self.process.terminate()
+                self.process.wait(timeout=3.0)
+            except Exception:
+                try:
+                    self.process.kill()
+                except Exception:
+                    pass
+        shutil.rmtree(self.data_dir, ignore_errors=True)
 
 
 class VirtualOrgNode:
@@ -302,9 +384,30 @@ class Operator:
         self._lock = threading.Lock()
         self.opener = build_opener(ProxyHandler({}))
         self.virtual_nodes = {}
+        self.scaled_nodes = {}
         self.base_nodes = [dict(n) for n in self.monitor.nodes[:5]]
         self.state_path = Path(state_path or Path(ROOT) / ".operator-state.json")
         self.operator_token = load_operator_token()
+
+    def _base_grpc_topology(self):
+        """Infer Docker vs localhost gRPC addresses for base + scaled nodes."""
+        first_addr = self.base_nodes[0]["address"] if self.base_nodes else ""
+        if "fednode-0" in first_addr:
+            base_peers = [f"{n['node_id']}:50051" for n in self.base_nodes]
+            scaled_host = os.getenv("DASHBOARD_GRPC_HOST", "dashboard")
+        else:
+            base_peers = [f"127.0.0.1:{50051 + i}" for i in range(len(self.base_nodes))]
+            scaled_host = "127.0.0.1"
+        return base_peers, scaled_host
+
+    def _post_peer_update(self, node_address, payload, timeout=3.0):
+        req = self._operator_request(f"{node_address}/peers", payload)
+        try:
+            with self.opener.open(req, timeout=timeout) as resp:
+                resp.read()
+            return True
+        except Exception:
+            return False
 
     def _operator_request(self, url, body):
         """Request to a node operator endpoint (/fault, /reputation, /peers) carrying the shared token."""
@@ -522,6 +625,16 @@ class Operator:
 
             if action in ("add_org", "autoscale", "reset_scale"):
                 if action == "reset_scale":
+                    removed_grpc = [sn.grpc_addr for sn in self.scaled_nodes.values()]
+                    if removed_grpc:
+                        def _detach_base(base_node):
+                            for gaddr in removed_grpc:
+                                self._post_peer_update(base_node["address"], {"action": "remove", "peer_address": gaddr})
+                        with ThreadPoolExecutor(max_workers=max(1, len(self.base_nodes))) as pool:
+                            list(pool.map(_detach_base, self.base_nodes))
+                    for sn in list(self.scaled_nodes.values()):
+                        sn.close()
+                    self.scaled_nodes.clear()
                     for vn in list(self.virtual_nodes.values()):
                         vn.close()
                     self.virtual_nodes.clear()
@@ -529,17 +642,58 @@ class Operator:
                     self.monitor.refresh()
                     return {"message": "Cluster scaled back to base 5 consortium nodes (N=5, f=1, Q=4)."}
                 current_len = len(self.monitor.nodes)
+                if current_len >= MAX_NODES:
+                    raise ValueError(f"Maximum cluster size reached (N={MAX_NODES}). Click 'Reset to 5 nodes' to scale down.")
                 add_count = 1 if action == "add_org" else int(body.get("delta", body.get("step", 2)))
-                target_len = current_len + max(1, add_count)
+                target_len = min(MAX_NODES, current_len + max(1, add_count))
                 org_raw = str(body.get("org", "")).strip().lower()
                 added_ids = []
-                for idx in range(current_len, target_len):
-                    nid = f"fednode-{idx}"
-                    org_label = org_raw if (action == "add_org" and org_raw) else f"platform-{idx}.social"
-                    vnode = VirtualOrgNode(nid, org_label, self.monitor, self.opener)
-                    self.virtual_nodes[nid] = vnode
-                    self.monitor.nodes.append({"node_id": nid, "address": vnode.address, "org": org_label})
-                    added_ids.append(f"{nid} ({org_label})")
+                use_real = _can_spawn_real_nodes() and self.runtime_status.get("message") != "Test runtime"
+                if use_real:
+                    base_grpc, scaled_host = self._base_grpc_topology()
+                    existing_scaled_grpc = [self.scaled_nodes[f"fednode-{i}"].grpc_addr for i in range(len(self.base_nodes), current_len) if f"fednode-{i}" in self.scaled_nodes]
+                    new_specs = []
+                    for idx in range(current_len, target_len):
+                        nid = f"fednode-{idx}"
+                        org_label = org_raw if (action == "add_org" and org_raw) else f"platform-{idx}.social"
+                        grpc_port = 50051 + idx
+                        http_port = 8080 + idx
+                        grpc_addr = f"{scaled_host}:{grpc_port}"
+                        new_specs.append((nid, org_label, grpc_port, http_port, grpc_addr))
+                    all_grpc_peers = base_grpc + existing_scaled_grpc + [s[4] for s in new_specs]
+                    existing_nodes_snapshot = list(self.monitor.nodes)
+                    newly_created = []
+                    for nid, org_label, grpc_port, http_port, grpc_addr in new_specs:
+                        mnode = ManagedFedNode(
+                            node_id=nid,
+                            org_domain=org_label,
+                            grpc_port=grpc_port,
+                            http_port=http_port,
+                            grpc_addr=grpc_addr,
+                            peers=all_grpc_peers,
+                            operator_token=self.operator_token,
+                            opener=self.opener,
+                        )
+                        self.scaled_nodes[nid] = mnode
+                        self.monitor.nodes.append({"node_id": nid, "address": mnode.address, "org": org_label})
+                        newly_created.append(mnode)
+                        added_ids.append(f"{nid} ({org_label})")
+                    new_grpc_addrs = [m.grpc_addr for m in newly_created]
+                    def _register_on_existing(existing_node):
+                        for gaddr in new_grpc_addrs:
+                            self._post_peer_update(existing_node["address"], {"action": "add", "peer_address": gaddr})
+                    with ThreadPoolExecutor(max_workers=max(1, len(existing_nodes_snapshot))) as pool:
+                        list(pool.map(_register_on_existing, existing_nodes_snapshot))
+                    with ThreadPoolExecutor(max_workers=max(1, len(newly_created))) as pool:
+                        list(pool.map(lambda m: self._post_peer_update(m.address, {"action": "sync"}, timeout=5.0), newly_created))
+                else:
+                    for idx in range(current_len, target_len):
+                        nid = f"fednode-{idx}"
+                        org_label = org_raw if (action == "add_org" and org_raw) else f"platform-{idx}.social"
+                        vnode = VirtualOrgNode(nid, org_label, self.monitor, self.opener)
+                        self.virtual_nodes[nid] = vnode
+                        self.monitor.nodes.append({"node_id": nid, "address": vnode.address, "org": org_label})
+                        added_ids.append(f"{nid} ({org_label})")
                 self.monitor.refresh()
                 f_val = (target_len - 1) // 3
                 q_val = target_len - f_val
@@ -722,6 +876,8 @@ class Operator:
             self._lock.release()
 
     def close(self):
+        for sn in list(getattr(self, "scaled_nodes", {}).values()):
+            sn.close()
         for vn in list(getattr(self, "virtual_nodes", {}).values()):
             vn.close()
         self.runtime.close()

@@ -22,12 +22,12 @@ def peer_id_from_addr(peer_addr: str) -> str:
     host = peer_addr.split(":")[0]
     if host.startswith("fednode-"):
         return host.split(".")[0]
-    if host in ("localhost", "127.0.0.1"):
-        try:
-            port = int(peer_addr.split(":")[1])
+    try:
+        port = int(peer_addr.split(":")[1])
+        if port >= 50051:
             return f"fednode-{port - 50051}"
-        except Exception:
-            pass
+    except Exception:
+        pass
     return host
 
 
@@ -86,22 +86,10 @@ class NodeConfig:
             except Exception:
                 pass
         for p in self.peers:
-            peer_host = p.split(":")[0]
-            if "fednode" in peer_host:
-                node_name = peer_host.split(".")[0]
-                if node_name not in self.known_peer_keys:
-                    _, pub = generate_deterministic_keypair(f"{consortium_secret}-{node_name}")
-                    self.known_peer_keys[node_name] = pub
-            elif peer_host in ("localhost", "127.0.0.1"):
-                try:
-                    port = int(p.split(":")[1])
-                    idx = port - 50051 if port >= 50051 else 0
-                    node_name = f"fednode-{idx}"
-                    if node_name not in self.known_peer_keys:
-                        _, pub = generate_deterministic_keypair(f"{consortium_secret}-{node_name}")
-                        self.known_peer_keys[node_name] = pub
-                except Exception:
-                    pass
+            node_name = peer_id_from_addr(p)
+            if node_name.startswith("fednode-") and node_name not in self.known_peer_keys:
+                _, pub = generate_deterministic_keypair(f"{consortium_secret}-{node_name}")
+                self.known_peer_keys[node_name] = pub
 
         # 3. Operational Mode: AUTOMATIC (instant drop) or ADVISORY (manual review)
         self.operational_mode = os.getenv("OPERATIONAL_MODE", "AUTOMATIC").upper()
@@ -126,12 +114,16 @@ class NodeConfig:
         """Dynamically onboards a new consortium peer into cluster topology."""
         if peer_addr not in self.peers:
             self.peers.append(peer_addr)
-            peer_host = peer_addr.split(":")[0]
-            node_name = peer_host.split(".")[0]
+            node_name = peer_id_from_addr(peer_addr)
             if node_name not in self.known_peer_keys:
                 consortium_secret = os.getenv("CONSORTIUM_SECRET", "fedconsensus-consortium")
                 _, pub = generate_deterministic_keypair(f"{consortium_secret}-{node_name}")
                 self.known_peer_keys[node_name] = pub
+
+    def remove_peer(self, peer_addr: str):
+        """Removes a dynamically scaled peer from cluster topology."""
+        if peer_addr in self.peers:
+            self.peers.remove(peer_addr)
 
     @property
     def total_nodes(self) -> int:
