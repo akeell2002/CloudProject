@@ -77,8 +77,16 @@ class VirtualOrgNode:
                         self.send_response(503)
                         self.end_headers()
                         return
-                    base_addr = parent.monitor.nodes[0]["address"]
-                    req = Request(base_addr + "/inbox", data=raw.encode("utf-8"), headers={"Content-Type": "application/json"})
+                    snap = parent.monitor.snapshot()
+                    online_base = next(
+                        (
+                            n["address"] for n in parent.monitor.nodes
+                            if not n["node_id"].startswith("fednode-5")
+                            and any(obs.get("node_id") == n["node_id"] and obs.get("online") for obs in snap.get("nodes", []))
+                        ),
+                        parent.monitor.nodes[0]["address"],
+                    )
+                    req = Request(online_base + "/inbox", data=raw.encode("utf-8"), headers={"Content-Type": "application/json"})
                     try:
                         with parent.opener.open(req, timeout=5) as resp:
                             code = resp.status

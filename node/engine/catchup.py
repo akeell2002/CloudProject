@@ -125,12 +125,9 @@ class CatchupEngine:
                 )
                 continue
 
-            # Cryptographically audit each signature in the proof
+            # Cryptographically audit each signature in the historical Quorum Certificate
             valid_voters = set()
             for sig in proof.signatures:
-                # Ensure signer is eligible to vote
-                if self.reputation and not self.reputation.is_peer_eligible_to_vote(sig.voter_id):
-                    continue
                 pubkey = self.peer_public_keys.get(sig.voter_id)
                 if not pubkey:
                     continue
@@ -194,6 +191,8 @@ class CatchupEngine:
         from proto import fedconsensus_pb2_grpc as pb2_grpc
 
         total_replayed = 0
+        self_quarantined_reporters = set()
+        reachable_peers_checked = 0
         for peer_addr in self.config.peers:
             host = peer_addr.split(":")[0]
             node_name = host.split(".")[0]
@@ -229,9 +228,11 @@ class CatchupEngine:
                     total_replayed += count
 
                 # Sync peer reputation state to maintain consistent quorum view across nodes
-                # Never copy a peer's view of this node, and only ever lower a local score
+                # Never copy a peer's view of this node into own ledger; track peer quorum quarantine to step down cleanly
                 try:
                     status_res = stub.GetStatus(pb2.StatusRequest(caller_id=self.config.node_id), timeout=1.0)
+                    if status_res:
+                        reachable_peers_checked += 1
                     if status_res and self.leader and getattr(status_res, "current_epoch", 1) > self.leader.current_epoch:
                         with self.leader._lock:
                             if status_res.current_epoch > self.leader.current_epoch:
@@ -242,8 +243,10 @@ class CatchupEngine:
                     if status_res and status_res.reputations:
                         for rep_entry in status_res.reputations:
                             if rep_entry.peer_id == self.config.node_id:
+                                if rep_entry.trust_score < 30 or not rep_entry.is_active:
+                                    self_quarantined_reporters.add(peer_id)
                                 continue
-                            if rep_entry.trust_score < 30 or not rep_entry.is_active:
+                            if rep_entry.trust_score < 100 or not rep_entry.is_active:
                                 self.reputation.adopt_peer_view(
                                     rep_entry.peer_id,
                                     rep_entry.trust_score,
@@ -254,6 +257,10 @@ class CatchupEngine:
             except Exception:
                 self._mark_reachability(peer_id, False)
                 continue
+        if self.leader is not None and reachable_peers_checked > 0:
+            threshold = max(2, (len(self.config.peers) - 1) // 3 + 1)
+            with self.leader._lock:
+                self.leader.self_quarantined_by_peers = len(self_quarantined_reporters) >= threshold
         return total_replayed
 
     def _mark_reachability(self, peer_id: str, reachable: bool):

@@ -167,9 +167,15 @@ class ConsensusEngine:
             proposer_pubkey = self.peer_public_keys.get(proposer_id)
 
             # 0. Follower Proposal Bypass Check (Item 4)
-            # Proposals must originate from authorized consortium leaders
-            expected_leader_idx = (req.epoch - 1) % self.config.total_nodes
-            expected_leader = f"fednode-{expected_leader_idx}"
+            # Proposals must originate from the authorized epoch leader (skipping quarantined peers)
+            n = max(self.config.total_nodes, 1)
+            base_idx = (req.epoch - 1) % n
+            expected_leader = f"fednode-{base_idx}"
+            for offset in range(n):
+                candidate = f"fednode-{(base_idx + offset) % n}"
+                if self.reputation.is_peer_eligible_to_vote(candidate):
+                    expected_leader = candidate
+                    break
             if proposer_id != expected_leader and proposer_id != "operator-fedctl":
                 return False, f"Proposal rejected: {proposer_id} is not an authorized consortium leader", None
 

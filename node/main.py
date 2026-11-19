@@ -204,6 +204,7 @@ class ActivityPubHTTPHandler(BaseHTTPRequestHandler):
                             self.service.consensus.active_proposals.pop(pid, None)
                     if self.service.leader:
                         self.service.leader.censorship_watches.clear()
+                        self.service.leader.self_quarantined_by_peers = False
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -232,6 +233,8 @@ class ActivityPubHTTPHandler(BaseHTTPRequestHandler):
                     self.service.reputation.set_operator_reputation(peer_id, score)
                 else:
                     self.service.db.set_reputation(peer_id, score)
+                if self.service.leader and peer_id == self.service.config.node_id and score >= 30:
+                    self.service.leader.self_quarantined_by_peers = False
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -546,7 +549,7 @@ class FedNodeRunner:
                     try:
                         res = self._get_stub(p_addr).ImpeachLeader(imp_req, timeout=0.8)
                         if res and res.vote_impeach and res.voter_id:
-                            if self.leader.record_impeachment_vote(imp_req.target_epoch, imp_req.leader_id, res.voter_id):
+                            if self.leader.record_impeachment_vote(imp_req.target_epoch, imp_req.leader_id, res.voter_id, is_censorship=False):
                                 self.consensus.current_epoch = self.leader.current_epoch
                     except Exception:
                         pass
@@ -578,7 +581,7 @@ class FedNodeRunner:
                         try:
                             res = self._get_stub(p_addr).ImpeachLeader(imp_req, timeout=0.8)
                             if res and res.vote_impeach and res.voter_id:
-                                if self.leader.record_impeachment_vote(imp_req.target_epoch, imp_req.leader_id, res.voter_id):
+                                if self.leader.record_impeachment_vote(imp_req.target_epoch, imp_req.leader_id, res.voter_id, is_censorship=True):
                                     self.consensus.current_epoch = self.leader.current_epoch
                         except Exception:
                             pass
@@ -602,6 +605,8 @@ class FedNodeRunner:
                         origin_http_signature=str(censor_origin_sig),
                         threat_score=info["assessment"].score
                     )
+                    if self.service:
+                        self.service.apply_leader_byzantine_mode(prop_req)
                     threading.Thread(target=self._broadcast_proposal, args=(prop_req,), daemon=True).start()
                 elif not self.firewall.is_blocked(censored_domain):
                     # Elected epoch leader is another peer; re-arm watch and forward the threat to it.

@@ -677,7 +677,12 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
                 res = stub.ImpeachLeader(co_vote, timeout=1.5)
                 if res and res.vote_impeach and res.voter_id:
                     prev_ep = self.leader.current_epoch
-                    if self.leader.record_impeachment_vote(co_vote.target_epoch, co_vote.leader_id, res.voter_id):
+                    if self.leader.record_impeachment_vote(
+                        co_vote.target_epoch,
+                        co_vote.leader_id,
+                        res.voter_id,
+                        is_censorship=("lease expired" not in co_vote.justification.lower()),
+                    ):
                         self.consensus.current_epoch = self.leader.current_epoch
                         if self.leader.current_epoch > prev_ep and self.leader.claim_epoch_announcement(self.leader.current_epoch):
                             new_leader = self.leader.get_leader_for_epoch(self.leader.current_epoch)
