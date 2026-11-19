@@ -194,9 +194,7 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
                 decision="INVALID",
             )
 
-    # -------------------------------------------------------------
-    # 1. ProposeDefederation (Phase 1 of BFT)
-    # -------------------------------------------------------------
+    # ProposeDefederation
     def ProposeDefederation(self, request: pb2.ProposeRequest, context) -> pb2.ProposeResponse:
         # Byzantine SILENT: simulate dead/dropping node
         if self.byzantine_mode == "SILENT":
@@ -450,9 +448,7 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
             node_id=self.config.node_id
         )
 
-    # -------------------------------------------------------------
-    # 2. CastVote (Phase 2 of BFT)
-    # -------------------------------------------------------------
+    # CastVote
     def CastVote(self, request: pb2.VoteRequest, context) -> pb2.VoteResponse:
         if self.byzantine_mode == "SILENT":
             context.abort(grpc.StatusCode.UNAVAILABLE, "Node is in SILENT Byzantine fault mode")
@@ -507,9 +503,7 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
             message="Vote registered successfully"
         )
 
-    # -------------------------------------------------------------
-    # 3. CommitDefederation (Phase 3 of BFT)
-    # -------------------------------------------------------------
+    # CommitDefederation
     def CommitDefederation(self, request: pb2.CommitRequest, context) -> pb2.CommitResponse:
         if self.byzantine_mode == "SILENT":
             context.abort(grpc.StatusCode.UNAVAILABLE, "Node is in SILENT Byzantine fault mode")
@@ -522,9 +516,7 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
             message="Committed to SQLite and Firewall" if success else "Commit rejected"
         )
 
-    # -------------------------------------------------------------
-    # 4. Heartbeat (Leader Lease Renewal)
-    # -------------------------------------------------------------
+    # Heartbeat
     def Heartbeat(self, request: pb2.HeartbeatRequest, context) -> pb2.HeartbeatResponse:
         if self.byzantine_mode == "SILENT":
             context.abort(grpc.StatusCode.UNAVAILABLE, "Node is in SILENT Byzantine fault mode")
@@ -538,9 +530,7 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
             current_epoch=current_epoch
         )
 
-    # -------------------------------------------------------------
-    # 5. ImpeachLeader (Anti-Censorship Emergency Election)
-    # -------------------------------------------------------------
+    # ImpeachLeader
     def ImpeachLeader(self, request: pb2.ImpeachRequest, context) -> pb2.ImpeachResponse:
         if self.byzantine_mode == "SILENT":
             context.abort(grpc.StatusCode.UNAVAILABLE, "Node is in SILENT Byzantine fault mode")
@@ -578,18 +568,14 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
             voter_id=self.config.node_id
         )
 
-    # -------------------------------------------------------------
-    # 6. CatchupSync (State Recovery & Self-Healing)
-    # -------------------------------------------------------------
+    # CatchupSync
     def CatchupSync(self, request: pb2.CatchupRequest, context) -> pb2.CatchupResponse:
         if self.byzantine_mode == "SILENT":
             context.abort(grpc.StatusCode.UNAVAILABLE, "Node is in SILENT Byzantine fault mode")
 
         return self.catchup.handle_catchup_request(request)
 
-    # -------------------------------------------------------------
-    # 7. GetStatus (Telemetry for Dashboard & CLI)
-    # -------------------------------------------------------------
+    # GetStatus
     def GetStatus(self, request: pb2.StatusRequest, context) -> pb2.StatusResponse:
         # Determine current node state
         if self.byzantine_mode != "NONE":
@@ -621,9 +607,7 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
             operational_mode=self.config.operational_mode
         )
 
-    # -------------------------------------------------------------
-    # Helper Network Methods for Consensus Automation
-    # -------------------------------------------------------------
+    # Peer RPC helpers
     def _is_self_peer(self, peer_addr: str) -> bool:
         if peer_id_from_addr(peer_addr) == self.config.node_id:
             return True

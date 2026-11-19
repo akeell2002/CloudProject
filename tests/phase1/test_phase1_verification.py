@@ -154,15 +154,10 @@ def test_node_configuration():
 
 
 if __name__ == "__main__":
-    print("\n=======================================================")
-    print("   FEDCONSENSUS: PHASE 1 COMPREHENSIVE VERIFICATION   ")
-    print("=======================================================")
     test_grpc_proto_messages()
     test_ed25519_signatures()
     test_http_sig_anti_framing()
     test_sqlite_wal_storage()
     test_peer_reputation()
     test_node_configuration()
-    print("=======================================================")
-    print("   ALL PHASE 1 MODULES VERIFIED & WORKING 100%!       ")
-    print("=======================================================\n")
+    print("All cryptography and storage tests passed.")

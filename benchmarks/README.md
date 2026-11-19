@@ -16,8 +16,7 @@ loopback ports. Run on a quiet host for comparable performance numbers.
 Consensus is serial HTTP ingress to observed enforcement on all honest peers.
 The timer includes the observer's HTTP polling. Successful trials are used for
 mean and p95; timeouts remain in the raw data and success denominator. The
-serial commit rate uses completed trials divided by the total trial window.
-Fault
+serial commit rate uses completed trials divided by the total trial window. Fault
 cases start from fresh state. Conflicts are sampled from observer snapshots,
 so zero observed conflicts is not a safety proof. Recovery times local replay
 of pre-generated valid certificates; it excludes network transfer and

@@ -1,5 +1,5 @@
 """
-Automated Verification Suite for Milestone 4.3 (Kubernetes Manifests)
+Tests for Kubernetes manifests under k8s/.
 Validates YAML structure, schema compliance, and integration with NodeConfig.
 """
 import os
@@ -50,10 +50,7 @@ def test_k8s_manifests():
     vct = ss["spec"]["volumeClaimTemplates"][0]
     assert vct["metadata"]["name"] == "data"
     print("  [PASS] StatefulSet includes volumeClaimTemplates for SQLite WAL persistence")
-
-    print("\n=======================================================")
-    print("   MILESTONE 4.3: KUBERNETES MANIFESTS VERIFIED 100%!  ")
-    print("=======================================================\n")
+    print("Kubernetes manifest tests passed.")
 
 
 if __name__ == "__main__":

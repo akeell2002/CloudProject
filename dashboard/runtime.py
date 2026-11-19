@@ -142,7 +142,7 @@ class Runtime:
 
     def scale(self, count):
         if type(count) is not int or not 1 <= count <= 9:
-            raise ValueError("Choose 1–9 replicas")
+            raise ValueError("Choose 1-9 replicas")
         if not self.capabilities()["available"]:
             raise RuntimeError("Runtime controls are unavailable")
         if self.kind == "kubernetes":

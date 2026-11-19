@@ -24,15 +24,12 @@ def cmd_status(args):
     stub = get_stub(args.target)
     try:
         res = stub.GetStatus(pb2.StatusRequest(caller_id="fedctl"), timeout=args.timeout)
-        print("=======================================================")
-        print(f"   FEDNODE TELEMETRY: {res.node_id}")
-        print("=======================================================")
-        print(f"  Role / State:        {res.state}")
-        print(f"  Current Epoch:       {res.current_epoch}")
-        print(f"  Last Committed Seq:  {res.last_committed_seq}")
-        print(f"  Blocked Domains:     {res.blocked_domains_count}")
-        print(f"  Operational Mode:    {res.operational_mode}")
-        print("=======================================================\n")
+        print(f"Node:                {res.node_id}")
+        print(f"Role / State:        {res.state}")
+        print(f"Current Epoch:       {res.current_epoch}")
+        print(f"Last Committed Seq:  {res.last_committed_seq}")
+        print(f"Blocked Domains:     {res.blocked_domains_count}")
+        print(f"Operational Mode:    {res.operational_mode}\n")
         return 0
     except grpc.RpcError as e:
         print(f"[ERROR] Failed to reach node at {args.target}: {e.details() or e.code()}", file=sys.stderr)
@@ -44,11 +41,9 @@ def cmd_peers(args):
     stub = get_stub(args.target)
     try:
         res = stub.GetStatus(pb2.StatusRequest(caller_id="fedctl"), timeout=args.timeout)
-        print("=========================================================================")
-        print(f"   PEER REPUTATION LEDGER (Audited by {res.node_id})")
-        print("=========================================================================")
+        print(f"Peer Reputation ({res.node_id})")
         print(f"{'Peer ID':<15} | {'Trust Score':<12} | {'Violations':<12} | {'Status':<15}")
-        print("-" * 73)
+        print("-" * 63)
 
         if not res.reputations:
             print("  (No peer reputation records found)")
@@ -56,7 +51,7 @@ def cmd_peers(args):
             for p in res.reputations:
                 status = "QUARANTINED" if p.trust_score < 30 else ("ACTIVE" if p.is_active else "SUSPENDED")
                 print(f"{p.peer_id:<15} | {p.trust_score:<12} | {p.violations_count:<12} | {status:<15}")
-        print("=========================================================================\n")
+        print()
         return 0
     except grpc.RpcError as e:
         print(f"[ERROR] Failed to reach node at {args.target}: {e.details() or e.code()}", file=sys.stderr)

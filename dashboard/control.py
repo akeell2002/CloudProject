@@ -484,7 +484,7 @@ class Operator:
             raise ValueError("Unknown traffic scenario")
         content = templates[scenario]
         if not isinstance(content, str) or not 1 <= len(content) <= 2000:
-            raise ValueError("Supply 1–2000 text characters")
+            raise ValueError("Supply 1-2000 text characters")
         source = body.get("source", "external")
         if source not in ("external", "internal"):
             raise ValueError("Choose an external or internal lab source")
@@ -552,7 +552,7 @@ class Operator:
             domain = str(body.get("domain", "")).strip().lower()
             justification = str(body.get("justification", "")).strip()
             if not DOMAIN.fullmatch(domain) or not 1 <= len(justification) <= 1000:
-                raise ValueError("Supply a valid target domain and 1–1000 justification characters")
+                raise ValueError("Supply a valid target domain and 1-1000 justification characters")
             observations = self.monitor.snapshot()["nodes"]
             node = next(n for n in observations if n["node_id"] == node_id)
             sequences = [n.get("last_sequence", 0) for n in observations]

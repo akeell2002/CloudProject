@@ -55,10 +55,5 @@ def test_leader_leases_and_impeachment():
 
 
 if __name__ == "__main__":
-    print("\n=======================================================")
-    print("   PHASE 2 FACTOR: LEADER LEASES & IMPEACHMENT ENGINE  ")
-    print("=======================================================")
     test_leader_leases_and_impeachment()
-    print("=======================================================")
-    print("   ALL LEADER ELECTION MODULES PASS 100%!              ")
-    print("=======================================================\n")
+    print("Leader tests passed.")

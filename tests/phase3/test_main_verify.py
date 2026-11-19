@@ -60,10 +60,7 @@ def test_dual_server_startup():
         status_res = stub.GetStatus(pb2.StatusRequest(caller_id="tester"), timeout=2.0)
         assert status_res.node_id == "fednode-test"
         print("  [PASS] 3. gRPC Mesh GetStatus answered on internal port 19051")
-
-        print("\n=======================================================")
-        print("   MILESTONE 3.3: DUAL-SERVER RUNNER VERIFIED 100%!    ")
-        print("=======================================================\n")
+        print("Dual-server runner tests passed.")
 
     finally:
         runner.stop()

@@ -1,8 +1,6 @@
 @echo off
 cd /d "%~dp0"
-echo =======================================================
-echo    FEDCONSENSUS: LAUNCHING 5-NODE DOCKER FLEET
-echo =======================================================
+echo Starting 5-node FedConsensus Docker cluster...
 
 docker compose down
 if errorlevel 1 exit /b 1

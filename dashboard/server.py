@@ -207,7 +207,7 @@ class ClusterMonitor:
             node["quarantined_by"] = observers
             node["quarantined"] = bool(observers)
         quorum_health = self._quorum_health(observations)
-        # shortcut: retain the latest 300 observations in memory; add durable history if required.
+        # Retain the latest 300 observations in memory.
         events = sorted(self._events.values(), key=lambda e: e.get("timestamp", 0))[-300:]
         self._events = {event["id"]: event for event in events}
         with self._lock:

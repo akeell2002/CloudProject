@@ -99,9 +99,7 @@ class LeaderManager:
             is_match = (self.config.node_id == expected_leader)
             return is_match and time.time() < self.lease_expires_at
 
-    # -------------------------------------------------------------
-    # HEARTBEATS & LEASE RENEWAL
-    # -------------------------------------------------------------
+    # Heartbeats and lease renewal
     def generate_heartbeat(self) -> pb2.HeartbeatRequest:
         """Leader generates signed heartbeat to renew lease across followers."""
         with self._lock:
@@ -153,9 +151,7 @@ class LeaderManager:
             self.lease_expires_at = req.lease_expires_at / 1000.0
             return True, self.current_epoch
 
-    # -------------------------------------------------------------
-    # FOLLOWER IMPEACHMENT (ANTI-CENSORSHIP)
-    # -------------------------------------------------------------
+    # Follower impeachment (anti-censorship)
     def create_impeachment_request(
         self,
         justification: str,

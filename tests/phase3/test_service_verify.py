@@ -56,10 +56,7 @@ def test_service_and_byzantine_modes():
         service.set_byzantine_mode("NONE")
         assert service.byzantine_mode == "NONE"
         print("  [PASS] 4. Honest mode restored")
-
-        print("\n=======================================================")
-        print("   MILESTONE 3.2: gRPC SERVICE & CHAOS MODES 100%!     ")
-        print("=======================================================\n")
+        print("gRPC service tests passed.")
 
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)

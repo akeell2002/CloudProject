@@ -55,10 +55,5 @@ def test_firewall_filter_operations():
 
 
 if __name__ == "__main__":
-    print("\n=======================================================")
-    print("   PHASE 2 FACTOR: PERIMETER FIREWALL FILTER           ")
-    print("=======================================================")
     test_firewall_filter_operations()
-    print("=======================================================")
-    print("   ALL FIREWALL MODULES PASS 100%!                     ")
-    print("=======================================================\n")
+    print("Firewall tests passed.")

@@ -45,9 +45,7 @@ class CatchupEngine:
         """Registers or updates a known peer's public key for signature audit."""
         self.peer_public_keys[peer_id] = public_key_hex
 
-    # -------------------------------------------------------------
-    # 1. SERVING CATCH-UP (When an out-of-date peer asks US for history)
-    # -------------------------------------------------------------
+    # Serve catch-up history to out-of-date peers
     def handle_catchup_request(self, req: pb2.CatchupRequest) -> pb2.CatchupResponse:
         """
         Queries local SQLite database for all committed bans starting from
@@ -96,9 +94,7 @@ class CatchupEngine:
             latest_sequence_number=self.db.get_latest_sequence_number()
         )
 
-    # -------------------------------------------------------------
-    # 2. REPLAYING HISTORY (When WE wake up and receive records from a peer)
-    # -------------------------------------------------------------
+    # Replay history received from a peer
     def replay_records(self, records: List[pb2.CommitRecord]) -> int:
         """
         Audits incoming commit records from a peer:

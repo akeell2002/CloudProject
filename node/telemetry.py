@@ -124,7 +124,7 @@ def node_snapshot(service):
     ledger = service.reputation.get_ledger()
     health = quorum_health(service, ledger)
     with engine._lock:
-        # shortcut: show the latest 50 proposals; use paginated history for larger deployments.
+        # Keep the snapshot bounded to the latest 50 proposals.
         proposals = [
             {
                 "proposal_id": p.proposal_id,

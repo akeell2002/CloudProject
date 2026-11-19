@@ -1,8 +1,5 @@
 """
-FEDCONSENSUS: PHASE 4 COMPREHENSIVE VERIFICATION SUITE
-Combines:
-  1. Milestone 4.1: Operator Diagnostics CLI (fedctl.py) Telemetry, Peers, and Proposals
-  2. Milestone 4.3: Cloud-Native Kubernetes Manifests (Headless Mesh, StatefulSet, Downward API, PVCs)
+Verification suite for the fedctl operator CLI and Kubernetes manifests.
 """
 import os
 import sys
@@ -32,7 +29,7 @@ from cli.fedctl import cmd_status, cmd_peers, cmd_propose
 
 
 def verify_operator_cli(temp_dir: str):
-    """Verifies Milestone 4.1: fedctl CLI over live gRPC."""
+    """Verify fedctl CLI commands over live gRPC."""
     test_port = "59052"
     target_addr = f"127.0.0.1:{test_port}"
 
@@ -97,7 +94,7 @@ def verify_operator_cli(temp_dir: str):
 
 
 def verify_kubernetes_manifests():
-    """Verifies Milestone 4.3: Kubernetes manifests syntax and configuration."""
+    """Verify Kubernetes manifest syntax and configuration."""
     k8s_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "k8s"))
     files = glob.glob(os.path.join(k8s_dir, "*.yaml"))
     assert len(files) == 4, f"Expected 4 manifests, found {len(files)}"
@@ -140,18 +137,11 @@ def verify_kubernetes_manifests():
 
 
 def run_phase4_verification():
-    print("\n=======================================================")
-    print("   FEDCONSENSUS: PHASE 4 COMPREHENSIVE VERIFICATION   ")
-    print("   (Operator CLI & Cloud-Native Kubernetes Mesh)       ")
-    print("=======================================================")
-
     temp_dir = tempfile.mkdtemp()
     try:
         verify_operator_cli(temp_dir)
         verify_kubernetes_manifests()
-        print("=======================================================")
-        print("   ALL PHASE 4 INFRASTRUCTURE MODULES PASS 100%!       ")
-        print("=======================================================\n")
+        print("CLI and Kubernetes infrastructure tests passed.")
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 

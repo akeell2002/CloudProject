@@ -249,16 +249,11 @@ def test_quarantined_peer_vote_exclusion():
 
 
 def run_all_consensus_tests():
-    print("\n=======================================================")
-    print("   FEDCONSENSUS: BFT CONSENSUS ENGINE VERIFICATION    ")
-    print("=======================================================")
     test_dynamic_bft_quorum_math()
     test_split_brain_partition_invariance()
     test_live_quorum_minting_and_commit()
     test_quarantined_peer_vote_exclusion()
-    print("=======================================================")
-    print("   ALL BFT CONSENSUS MATHEMATICAL PROOFS PASS 100%!   ")
-    print("=======================================================\n")
+    print("Consensus tests passed.")
 
 
 if __name__ == "__main__":

@@ -66,10 +66,5 @@ def test_sqlite_wal_and_operations():
 
 
 if __name__ == "__main__":
-    print("\n=======================================================")
-    print("   PHASE 1 FACTOR: SQLITE WAL STORAGE ENGINE           ")
-    print("=======================================================")
     test_sqlite_wal_and_operations()
-    print("=======================================================")
-    print("   ALL STORAGE ENGINE MODULES PASS 100%!               ")
-    print("=======================================================\n")
+    print("Database tests passed.")

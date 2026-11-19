@@ -243,15 +243,10 @@ def test_safety_under_excessive_faults():
 
 
 def run_all_byzantine_tests():
-    print("\n=======================================================")
-    print("   FEDCONSENSUS: BYZANTINE FAULT MASKING VERIFICATION  ")
-    print("=======================================================")
     test_byzantine_liar_fault_masking()
     test_byzantine_forger_reputation_penalty()
     test_safety_under_excessive_faults()
-    print("=======================================================")
-    print("   ALL BYZANTINE FAULT RESILIENCE PROOFS PASS 100%!   ")
-    print("=======================================================\n")
+    print("Byzantine fault tests passed.")
 
 
 if __name__ == "__main__":

@@ -73,10 +73,5 @@ def test_peer_reputation_and_quarantine():
 
 
 if __name__ == "__main__":
-    print("\n=======================================================")
-    print("   PHASE 1 FACTOR: DYNAMIC PEER REPUTATION LEDGER      ")
-    print("=======================================================")
     test_peer_reputation_and_quarantine()
-    print("=======================================================")
-    print("   ALL PEER REPUTATION MODULES PASS 100%!              ")
-    print("=======================================================\n")
+    print("Reputation tests passed.")

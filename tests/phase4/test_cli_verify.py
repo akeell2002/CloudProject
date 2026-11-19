@@ -1,5 +1,5 @@
 """
-Automated Verification Suite for Milestone 4.1 (fedctl CLI)
+Integration tests for the fedctl operator CLI.
 """
 import os
 import sys
@@ -97,12 +97,9 @@ def test_cli_integration():
         assert exit_code_prop == 1  # Successfully caught as unknown proposer!
         print("  [PASS] 3. `fedctl propose` correctly caught unauthorized key via BFT signature audit!")
 
-        # 5. Clean server shutdown
+        # Clean server shutdown
         server.stop(grace=None)
-
-        print("\n=======================================================")
-        print("   MILESTONE 4.1: FEDCTL CLI VERIFIED 100%!           ")
-        print("=======================================================\n")
+        print("fedctl CLI tests passed.")
 
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)

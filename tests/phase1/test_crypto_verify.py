@@ -64,11 +64,6 @@ def test_origin_http_sig_anti_framing():
 
 
 if __name__ == "__main__":
-    print("\n=======================================================")
-    print("   PHASE 1 FACTOR: CRYPTOGRAPHY & HTTP SIGNATURES      ")
-    print("=======================================================")
     test_ed25519_keypair_and_signing()
     test_origin_http_sig_anti_framing()
-    print("=======================================================")
-    print("   ALL CRYPTOGRAPHY MODULES PASS 100%!                ")
-    print("=======================================================\n")
+    print("Crypto tests passed.")

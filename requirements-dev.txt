@@ -1,2 +1,0 @@
-# Test-only dependencies. Runtime requirements are in requirements.txt and node/requirements.txt.
-hypothesis>=6.100,<6.156

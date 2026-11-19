@@ -69,10 +69,5 @@ def test_threat_classifier_features():
 
 
 if __name__ == "__main__":
-    print("\n=======================================================")
-    print("   PHASE 2 FACTOR: MULTI-FEATURE THREAT CLASSIFIER    ")
-    print("=======================================================")
     test_threat_classifier_features()
-    print("=======================================================")
-    print("   ALL CLASSIFIER MODULES PASS 100%!                   ")
-    print("=======================================================\n")
+    print("Classifier tests passed.")

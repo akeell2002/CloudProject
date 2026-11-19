@@ -41,10 +41,5 @@ def test_protobuf_and_config():
 
 
 if __name__ == "__main__":
-    print("\n=======================================================")
-    print("   PHASE 1 FACTOR: PROTOBUF CONTRACTS & NODE CONFIG    ")
-    print("=======================================================")
     test_protobuf_and_config()
-    print("=======================================================")
-    print("   ALL CONFIGURATION MODULES PASS 100%!                ")
-    print("=======================================================\n")
+    print("Config tests passed.")

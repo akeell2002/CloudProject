@@ -305,7 +305,7 @@ def main():
     selection.add_argument("--micro-only", action="store_true", help="Run only the blocklist and threat screening benchmarks")
     args = parser.parse_args()
     if min(args.trials, args.repeats, args.timeout) <= 0 or any(not 4 <= n <= 16 for n in args.sizes):
-        parser.error("Use positive trial/repeat/timeout values and cluster sizes 4–16.")
+        parser.error("Use positive trial/repeat/timeout values and cluster sizes 4-16.")
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     run = HERE / "results" / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S-%fZ")
     run.mkdir(parents=True)

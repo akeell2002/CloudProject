@@ -138,8 +138,8 @@ class NodeConfig:
     def quorum_size(self) -> int:
         """
         Quorum threshold:
-        - Strict BFT (Default Option B): Q = N - f (4 out of 5 for N=5, f=1) to prevent split-brain.
-        - Majority Mode (Option A): Q = 2f + 1 (3 out of 5 for N=5, f=1).
+        - Strict BFT (default): Q = N - f (4 out of 5 for N=5, f=1) to prevent split-brain.
+        - Majority mode: Q = 2f + 1 (3 out of 5 for N=5, f=1).
         """
         f = self.max_byzantine_faults
         mode = os.getenv("QUORUM_MODE", "STRICT").upper()

@@ -86,11 +86,8 @@ def test_catchup_and_self_healing():
         assert replayed == 1
         assert db_crashed.get_latest_sequence_number() == 1
         assert fw_crashed.is_blocked("botnet-attack.org") is True
-        print("  [PASS] 3. Self-healing complete! Record audited, saved to SQLite, and active in RAM Firewall!")
-
-        print("\n=======================================================")
-        print("   MILESTONE 3.1: CATCH-UP ENGINE VERIFIED 100%!       ")
-        print("=======================================================\n")
+        print("  [PASS] 3. Self-healing complete: record audited, saved to SQLite, and loaded into firewall")
+        print("Catch-up engine tests passed.")
 
     finally:
         shutil.rmtree(temp_dir_healthy, ignore_errors=True)

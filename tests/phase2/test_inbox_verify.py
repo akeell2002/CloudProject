@@ -66,10 +66,5 @@ def test_activitypub_inbox_pipeline():
 
 
 if __name__ == "__main__":
-    print("\n=======================================================")
-    print("   PHASE 2 FACTOR: ACTIVITYPUB INGRESS ENDPOINT        ")
-    print("=======================================================")
     test_activitypub_inbox_pipeline()
-    print("=======================================================")
-    print("   ALL INGRESS ENDPOINT MODULES PASS 100%!             ")
-    print("=======================================================\n")
+    print("Inbox tests passed.")

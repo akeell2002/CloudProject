@@ -107,9 +107,7 @@ class ConsensusEngine:
         for k in committed_keys[: len(self.active_proposals) - max_entries]:
             self.active_proposals.pop(k, None)
 
-    # -------------------------------------------------------------
-    # PHASE 1: PROPOSE (Leader / Reporter)
-    # -------------------------------------------------------------
+    # Propose
     def create_proposal(
         self,
         target_domain: str,
@@ -118,7 +116,7 @@ class ConsensusEngine:
         origin_http_signature: str,
         threat_score: float
     ) -> pb2.ProposeRequest:
-        """Constructs and cryptographically signs a Phase 1 proposal."""
+        """Build and sign a defederation proposal."""
         with self._lock:
             self._prune_proposals()
             for p in self.active_proposals.values():
@@ -137,7 +135,7 @@ class ConsensusEngine:
                 "decision": "APPROVE"
             }
             leader_vote_sig = sign_message(self.config.private_key_hex, vote_meta)
-            # Leader signs standard ballot format (Item 2)
+            # Sign using the standard ballot format
             proposer_sig = leader_vote_sig
 
             prop_req = pb2.ProposeRequest(
@@ -176,12 +174,10 @@ class ConsensusEngine:
 
             return prop_req
 
-    # -------------------------------------------------------------
-    # PHASE 2: PREPARE (Follower Auditing & Voting)
-    # -------------------------------------------------------------
+    # Proposal verification and voting
     def handle_proposal(self, req: pb2.ProposeRequest, byzantine_mode: str = "NONE") -> Tuple[bool, str, Optional[pb2.VoteRequest]]:
         """
-        Follower audits incoming Phase 1 proposal:
+        Validate an incoming proposal:
         1. Verify proposer signature
         2. Verify origin HTTP signature (anti-framing)
         3. Verify threat score threshold (>= 0.60)
@@ -193,7 +189,6 @@ class ConsensusEngine:
             proposer_id = req.proposer_id
             proposer_pubkey = self.peer_public_keys.get(proposer_id)
 
-            # 0. Follower Proposal Bypass Check (Item 4)
             # Proposals must originate from the authorized epoch leader (skipping quarantined peers)
             n = max(self.config.total_nodes, 1)
             base_idx = (req.epoch - 1) % n
@@ -206,8 +201,7 @@ class ConsensusEngine:
             if proposer_id != expected_leader and proposer_id != "operator-fedctl":
                 return False, f"Proposal rejected: {proposer_id} is not an authorized consortium leader", None
 
-            # 1. Proposer Signature Verification (Item 2)
-            # Supports both standard ballot format ('decision': 'APPROVE') and legacy metadata format
+            # Verify proposer signature
             vote_meta = {
                 "proposal_id": req.proposal_id,
                 "sequence_number": req.sequence_number,
@@ -259,7 +253,7 @@ class ConsensusEngine:
                 except Exception:
                     return False, "Malformed origin HTTP signature payload", None
 
-            # Flaw 12 & Item 6: Independent Evidence Payload Audit (No Botnet Bypass)
+            # Independently audit the evidence payload
             if req.evidence_payload:
                 try:
                     ev_data = json.loads(req.evidence_payload) if isinstance(req.evidence_payload, str) else req.evidence_payload
@@ -340,14 +334,12 @@ class ConsensusEngine:
             )
             return True, "Proposal approved and ballot signed", vote_req
 
-    # -------------------------------------------------------------
-    # VOTE ACCUMULATION & QUORUM CERTIFICATE (QC) MINTING
-    # -------------------------------------------------------------
+    # Vote accumulation and quorum certificate
     def handle_vote(self, vote: pb2.VoteRequest) -> Optional[pb2.QuorumProof]:
         """
         Processes incoming ballots from peers.
-        Checks for Quorum Threshold (Q = N - f).
-        Returns minted QuorumProof when quorum is reached!
+        Checks for quorum threshold (Q = N - f).
+        Returns a QuorumProof once quorum is reached.
         """
         with self._lock:
             proposal = self.active_proposals.get(vote.proposal_id)
@@ -391,7 +383,7 @@ class ConsensusEngine:
                 )
                 return None
 
-            # Flaw 9: Equivocation Detection (catch conflicting signed ballots even post-commit)
+            # Detect conflicting signed ballots from the same voter (including post-commit)
             prev_decision = proposal.recorded_decisions.get(voter_id)
             if prev_decision is not None and prev_decision != vote.decision:
                 applied = self.reputation.penalize_equivocation(voter_id, proposal_id=vote.proposal_id)
@@ -462,32 +454,30 @@ class ConsensusEngine:
                 timestamp=int(time.time() * 1000)
             )
 
-    # -------------------------------------------------------------
-    # PHASE 3: COMMIT (Finalizing Defederation)
-    # -------------------------------------------------------------
+    # Commit
     def commit_defederation(self, proof: pb2.QuorumProof, historical: bool = False) -> bool:
         """
-        Executes Phase 3 Commit:
+        Commit a finalized defederation:
         1. Validates Q signatures in the Quorum Certificate.
         2. Atomically persists decision to SQLite WAL.
         3. Updates in-memory Firewall lookup set.
         """
         with self._lock:
-            # 1. Verify Quorum Threshold (excluding quarantined peers)
+            # Verify quorum threshold (excluding quarantined peers)
             live_quorum = self.effective_quorum_size()
             required_quorum = min(live_quorum, 3) if historical else live_quorum
             if len(proof.signatures) < required_quorum:
                 return False
 
-            # Flaw 2: Advance sequence counter to match committed proof
+            # Advance sequence counter to match committed proof
             self._sequence_counter = max(self._sequence_counter, proof.sequence_number)
 
-            # 2. Verify all signatures in Quorum Certificate
+            # Verify all signatures in Quorum Certificate
             valid_voters: Set[str] = set()
             tracked_prop = self.active_proposals.get(proof.proposal_id)
             score_val = tracked_prop.threat_score if tracked_prop else 0.85
             for s in proof.signatures:
-                # Flaw 16: Quarantined peers cannot contribute to live Quorum
+                # Quarantined peers cannot contribute to live quorum
                 if not historical and not self.reputation.is_peer_eligible_to_vote(s.voter_id):
                     continue
                 pubkey = self.peer_public_keys.get(s.voter_id)
@@ -503,7 +493,7 @@ class ConsensusEngine:
                 if verify_signature(pubkey, vote_meta, s.signature):
                     valid_voters.add(s.voter_id)
                 else:
-                    # Dynamically check score_val and standard threat score candidates (Item 3)
+                    # Fallback check for legacy proposal-format signatures
                     matched = False
                     cand_scores = {round(score_val, 3), 1.0, 0.95, 0.92, 0.91, 0.90, 0.89, 0.88, 0.85, 0.80, 0.75, 0.70, 0.65, 0.60}
                     for candidate_score in cand_scores:

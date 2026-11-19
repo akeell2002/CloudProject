@@ -244,15 +244,10 @@ def test_scenario_anti_framing_protection():
 
 
 def run_all_scenarios():
-    print("\n=======================================================")
-    print("   FEDCONSENSUS: END-TO-END SCENARIOS VERIFICATION    ")
-    print("=======================================================")
     test_scenario_end_to_end_moderation_lifecycle()
     test_scenario_crash_and_self_healing_catchup()
     test_scenario_anti_framing_protection()
-    print("=======================================================")
-    print("   ALL END-TO-END SCENARIO CHAOS TESTS PASS 100%!     ")
-    print("=======================================================\n")
+    print("End-to-end scenario tests passed.")
 
 
 if __name__ == "__main__":

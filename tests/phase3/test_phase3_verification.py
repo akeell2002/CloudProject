@@ -25,10 +25,6 @@ from node.crypto.ed25519 import generate_keypair, sign_message
 
 
 def run_phase3_comprehensive_verification():
-    print("\n=======================================================")
-    print("   FEDCONSENSUS: PHASE 3 COMPREHENSIVE VERIFICATION   ")
-    print("=======================================================")
-
     temp_dir = tempfile.mkdtemp()
     temp_dir_healthy = os.path.join(temp_dir, "healthy")
     temp_dir_crashed = os.path.join(temp_dir, "crashed")
@@ -36,9 +32,7 @@ def run_phase3_comprehensive_verification():
     os.makedirs(temp_dir_crashed, exist_ok=True)
 
     try:
-        # =========================================================
-        # 1. TEST CATCH-UP & CRYPTOGRAPHIC LOG REPLAY (Milestone 3.1)
-        # =========================================================
+        # 1. Catch-up and cryptographic log replay
         db_healthy = Database(os.path.join(temp_dir_healthy, "healthy.db"))
         fw_healthy = FirewallFilter(db_healthy)
         cfg_healthy = NodeConfig()
@@ -97,9 +91,7 @@ def run_phase3_comprehensive_verification():
         assert fw_crashed.is_blocked("botnet-attack.org") is True
         print("  [PASS] 1. Catchup Engine & QC Replay Verified (Self-Healing Active)")
 
-        # =========================================================
-        # 2. TEST gRPC SERVICE & BYZANTINE FAULT INJECTION (Milestone 3.2)
-        # =========================================================
+        # 2. gRPC service and Byzantine fault injection
         rep = ReputationManager(db_healthy)
         consensus = ConsensusEngine(cfg_healthy, db_healthy, fw_healthy, rep)
         leader = LeaderManager(cfg_healthy, rep)
@@ -123,9 +115,7 @@ def run_phase3_comprehensive_verification():
         service.set_byzantine_mode("NONE")
         print("  [PASS] 2. gRPC Service & Byzantine Fault Injection Verified (Chaos Modes Ready)")
 
-        # =========================================================
-        # 3. TEST DUAL-SERVER NODE RUNNER (Milestone 3.3)
-        # =========================================================
+        # 3. Dual-server node runner
         os.environ["DATA_DIR"] = temp_dir
         os.environ["GRPC_PORT"] = "19051"
         os.environ["HTTP_PORT"] = "18080"
@@ -164,9 +154,7 @@ def run_phase3_comprehensive_verification():
         finally:
             runner.stop()
 
-        print("=======================================================")
-        print("   ALL PHASE 3 MODULES VERIFIED & INTEGRATED 100%!     ")
-        print("=======================================================\n")
+        print("Catch-up, gRPC service, and dual-server tests passed.")
 
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)

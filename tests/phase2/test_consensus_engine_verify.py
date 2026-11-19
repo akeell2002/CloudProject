@@ -91,10 +91,5 @@ def test_consensus_engine_state_machine():
 
 
 if __name__ == "__main__":
-    print("\n=======================================================")
-    print("   PHASE 2 FACTOR: 3-PHASE BFT CONSENSUS ENGINE        ")
-    print("=======================================================")
     test_consensus_engine_state_machine()
-    print("=======================================================")
-    print("   ALL CONSENSUS ENGINE MODULES PASS 100%!             ")
-    print("=======================================================\n")
+    print("Consensus engine tests passed.")
