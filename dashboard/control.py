@@ -223,7 +223,7 @@ class VirtualOrgNode:
             for p in online_peers[0].get("proposals", []):
                 p_copy = dict(p)
                 approvals = list(p_copy.get("approvals", []))
-                if self.byzantine_mode == "NONE" and self.node_id not in approvals:
+                if self.byzantine_mode == "NONE" and p_copy.get("committed") is True and self.node_id not in approvals:
                     approvals.append(self.node_id)
                 if p_copy.get("domain") in self.proposed_domains:
                     p_copy["proposer"] = self.node_id
@@ -385,9 +385,14 @@ class Operator:
         source = body.get("source", "external")
         if source not in ("external", "internal"):
             raise ValueError("Choose an external or internal lab source")
+        snap_nodes = {n["node_id"]: n for n in self.monitor.snapshot().get("nodes", [])}
+        if snap_nodes.get(node["node_id"]) and not snap_nodes[node["node_id"]].get("online"):
+            raise ValueError(f"Cannot deliver traffic to {node['node_id']}: node is OFFLINE")
         source_node = body.get("source_node")
         if source == "internal":
             self.node(source_node)
+            if snap_nodes.get(source_node) and not snap_nodes[source_node].get("online"):
+                raise ValueError(f"Cannot send internal traffic from {source_node}: node is OFFLINE")
         domain = str(body.get("domain", "")).strip().lower() or (
             f"{source_node}.lab.example" if source == "internal" else
             "mastodon.social" if scenario in ("benign", "false_flag") else scenario + "-" + secrets.token_hex(3) + ".lab.example"

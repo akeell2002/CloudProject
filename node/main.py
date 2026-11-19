@@ -428,7 +428,9 @@ class FedNodeRunner:
                     self.leader.clear_censorship_watch(domain)
                     return
             except Exception:
-                pass
+                with self.leader._lock:
+                    if domain in self.leader.censorship_watches:
+                        self.leader.censorship_watches[domain]["leader_unreachable"] = True
         # If Leader is in CENSOR mode (accepted=False) or unreachable, censorship watch will expire in 3s
         # and cleanly impeach the leader without premature follower broadcast race conditions!
 
@@ -570,10 +572,14 @@ class FedNodeRunner:
                     continue
                 current_leader = self.leader.get_leader_for_epoch(self.leader.current_epoch)
                 if current_leader != self.config.node_id and info.get("epoch", self.leader.current_epoch) == self.leader.current_epoch:
-                    logger.warning(f"[{self.config.node_id}] Leader censored attack on {censored_domain} > 3s! Impeaching.")
-                    imp_req = self.leader.create_impeachment_request(
-                        justification=f"Leader {current_leader} censored attack on {censored_domain}"
-                    )
+                    is_unreachable = bool(info.get("leader_unreachable", False))
+                    if is_unreachable:
+                        logger.warning(f"[{self.config.node_id}] Leader {current_leader} unreachable for {censored_domain}; triggering lease-expired failover.")
+                        justification = f"Leader {current_leader} unreachable (heartbeat lease expired)"
+                    else:
+                        logger.warning(f"[{self.config.node_id}] Leader censored attack on {censored_domain} > 3s! Impeaching.")
+                        justification = f"Leader {current_leader} censored attack on {censored_domain}"
+                    imp_req = self.leader.create_impeachment_request(justification=justification)
                     self.leader.claim_impeachment_broadcast(imp_req.target_epoch)
                     prev_epoch = self.leader.current_epoch
                     self.leader.handle_impeachment(imp_req, self.config.public_key_hex)
@@ -583,7 +589,9 @@ class FedNodeRunner:
                         try:
                             res = self._get_stub(p_addr).ImpeachLeader(imp_req, timeout=0.8)
                             if res and res.vote_impeach and res.voter_id:
-                                if self.leader.record_impeachment_vote(imp_req.target_epoch, imp_req.leader_id, res.voter_id, is_censorship=True):
+                                if self.leader.record_impeachment_vote(
+                                    imp_req.target_epoch, imp_req.leader_id, res.voter_id, is_censorship=(not is_unreachable)
+                                ):
                                     self.consensus.current_epoch = self.leader.current_epoch
                         except Exception:
                             pass
@@ -591,9 +599,10 @@ class FedNodeRunner:
                     self.consensus.current_epoch = self.leader.current_epoch
                     if self.leader.current_epoch > prev_epoch and self.leader.claim_epoch_announcement(self.leader.current_epoch):
                         new_leader = self.leader.get_leader_for_epoch(self.leader.current_epoch)
+                        reason_txt = "failed over (unreachable)" if is_unreachable else "impeached for censorship"
                         self.consensus.telemetry.record(
                             "message", self.config.node_id, new_leader,
-                            f"Leader {current_leader} impeached for censorship; elected {new_leader} for Epoch {self.leader.current_epoch}",
+                            f"Leader {current_leader} {reason_txt}; elected {new_leader} for Epoch {self.leader.current_epoch}",
                         )
                 self.consensus.current_epoch = self.leader.current_epoch
                 censor_origin_sig = info.get("origin_sig_str", "") or info["payload"].get("origin_http_signature", "")

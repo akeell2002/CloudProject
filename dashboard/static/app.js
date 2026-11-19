@@ -357,7 +357,7 @@
   }
 
   function activeCoordinator() {
-    const all = proposals();
+    const all = visibleProposals();
     if (selectedDomain) {
       const sel = all.find(function (p) { return p.domain === selectedDomain; });
       if (sel && sel.proposer) {
@@ -938,10 +938,10 @@
     const stage = $("network-stage");
     if (stage) stage.classList.toggle("topo-stage-scaled", nodes.length > 5);
     const pts = nodePositions(nodes);
-    const latest = (data.events || []).length ? data.events[data.events.length - 1] : null;
     const visibleEvents = resetBaselineAt
       ? (data.events || []).filter(function (e) { return (e.timestamp || 0) > resetBaselineAt; })
       : (data.events || []);
+    const latest = visibleEvents.length ? visibleEvents[visibleEvents.length - 1] : null;
     lastSender = rememberSender(visibleEvents, pts, lastSender);
     const activeTarget = $("control-node") ? $("control-node").value : "";
     const coordId = activeCoordinator();
@@ -1509,7 +1509,7 @@
     const visibleApprovals = proposal.approvals.size;
     const quorumNeeded = bft.q;
     const isFramingRejected = Boolean(proposal.framingRejected);
-    const isFinalCommitted = !isFramingRejected && Boolean(proposal.committed || visibleApprovals >= quorumNeeded);
+    const isFinalCommitted = !isFramingRejected && Boolean(proposal.committed);
     const unreachable = !isFramingRejected && !isFinalCommitted && quorumBlocked;
     const isAnimPlaying = Boolean(anim && !anim.finished && anim.domain === proposal.domain);
     const stepperStage = isAnimPlaying ? anim.stage : (isFinalCommitted ? 4 : 3);
@@ -1742,7 +1742,8 @@
       const originOptions = [["External Server (Internet)", "external"]];
       nodes.forEach(function (n) {
         if (n.node_id !== selected) {
-          originOptions.push(["Internal Node: " + n.node_id + " (sends to " + (selected || "target") + ")", n.node_id]);
+          const desc = n.online ? " (sends to " + (selected || "target") + ")" : " · offline (cannot send)";
+          originOptions.push(["Internal Node: " + n.node_id + desc, n.node_id]);
         }
       });
       updateOptions(trafficSource, originOptions);
