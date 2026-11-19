@@ -29,7 +29,7 @@ class ThreatClassifier:
     and phishing language. Triggers consensus escalation if threat score >= 0.60.
     """
     MALICIOUS_EXTENSIONS_REGEX = re.compile(
-        r'\b[\w-]+\.(exe|scr|apk|zip|bat|cmd|vbs|ps1|msi)\b', 
+        r'(?:^|[\s/\\(\'"\w-])\.(exe|scr|apk|zip|bat|cmd|vbs|ps1|msi)\b',
         re.IGNORECASE
     )
 

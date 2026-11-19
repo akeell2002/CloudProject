@@ -184,7 +184,7 @@ class Database:
             """, (peer_id, bounded, is_active, now, now, bounded, is_active, now, now))
             conn.commit()
 
-    def update_reputation(self, peer_id: str, score_delta: int, is_violation: bool = False):
+    def update_reputation(self, peer_id: str, score_delta: int, is_violation: bool = False, mark_recovered: bool = False):
         """Adjusts peer trust score (bounded between 0 and 100)."""
         now = int(time.time() * 1000)
         with self._get_connection() as conn:
@@ -196,6 +196,7 @@ class Database:
             """, (peer_id, now))
 
             violation_add = 1 if is_violation else 0
+            recovered_flag = 1 if (mark_recovered and not is_violation and score_delta > 0) else 0
             cursor.execute("""
                 UPDATE peer_reputation
                 SET trust_score = MAX(0, MIN(100, trust_score + ?)),
@@ -203,9 +204,9 @@ class Database:
                     is_active = CASE WHEN MAX(0, MIN(100, trust_score + ?)) < 30 THEN 0 ELSE 1 END,
                     last_updated = ?,
                     recovery_anchor_at = CASE WHEN ? THEN ? ELSE recovery_anchor_at END,
-                    last_recovery_at = CASE WHEN ? THEN 0 ELSE last_recovery_at END
+                    last_recovery_at = CASE WHEN ? THEN 0 WHEN ? THEN ? ELSE last_recovery_at END
                 WHERE peer_id = ?;
-            """, (score_delta, violation_add, score_delta, now, violation_add, now, violation_add, peer_id))
+            """, (score_delta, violation_add, score_delta, now, violation_add, now, violation_add, recovered_flag, now, peer_id))
             conn.commit()
 
     def recover_reputations(self, step: int, grace_ms: int, interval_ms: int, now_ms: int) -> int:

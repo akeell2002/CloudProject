@@ -22,7 +22,7 @@ class ReputationManager:
     PENALTY_CENSORSHIP = -30
     PENALTY_BOGUS_EVIDENCE = -25
     PENALTY_DISSENT_ON_THREAT = -15
-    BONUS_HONEST_VOTE = +2
+    BONUS_HONEST_VOTE = +5
 
     RECOVERY_GRACE_SECONDS = 60
     RECOVERY_INTERVAL_SECONDS = 30
@@ -98,9 +98,14 @@ class ReputationManager:
         """Called when a Byzantine LIAR votes REJECT against a verified threat."""
         return self._penalize("liar_dissent", peer_id, self.PENALTY_DISSENT_ON_THREAT, proposal_id)
 
-    def reward_honest_participation(self, peer_id: str):
-        """Rewards honest nodes who vote validly."""
-        self.db.update_reputation(peer_id, self.BONUS_HONEST_VOTE, is_violation=False)
+    def reward_honest_participation(self, peer_id: str, proposal_id: Optional[str] = None) -> bool:
+        """Rewards eligible honest peers who cast a valid APPROVE ballot (+5 trust, capped at 100)."""
+        if not self.is_peer_eligible_to_vote(peer_id):
+            return False
+        if not self._claim_penalty("honest_vote", peer_id, proposal_id):
+            return False
+        self.db.update_reputation(peer_id, self.BONUS_HONEST_VOTE, is_violation=False, mark_recovered=True)
+        return True
 
     def apply_recovery(self, now: Optional[float] = None) -> int:
         """Raises every score below 100 by RECOVERY_STEP once the grace period and

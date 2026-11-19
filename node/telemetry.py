@@ -1,4 +1,5 @@
 """Bounded, read-only observations for the local operator dashboard."""
+import os
 import threading
 import time
 import uuid
@@ -86,14 +87,19 @@ def quorum_health(service, ledger=None):
         row.get("peer_id") for row in (ledger or [])
         if isinstance(row, dict) and row.get("peer_id") in members and _is_quarantined(row)
     }
+    if self_id and getattr(getattr(service, "leader", None), "self_quarantined_by_peers", False):
+        quarantined.add(self_id)
 
     total_nodes = getattr(config, "total_nodes", None) or max(len(peers), 1)
-    quorum = getattr(config, "quorum_size", None)
-    if not isinstance(quorum, int):
-        quorum = total_nodes - (total_nodes - 1) // 3
+    active_voting_nodes = max(1, total_nodes - len(quarantined))
+    max_faults = (active_voting_nodes - 1) // 3
+    mode = os.getenv("QUORUM_MODE", "STRICT").upper()
+    quorum = max(1, (2 * max_faults + 1) if mode == "MAJORITY" else (active_voting_nodes - max_faults))
     eligible = members - offline - quarantined
     return {
         "total_nodes": total_nodes,
+        "active_voting_nodes": active_voting_nodes,
+        "max_faults": max_faults,
         "quorum": quorum,
         "eligible_voters": len(eligible),
         "eligible": sorted(eligible),
@@ -156,7 +162,7 @@ def node_snapshot(service):
         "is_leader": is_leader,
         "epoch": service.leader.current_epoch,
         "last_sequence": service.db.get_latest_sequence_number(),
-        "quorum": service.config.quorum_size,
+        "quorum": health["quorum"] if health else service.config.quorum_size,
         "operational_mode": service.config.operational_mode,
         "reputations": ledger,
         "blocked_domains": sorted(service.firewall.get_blocked_domains()),

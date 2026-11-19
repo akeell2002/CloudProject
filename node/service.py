@@ -43,6 +43,8 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
         self.firewall = firewall
         self.consensus = consensus
         self.leader = leader
+        if self.consensus is not None:
+            self.consensus.leader = leader
         self.catchup = catchup
 
         # Configurable fault mode: NONE, SILENT, LIAR, FORGER, EQUIVOCATOR, CENSOR
@@ -421,7 +423,7 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
                 if proof and self.consensus.commit_defederation(proof):
                     self.consensus.telemetry.record(
                         "commit", self.config.node_id, "firewall",
-                        f"Quorum certificate reached (Q={self.config.quorum_size}); committed ban",
+                        f"Quorum certificate reached (Q={self.consensus.effective_quorum_size()}); committed ban",
                         domain=proof.target_domain,
                     )
                     commit_req = pb2.CommitRequest(
@@ -455,13 +457,28 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
         if self.byzantine_mode == "SILENT":
             context.abort(grpc.StatusCode.UNAVAILABLE, "Node is in SILENT Byzantine fault mode")
 
+        if not self.reputation.is_peer_eligible_to_vote(request.voter_id):
+            self.consensus.handle_vote(request)
+            return pb2.VoteResponse(
+                acknowledged=True,
+                message="Ballot excluded: peer is quarantined"
+            )
+
+        with self.consensus._lock:
+            prop_before = self.consensus.active_proposals.get(request.proposal_id)
+            was_committed = bool(prop_before and prop_before.is_committed)
+            already_had_vote = bool(prop_before and request.voter_id in prop_before.approved_votes)
+            is_proposer = bool(
+                prop_before and prop_before.request and prop_before.request.proposer_id == self.config.node_id
+            )
+
         proof = self.consensus.handle_vote(request)
         if proof:
             logger.info(f"[{self.config.node_id}] Quorum Certificate minted for {proof.target_domain}!")
             if self.consensus.commit_defederation(proof):
                 self.consensus.telemetry.record(
                     "commit", self.config.node_id, "firewall",
-                    f"Quorum certificate reached (Q={self.config.quorum_size}); committed ban",
+                    f"Quorum certificate reached (Q={self.consensus.effective_quorum_size()}); committed ban",
                     domain=proof.target_domain,
                 )
                 commit_req = pb2.CommitRequest(
@@ -472,6 +489,16 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
                 threading.Thread(
                     target=self._broadcast_commit,
                     args=(commit_req,),
+                    daemon=True
+                ).start()
+        elif was_committed and not already_had_vote and is_proposer and request.decision == pb2.VOTE_APPROVE:
+            with self.consensus._lock:
+                prop_after = self.consensus.active_proposals.get(request.proposal_id)
+                recorded_late_approve = bool(prop_after and request.voter_id in prop_after.approved_votes)
+            if recorded_late_approve:
+                threading.Thread(
+                    target=self._broadcast_late_vote,
+                    args=(request,),
                     daemon=True
                 ).start()
 
@@ -631,10 +658,26 @@ class FedConsensusService(pb2_grpc.FedConsensusServiceServicer):
                 "vote", self.config.node_id, proposer_id, "Transmitting vote to proposer",
                 proposal_id=vote_req.proposal_id, decision="APPROVE" if vote_req.decision == pb2.VOTE_APPROVE else "REJECT"
             )
-            stub.CastVote(vote_req, timeout=2.0)
+            res = stub.CastVote(vote_req, timeout=2.0)
+            if res and "quarantined" in str(getattr(res, "message", "")).lower():
+                with self.leader._lock:
+                    self.leader.self_quarantined_by_peers = True
             logger.info(f"[{self.config.node_id}] Successfully sent vote to proposer {proposer_id} at {addr}")
         except Exception as e:
             logger.warning(f"[{self.config.node_id}] Failed to send vote to proposer {proposer_id} at {addr}: {e}")
+
+    def _broadcast_late_vote(self, vote_req: pb2.VoteRequest):
+        """Relays a valid late honest APPROVE ballot so all peers award the +5 honest voting bonus."""
+        targets = [
+            p for p in self.config.peers
+            if not self._is_self_peer(p) and peer_id_from_addr(p) != vote_req.voter_id
+        ]
+        def _send(peer_addr):
+            try:
+                self._get_stub(peer_addr).CastVote(vote_req, timeout=1.5)
+            except Exception:
+                pass
+        list(self._rpc_executor.map(_send, targets))
 
     def _broadcast_proposal(self, prop_req: pb2.ProposeRequest):
         targets = [p for p in self.config.peers if not self._is_self_peer(p)]

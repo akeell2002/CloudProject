@@ -1,8 +1,9 @@
+import os
 import time
 import threading
 from typing import Dict, Optional, Tuple, Set, Any
 from proto import fedconsensus_pb2 as pb2
-from node.config import NodeConfig
+from node.config import NodeConfig, peer_id_from_addr
 from node.storage.reputation import ReputationManager
 from node.crypto.ed25519 import sign_message, verify_signature
 
@@ -28,6 +29,26 @@ class LeaderManager:
         self.impeachment_is_censorship: Dict[int, bool] = {}
         self.censorship_watches: Dict[str, Dict[str, Any]] = {}
         self.penalized_epochs: Set[int] = set()
+
+    def effective_quorum_size(self) -> int:
+        """Dynamic impeachment quorum excluding quarantined consortium members (trust < 30)."""
+        peers = getattr(self.config, "peers", None) or []
+        members = {peer_id_from_addr(str(p)) for p in peers}
+        if getattr(self.config, "node_id", None):
+            members.add(self.config.node_id)
+        total = max(len(members), getattr(self.config, "total_nodes", 1), 1)
+        quarantined = set()
+        for row in self.reputation.get_ledger():
+            pid = row.get("peer_id")
+            if pid in members and (row.get("trust_score", 100) < 30 or not row.get("is_active", 1)):
+                quarantined.add(pid)
+        if self.self_quarantined_by_peers:
+            quarantined.add(self.config.node_id)
+        n_eff = max(1, total - len(quarantined))
+        f_eff = (n_eff - 1) // 3
+        mode = os.getenv("QUORUM_MODE", "STRICT").upper()
+        q_eff = (2 * f_eff + 1) if mode == "MAJORITY" else (n_eff - f_eff)
+        return max(1, q_eff)
         self.seconded_impeachments: Set[int] = set()
         self.announced_epochs: Set[int] = set()
 
@@ -214,8 +235,8 @@ class LeaderManager:
             ):
                 self.impeachment_votes[req.target_epoch].add(self.config.node_id)
 
-            # Check if Quorum threshold reached to depose leader
-            required_quorum = self.config.quorum_size
+            # Check if Quorum threshold reached to depose leader (excluding quarantined peers)
+            required_quorum = self.effective_quorum_size()
             if len(self.impeachment_votes[req.target_epoch]) >= required_quorum:
                 if self.impeachment_is_censorship.get(req.target_epoch, False) and req.target_epoch not in self.penalized_epochs:
                     self.penalized_epochs.add(req.target_epoch)
@@ -239,7 +260,7 @@ class LeaderManager:
             if is_censorship is True:
                 self.impeachment_is_censorship[target_epoch] = True
             self.impeachment_votes[target_epoch].add(voter_id)
-            if len(self.impeachment_votes[target_epoch]) >= self.config.quorum_size:
+            if len(self.impeachment_votes[target_epoch]) >= self.effective_quorum_size():
                 if self.impeachment_is_censorship.get(target_epoch, False) and target_epoch not in self.penalized_epochs:
                     self.penalized_epochs.add(target_epoch)
                     self.reputation.penalize_censorship(leader_id)

@@ -1,9 +1,10 @@
 import json
+import os
 import time
 import threading
 from typing import Dict, List, Optional, Set, Any, Tuple
 from proto import fedconsensus_pb2 as pb2
-from node.config import NodeConfig
+from node.config import NodeConfig, peer_id_from_addr
 from node.storage.database import Database
 from node.storage.reputation import ReputationManager
 from node.ingress.firewall import FirewallFilter
@@ -54,6 +55,7 @@ class ConsensusEngine:
         self.db = database
         self.firewall = firewall
         self.reputation = reputation
+        self.leader: Optional[Any] = None
         self.classifier = ThreatClassifier()
         self.telemetry = EventLog(config.node_id)
 
@@ -67,6 +69,29 @@ class ConsensusEngine:
             **getattr(self.config, "known_peer_keys", {}),
             self.config.node_id: self.config.public_key_hex
         }
+
+    def effective_quorum_params(self) -> Tuple[int, int, int]:
+        """Computes dynamic (N_eff, f_eff, Q_eff) excluding quarantined consortium peers (trust < 30)."""
+        peers = getattr(self.config, "peers", None) or []
+        members = {peer_id_from_addr(str(p)) for p in peers}
+        if getattr(self.config, "node_id", None):
+            members.add(self.config.node_id)
+        total = max(len(members), getattr(self.config, "total_nodes", 1), 1)
+        quarantined = set()
+        for row in self.reputation.get_ledger():
+            pid = row.get("peer_id")
+            if pid in members and (row.get("trust_score", 100) < 30 or not row.get("is_active", 1)):
+                quarantined.add(pid)
+        if getattr(self.leader, "self_quarantined_by_peers", False):
+            quarantined.add(self.config.node_id)
+        n_eff = max(1, total - len(quarantined))
+        f_eff = (n_eff - 1) // 3
+        mode = os.getenv("QUORUM_MODE", "STRICT").upper()
+        q_eff = (2 * f_eff + 1) if mode == "MAJORITY" else (n_eff - f_eff)
+        return n_eff, f_eff, max(1, q_eff)
+
+    def effective_quorum_size(self) -> int:
+        return self.effective_quorum_params()[2]
 
     def register_peer_key(self, peer_id: str, public_key_hex: str):
         with self._lock:
@@ -138,7 +163,7 @@ class ConsensusEngine:
                 reason=reason,
                 threat_score=threat_score,
                 request=prop_req,
-                quorum_threshold=self.config.quorum_size
+                quorum_threshold=self.effective_quorum_size()
             )
 
             # Auto-cast the leader's own vote using standard ballot format
@@ -287,12 +312,15 @@ class ConsensusEngine:
                     reason=req.reason,
                     threat_score=req.threat_score,
                     request=req,
-                    quorum_threshold=self.config.quorum_size
+                    quorum_threshold=self.effective_quorum_size()
                 )
 
-            # Record leader's vote and follower's own vote
+            # Record leader's vote and follower's own vote (skip own vote if quarantined)
             self._record_vote(req.proposal_id, proposer_id, req.proposer_signature)
-            if byzantine_mode not in ("LIAR", "FORGER"):
+            self_quarantined = bool(getattr(self.leader, "self_quarantined_by_peers", False))
+            if self_quarantined:
+                self.active_proposals[req.proposal_id].quarantined_voters.add(self.config.node_id)
+            elif byzantine_mode not in ("LIAR", "FORGER"):
                 self._record_vote(req.proposal_id, self.config.node_id, voter_sig)
                 self.telemetry.record(
                     "vote", self.config.node_id, proposer_id,
@@ -393,6 +421,10 @@ class ConsensusEngine:
                 )
                 return None
 
+            # Record valid APPROVE ballot and reward honest voter (+5 trust, capped at 100)
+            self._record_vote(vote.proposal_id, voter_id, vote.voter_signature)
+            self.reputation.reward_honest_participation(voter_id, proposal_id=vote.proposal_id)
+
             if proposal.is_committed:
                 return None
 
@@ -401,12 +433,9 @@ class ConsensusEngine:
                 "Received a signed ballot", proposal_id=vote.proposal_id,
                 domain=vote.target_domain, decision=vote_meta["decision"],
             )
-            # Record valid vote ONLY if decision is APPROVE
-            self._record_vote(vote.proposal_id, voter_id, vote.voter_signature)
-            self.reputation.reward_honest_participation(voter_id)
 
-            # Check Quorum Threshold (Q = N - f)
-            required_quorum = self.config.quorum_size
+            # Check effective Quorum Threshold (excluding quarantined peers)
+            required_quorum = self.effective_quorum_size()
             if not proposal.qc_minted and len(proposal.approved_votes) >= required_quorum:
                 proposal.qc_minted = True
                 # Mint Quorum Certificate (QC)
@@ -444,8 +473,9 @@ class ConsensusEngine:
         3. Updates in-memory Firewall lookup set.
         """
         with self._lock:
-            # 1. Verify Quorum Threshold
-            required_quorum = min(self.config.quorum_size, 4) if historical else self.config.quorum_size
+            # 1. Verify Quorum Threshold (excluding quarantined peers)
+            live_quorum = self.effective_quorum_size()
+            required_quorum = min(live_quorum, 3) if historical else live_quorum
             if len(proof.signatures) < required_quorum:
                 return False
 
@@ -529,6 +559,9 @@ class ConsensusEngine:
 
             # 4. Immediately enforce on Perimeter Firewall
             self.firewall.block_domain(proof.target_domain)
+            if not historical:
+                for vid in valid_voters:
+                    self.reputation.reward_honest_participation(vid, proposal_id=proof.proposal_id)
             if not already_committed:
                 self.telemetry.record(
                     "commit", self.config.node_id, "firewall",
@@ -544,17 +577,19 @@ class ConsensusEngine:
                     epoch=proof.epoch,
                     target_domain=proof.target_domain,
                     reason=proof.reason,
-                    quorum_threshold=None if historical else self.config.quorum_size
+                    quorum_threshold=None if historical else live_quorum
                 )
             qc_voters = {s.voter_id: s for s in proof.signatures}
             prop_state = self.active_proposals[proof.proposal_id]
-            prop_state.approved_votes = dict(qc_voters)
+            prop_state.approved_votes.update(qc_voters)
             # Mark all active proposals for this target_domain as committed
             for p in self.active_proposals.values():
                 if p.target_domain == proof.target_domain:
                     p.is_committed = True
                     p.qc_minted = True
-                    p.approved_votes = dict(qc_voters)
+                    p.approved_votes.update(qc_voters)
+                    if not historical:
+                        p.quorum_threshold = live_quorum
                     if not p.committed_at:
                         p.committed_at = time.time()
                         if not historical:

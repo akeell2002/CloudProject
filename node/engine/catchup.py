@@ -117,8 +117,8 @@ class CatchupEngine:
 
             proof = rec.quorum_proof
 
-            # Verify Quorum size threshold (historical QCs from N=5 had Q=4)
-            min_quorum = min(self.config.quorum_size, 4)
+            # Verify Quorum size threshold (historical QCs from N_eff=4 had Q=3, N=5 had Q=4)
+            min_quorum = min(self.config.quorum_size, 3)
             if len(proof.signatures) < min_quorum:
                 logger.warning(
                     f"[Catchup] Insufficient signatures on seq {rec.sequence_number} "

@@ -72,6 +72,8 @@
   let selectedNode = "";
   let selectedNodeTab = "status";
   let fetching = false;
+  let fetchSeq = 0;
+  let appliedFetchSeq = 0;
   let topologyKey = "";
   let nodesKey = "";
   let incidentKey = "";
@@ -124,10 +126,15 @@
   }
 
   function bftParams() {
-    const n = Math.max((data.nodes || []).length, 1);
+    const nodes = data.nodes || [];
+    const total = Math.max(nodes.length, 1);
+    const quarantined = nodes.filter(function (n) {
+      return Boolean(n.quarantined) || !nodeTrustSummary(n.node_id).eligible;
+    }).length;
+    const n = Math.max(1, total - quarantined);
     const f = Math.floor((n - 1) / 3);
-    const q = n - f;
-    return {n: n, f: f, q: q};
+    const q = Math.max(1, n - f);
+    return {n: n, total: total, quarantined: quarantined, f: f, q: q};
   }
 
   function nodePositions(nodes) {
@@ -1851,11 +1858,15 @@
 
     if ($("threat-label")) $("threat-label").textContent = quorumUnreachable ? "quorum unreachable" : "awaiting";
     if ($("threat-subtext")) {
-      $("threat-subtext").textContent = quorumUnreachable ? quorumUnreachableText(health) :
-        "Rule: Q = " + bft.q + "/" + bft.n + " (N=" + bft.n + ", f=" + bft.f + ")";
+      const ruleText = bft.quarantined > 0
+        ? "Rule: Q = " + bft.q + "/" + bft.n + " (N=" + bft.n + "/" + bft.total + " voting, f=" + bft.f + " · " + bft.quarantined + " quarantined)"
+        : "Rule: Q = " + bft.q + "/" + bft.n + " (N=" + bft.n + ", f=" + bft.f + ")";
+      $("threat-subtext").textContent = quorumUnreachable ? quorumUnreachableText(health) : ruleText;
     }
     if ($("bft-tolerance-hint")) {
-      $("bft-tolerance-hint").textContent = "With N=" + bft.n + ", consortium tolerates f=" + bft.f + " rogue/offline node(s) and requires Q=" + bft.q + " votes.";
+      $("bft-tolerance-hint").textContent = bft.quarantined > 0
+        ? "With N=" + bft.n + " voting (" + bft.quarantined + " quarantined), consortium tolerates f=" + bft.f + " rogue/offline node(s) and requires Q=" + bft.q + " votes."
+        : "With N=" + bft.n + ", consortium tolerates f=" + bft.f + " rogue/offline node(s) and requires Q=" + bft.q + " votes.";
     }
     const leaderId = activeLeaderId();
     if ($("active-subtext")) {
@@ -1901,8 +1912,14 @@
     if ($("node-dialog") && $("node-dialog").open) renderNodeDetails();
   }
 
-  async function refresh() {
-    if (fetching) return;
+  async function refresh(force) {
+    if (fetching && !force) return;
+    if (fetching && force) {
+      while (fetching) {
+        await new Promise(function (resolve) { setTimeout(resolve, 25); });
+      }
+    }
+    const seq = ++fetchSeq;
     fetching = true;
     if ($("refresh")) $("refresh").disabled = true;
     try {
@@ -1913,8 +1930,11 @@
       const response = responses[0];
       if (!response.ok) throw new Error("Dashboard API unavailable");
       const next = await response.json();
-      controls = responses[1].ok ? await responses[1].json()
+      const nextControls = responses[1].ok ? await responses[1].json()
         : {enabled: false, connected: false, runtime: {}, message: "Restart the updated dashboard to enable live controls."};
+      if (seq < appliedFetchSeq) return;
+      appliedFetchSeq = seq;
+      controls = nextControls;
       data = next;
     } catch (_) {
       const conn = $("connection");
@@ -1928,6 +1948,11 @@
       if ($("refresh")) $("refresh").disabled = false;
     }
 
+    if (force) {
+      topologyKey = "";
+      nodesKey = "";
+      incidentKey = "";
+    }
     try {
       render();
     } catch (renderError) {
@@ -1995,7 +2020,7 @@
         });
       }
       if (body.action === "add_org" && $("org-domain")) $("org-domain").value = "";
-      if (body.action === "revive" || body.action === "reset_all") {
+      if (["settings", "stop", "revive", "trust", "reset_all"].includes(body.action)) {
         controlledChaosNode = "";
         if (body.action === "reset_all") {
           resetBaselineAt = Date.now();
@@ -2022,7 +2047,7 @@
         : error.message;
     } finally {
       actionBusy = false;
-      await refresh();
+      await refresh(true);
       renderControls();
     }
     return ok;

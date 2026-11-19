@@ -94,6 +94,7 @@ class ClusterMonitor:
         self.nodes = nodes
         self.timeout = timeout
         self._lock = threading.Lock()
+        self._refresh_lock = threading.Lock()
         self._data = {"nodes": [], "events": [], "bans": [], "updated_at": None, "quorum_health": None}
         self._last_known = {}
         self._events = {}
@@ -130,6 +131,10 @@ class ClusterMonitor:
             return {**base, "state": "OFFLINE", "error": "Node unreachable or telemetry unavailable"}
 
     def refresh(self):
+        with self._refresh_lock:
+            self._refresh_locked()
+
+    def _refresh_locked(self):
         current_nodes = list(self.nodes)
         active_addrs = {n["address"] for n in current_nodes}
         for stale in [a for a in list(self._last_known) if a not in active_addrs]:
@@ -165,17 +170,31 @@ class ClusterMonitor:
         for observer in observations:
             if not observer.get("online"):
                 continue
+            obs_id = observer.get("node_id")
             for rep in observer.get("reputations", []):
                 pid = rep["peer_id"]
-                if pid not in cluster_reps or rep["trust_score"] < cluster_reps[pid]["trust_score"]:
+                if pid == obs_id:
+                    continue
+                cur = cluster_reps.get(pid)
+                if cur is None:
                     cluster_reps[pid] = dict(rep)
+                else:
+                    rep_v = int(rep.get("violations_count", 0))
+                    cur_v = int(cur.get("violations_count", 0))
+                    rep_ts = int(rep.get("last_updated", 0))
+                    cur_ts = int(cur.get("last_updated", 0))
+                    if rep_v > cur_v or (
+                        rep_v == cur_v and (
+                            rep_ts > cur_ts or (rep_ts == cur_ts and rep["trust_score"] < cur["trust_score"])
+                        )
+                    ):
+                        cluster_reps[pid] = dict(rep)
         if cluster_reps:
             for node in observations:
                 if node.get("online") and node.get("telemetry_available"):
                     merged = {r["peer_id"]: dict(r) for r in node.get("reputations", [])}
                     for pid, crep in cluster_reps.items():
-                        if pid not in merged or crep["trust_score"] < merged[pid]["trust_score"]:
-                            merged[pid] = dict(crep)
+                        merged[pid] = dict(crep)
                     node["reputations"] = list(merged.values())
         for node in observations:
             observers = [
@@ -212,10 +231,9 @@ class ClusterMonitor:
             and node.get("state") != "BYZANTINE_CENSOR"
         })
         total = len(members)
-        reported = [node.get("quorum") for node in observations
-                    if node.get("online") and node.get("telemetry_available")
-                    and type(node.get("quorum")) is int and node.get("quorum") > 0]
-        quorum = max(reported) if reported else total - (total - 1) // 3
+        active_voting = max(1, total - len(quarantined))
+        max_faults = (active_voting - 1) // 3
+        quorum = max(1, active_voting - max_faults)
         eligible = sorted(set(members) - set(offline) - set(quarantined) - set(byzantine))
         reachable = len(eligible) >= quorum
         pending, committed = set(), set()
@@ -229,7 +247,10 @@ class ClusterMonitor:
                         continue
                     (committed if proposal.get("committed") is True else pending).add(proposal["domain"])
         return {
-            "total_nodes": total, "quorum": quorum,
+            "total_nodes": total,
+            "active_voting_nodes": active_voting,
+            "max_faults": max_faults,
+            "quorum": quorum,
             "eligible_voters": len(eligible), "eligible": eligible,
             "offline": offline, "quarantined": quarantined,
             "byzantine": byzantine,
