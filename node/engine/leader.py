@@ -29,6 +29,8 @@ class LeaderManager:
         self.impeachment_is_censorship: Dict[int, bool] = {}
         self.censorship_watches: Dict[str, Dict[str, Any]] = {}
         self.penalized_epochs: Set[int] = set()
+        self.seconded_impeachments: Set[int] = set()
+        self.announced_epochs: Set[int] = set()
 
     def effective_quorum_size(self) -> int:
         """Dynamic impeachment quorum excluding quarantined consortium members (trust < 30)."""
@@ -49,8 +51,6 @@ class LeaderManager:
         mode = os.getenv("QUORUM_MODE", "STRICT").upper()
         q_eff = (2 * f_eff + 1) if mode == "MAJORITY" else (n_eff - f_eff)
         return max(1, q_eff)
-        self.seconded_impeachments: Set[int] = set()
-        self.announced_epochs: Set[int] = set()
 
     def _is_candidate_eligible(self, candidate: str) -> bool:
         if candidate == self.config.node_id and self.self_quarantined_by_peers:
