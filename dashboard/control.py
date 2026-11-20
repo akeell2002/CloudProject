@@ -210,7 +210,7 @@ class VirtualOrgNode:
                                 "source": dom,
                                 "target": parent.node_id,
                                 "domain": dom,
-                                "message": f"Blocked at {parent.node_id} O(1) RAM Firewall"
+                                "message": f"Blocked at {parent.node_id} local firewall"
                             })
                         else:
                             parent.events.append({
@@ -244,7 +244,7 @@ class VirtualOrgNode:
                             "kind": "commit",
                             "source": "consortium",
                             "target": parent.node_id,
-                            "message": f"Replayed {len(parent.synced_domains)} bans into O(1) RAM via gRPC CatchupSync"
+                            "message": f"Replayed {len(parent.synced_domains)} bans into the local firewall via gRPC CatchupSync"
                         })
                     else:
                         parent.byzantine_mode = mode

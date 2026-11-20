@@ -1,71 +1,81 @@
-import os
-import sys
-import time
 import json
-import urllib.request
-import tempfile
+import os
 import shutil
+import socket
+import sys
+import tempfile
+import time
+import unittest
+import urllib.request
+from unittest.mock import patch
+
+import grpc
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 from node.main import FedNodeRunner
-import grpc
 from proto import fedconsensus_pb2 as pb2
 from proto import fedconsensus_pb2_grpc as pb2_grpc
 
 
-def test_dual_server_startup():
-    temp_dir = tempfile.mkdtemp()
-    os.environ["DATA_DIR"] = temp_dir
-    os.environ["GRPC_PORT"] = "19051"
-    os.environ["HTTP_PORT"] = "18080"
-    os.environ["NODE_ID"] = "fednode-test"
+def _free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
 
-    runner = FedNodeRunner()
-    runner.start()
-    time.sleep(1.0)  # Allow servers to bind sockets
 
-    try:
-        # 1. Test HTTP /health endpoint
-        health_url = "http://127.0.0.1:18080/health"
-        req = urllib.request.Request(health_url)
-        with urllib.request.urlopen(req, timeout=2.0) as resp:
-            assert resp.status == 200
-            data = json.loads(resp.read().decode())
-            assert data["status"] == "HEALTHY"
-            assert data["node_id"] == "fednode-test"
-        print("  [PASS] 1. HTTP /health responding cleanly")
+class TestDualServerRunner(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
 
-        # 2. Test HTTP /inbox accepting benign ActivityPub post
-        inbox_url = "http://127.0.0.1:18080/inbox"
-        benign_payload = json.dumps({
-            "actor": "https://normal-server.org/users/alice",
-            "object": {"content": "Hello world from decentralized social media!"}
-        }).encode("utf-8")
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
 
-        post_req = urllib.request.Request(
-            inbox_url,
-            data=benign_payload,
-            headers={"Content-Type": "application/json"}
-        )
-        with urllib.request.urlopen(post_req, timeout=2.0) as resp:
-            assert resp.status == 202
-            res = json.loads(resp.read().decode())
-            assert res["status"] == "ACCEPTED"
-        print("  [PASS] 2. HTTP POST /inbox accepted benign post (HTTP 202)")
+    def test_dual_server_startup(self):
+        grpc_port = _free_port()
+        http_port = _free_port()
+        env = {
+            "DATA_DIR": self.temp_dir,
+            "GRPC_PORT": str(grpc_port),
+            "HTTP_PORT": str(http_port),
+            "NODE_ID": "fednode-test",
+        }
+        with patch.dict(os.environ, env):
+            runner = FedNodeRunner()
+            runner.start()
+            time.sleep(0.5)
+            try:
+                with urllib.request.urlopen(f"http://127.0.0.1:{http_port}/health", timeout=2.0) as resp:
+                    self.assertEqual(resp.status, 200)
+                    data = json.loads(resp.read().decode())
+                    self.assertEqual(data["status"], "HEALTHY")
+                    self.assertEqual(data["node_id"], "fednode-test")
 
-        # 3. Test gRPC Mesh GetStatus
-        channel = grpc.insecure_channel("127.0.0.1:19051")
-        stub = pb2_grpc.FedConsensusServiceStub(channel)
-        status_res = stub.GetStatus(pb2.StatusRequest(caller_id="tester"), timeout=2.0)
-        assert status_res.node_id == "fednode-test"
-        print("  [PASS] 3. gRPC Mesh GetStatus answered on internal port 19051")
-        print("Dual-server runner tests passed.")
+                benign_payload = json.dumps(
+                    {
+                        "actor": "https://normal-server.org/users/alice",
+                        "object": {"content": "Hello world from decentralized social media!"},
+                    }
+                ).encode("utf-8")
+                post_req = urllib.request.Request(
+                    f"http://127.0.0.1:{http_port}/inbox",
+                    data=benign_payload,
+                    headers={"Content-Type": "application/json"},
+                )
+                with urllib.request.urlopen(post_req, timeout=2.0) as resp:
+                    self.assertEqual(resp.status, 202)
+                    res = json.loads(resp.read().decode())
+                    self.assertEqual(res["status"], "ACCEPTED")
 
-    finally:
-        runner.stop()
-        shutil.rmtree(temp_dir, ignore_errors=True)
+                with grpc.insecure_channel(f"127.0.0.1:{grpc_port}") as channel:
+                    stub = pb2_grpc.FedConsensusServiceStub(channel)
+                    status_res = stub.GetStatus(pb2.StatusRequest(caller_id="tester"), timeout=2.0)
+                    self.assertEqual(status_res.node_id, "fednode-test")
+            finally:
+                runner.stop()
+                if runner.http_server:
+                    runner.http_server.server_close()
 
 
 if __name__ == "__main__":
-    test_dual_server_startup()
+    unittest.main()

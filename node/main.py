@@ -657,7 +657,7 @@ class FedNodeRunner:
             # Retry pending uncommitted proposals (heals 2-nodes-down partitions once a peer revives)
             self._retry_pending_proposals()
 
-            # Periodic self-healing catchup sync every 2 ticks (~4s)
+            # Periodic catch-up sync every 2 ticks (~4s)
             if tick % 2 == 0 and self.catchup:
                 try:
                     self.catchup.sync_with_consortium(self.consensus)
@@ -684,7 +684,7 @@ class FedNodeRunner:
         http_thread.start()
         logger.info(f"ActivityPub HTTP /inbox listening on http://0.0.0.0:{self.config.http_port}")
 
-        # 3. Start Leader Heartbeat & Self-Healing loop
+        # 3. Start leader heartbeat and catch-up loop
         threading.Thread(target=self._heartbeat_loop, daemon=True).start()
 
     def stop(self):

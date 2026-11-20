@@ -10,8 +10,8 @@ from node.crypto.ed25519 import sign_message, verify_signature
 
 class LeaderManager:
     """
-    Dynamic Leader Lease & Anti-Censorship Impeachment Engine.
-    Manages epoch terms, heartbeat lease renewals, and follower emergency elections.
+    Leader lease and impeachment manager.
+    Manages epoch terms, heartbeat lease renewals, and follower leader failover.
     """
     LEASE_DURATION_SECONDS = 5.0
     PROPOSAL_CENSOR_TIMEOUT_SECONDS = 3.0

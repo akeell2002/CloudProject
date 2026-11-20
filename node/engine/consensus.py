@@ -179,7 +179,7 @@ class ConsensusEngine:
         """
         Validate an incoming proposal:
         1. Verify proposer signature
-        2. Verify origin HTTP signature (anti-framing)
+        2. Verify origin HTTP signature
         3. Verify threat score threshold (>= 0.60)
         Returns: (accepted, reason, signed_vote_request)
         """
@@ -232,7 +232,7 @@ class ConsensusEngine:
                 )
                 return False, "Invalid proposer signature (forgery detected)", None
 
-            # 2. Origin HTTP Signature Anti-Framing Audit
+            # 2. Origin HTTP signature check
             if req.origin_http_signature:
                 try:
                     origin_sig_info = json.loads(req.origin_http_signature) if isinstance(req.origin_http_signature, str) else req.origin_http_signature

@@ -5,9 +5,8 @@ from node.storage.database import Database
 
 class FirewallFilter:
     """
-    Perimeter Firewall Filtering:
-    Sub-microsecond in-memory lookup to instantly drop traffic from previously
-    banned domains with HTTP 403 before executing application logic.
+    In-memory domain blocklist synced from SQLite.
+    Drops traffic from banned domains with HTTP 403 before running classification.
     """
     def __init__(self, db: Database):
         self.db = db
@@ -16,13 +15,13 @@ class FirewallFilter:
         self.reload_rules()
 
     def reload_rules(self):
-        """Loads all committed bans from SQLite into the in-memory lookup table."""
+        """Loads all committed bans from SQLite into the in-memory set."""
         with self._lock:
             self._blocked_domains = self.db.get_all_blocked_domains()
 
     def is_blocked(self, domain: str) -> bool:
         """
-        Sub-microsecond O(1) in-memory check.
+        Check whether a domain is in the in-memory blocklist.
         Normalizes domain string (strips whitespace and converts to lowercase).
         """
         clean_domain = domain.strip().lower()

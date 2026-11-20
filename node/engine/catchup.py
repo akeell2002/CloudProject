@@ -14,8 +14,8 @@ logger = logging.getLogger("fedconsensus.catchup")
 
 class CatchupEngine:
     """
-    Self-Healing Catch-up and State Replay Engine.
-    Allows crashed or newly joined nodes to query active peers for missed defederation 
+    Catch-up and state replay engine.
+    Allows crashed or newly joined nodes to query active peers for missed defederation
     records and replay them locally after cryptographically verifying Quorum Certificates.
     """
     def __init__(

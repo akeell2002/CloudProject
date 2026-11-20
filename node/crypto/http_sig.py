@@ -35,7 +35,7 @@ def verify_origin_http_signature(
     known_domain_public_keys: Dict[str, str]
 ) -> bool:
     """
-    Anti-Framing Verification:
+    Origin signature verification:
     Verifies that the submitted abusive post was authentically signed by the
     private key of the accused domain.
 

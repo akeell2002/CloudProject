@@ -1,4 +1,4 @@
-/* Live telemetry and operator controls UI built cleanly with DOM APIs. */
+/* Live cluster telemetry and operator dashboard UI. */
 (function () {
   "use strict";
 
@@ -583,7 +583,7 @@
           topologyKey = "";
           renderTopology();
         }
-        drawPacketAlong(svg, seg, bounce, "#dc3545", "red", prog < 0.55 ? "POST" : "BLOCKED <1µs", prog >= 0.55);
+        drawPacketAlong(svg, seg, bounce, "#dc3545", "red", prog < 0.55 ? "POST" : "BLOCKED", prog >= 0.55);
       } else {
         drawPacketAlong(svg, seg, prog, "#dc3545", "red", "THREAT 403");
       }
@@ -1103,7 +1103,7 @@
       const label = $("message-label");
       label.classList.toggle("text-danger", Boolean(latest && isAttack(latest)));
       let cleanTarget = latest ? latest.target : "";
-      if (cleanTarget === "firewall") cleanTarget = "Local O(1) RAM Firewall";
+      if (cleanTarget === "firewall") cleanTarget = "Local Firewall";
       if (cleanTarget === "consortium") cleanTarget = "P2P gRPC Consortium";
       label.textContent = latest ? "Latest: " + latest.source + " → " + cleanTarget + " · " + latest.kind :
         "No observed transmissions yet";
@@ -1156,12 +1156,12 @@
         : !node.online
         ? "⚠ " + node.node_id + " Offline · " + missingCount + " Ban(s) Missing in Local RAM"
         : "↻ " + node.node_id + " Syncing " + missingCount + " Missed Ban(s) via gRPC CatchupSync…");
-      const bannerDesc = el("div", "small mb-0", node.node_id + " stores its persistent ledger in its own isolated SQLite database (/data/wal.db). Its RAM firewall is an in-memory hash set (< 1 µs lookup) that drops requests from banned domains at /inbox.");
+      const bannerDesc = el("div", "small mb-0", node.node_id + " stores its persistent ledger in its own isolated SQLite database (/data/wal.db). Its in-memory blocklist set drops requests from banned domains at /inbox.");
       syncBanner.append(bannerTitle, bannerDesc);
       details.append(syncBanner);
 
       if (!allDomains.length) {
-        details.append(el("p", "text-muted small mb-0", "No domains are currently blocked in this node's RAM Firewall or the consortium."));
+        details.append(el("p", "text-muted small mb-0", "No domains are currently blocked in this node's firewall or the consortium."));
         return;
       }
 
@@ -1169,7 +1169,7 @@
       const ramTable = el("table", "table table-sm table-bordered align-middle mb-0");
       const ramHead = el("thead", "table-light");
       const ramHeader = el("tr");
-      ["Domain", "Local O(1) RAM State", "Verification Source"].forEach(function (t) { ramHeader.append(el("th", "", t)); });
+      ["Domain", "In-Memory Firewall State", "Verification Source"].forEach(function (t) { ramHeader.append(el("th", "", t)); });
       ramHead.append(ramHeader);
       const ramBody = el("tbody");
       allDomains.forEach(function (domain) {
@@ -1202,7 +1202,7 @@
       ["Organisation / Endpoint", orgLabel],
       ["Architecture", "Shared-Nothing · Zero central DB"],
       ["Local Database", "Isolated SQLite WAL (/data/wal.db)"],
-      ["Perimeter Defense", "Local RAM cache (< 1 µs O(1))"],
+      ["Perimeter Defense", "In-memory blocklist cache"],
       ["Last sequence", node.last_sequence === undefined ? "Unknown" : "Seq #" + node.last_sequence],
       ["Epoch", node.epoch === undefined ? "Unknown" : "Epoch " + node.epoch]
     ].forEach(function (item) {
@@ -1883,7 +1883,7 @@
         const avgMs = Math.round(committedList.reduce(function (s, p) { return s + (p.latency_ms || 18); }, 0) / committedList.length);
         $("ban-subtext").textContent = "(Avg: " + avgMs + " ms)";
       } else {
-        $("ban-subtext").textContent = "(WAL + O(1) RAM)";
+        $("ban-subtext").textContent = "(SQLite WAL + RAM)";
       }
     }
 

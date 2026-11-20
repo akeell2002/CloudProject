@@ -1,150 +1,117 @@
-"""
-Verification suite for the fedctl operator CLI and Kubernetes manifests.
-"""
-import os
-import sys
+"""Tests for the fedctl operator CLI and Kubernetes manifests."""
 import glob
+import os
 import shutil
+import sys
 import tempfile
 import time
+import unittest
 from concurrent import futures
-from unittest.mock import MagicMock
-import yaml
-import grpc
+from unittest.mock import MagicMock, patch
 
-# Ensure project root is in sys.path
+import grpc
+import yaml
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from proto import fedconsensus_pb2 as pb2
-from proto import fedconsensus_pb2_grpc as pb2_grpc
+from cli.fedctl import cmd_peers, cmd_propose, cmd_status
 from node.config import NodeConfig
-from node.storage.database import Database
-from node.storage.reputation import ReputationManager
-from node.ingress.firewall import FirewallFilter
+from node.engine.catchup import CatchupEngine
 from node.engine.consensus import ConsensusEngine
 from node.engine.leader import LeaderManager
-from node.engine.catchup import CatchupEngine
+from node.ingress.firewall import FirewallFilter
 from node.service import FedConsensusService
-from cli.fedctl import cmd_status, cmd_peers, cmd_propose
+from node.storage.database import Database
+from node.storage.reputation import ReputationManager
+from proto import fedconsensus_pb2 as pb2
+from proto import fedconsensus_pb2_grpc as pb2_grpc
 
 
-def verify_operator_cli(temp_dir: str):
-    """Verify fedctl CLI commands over live gRPC."""
-    test_port = "59052"
-    target_addr = f"127.0.0.1:{test_port}"
+class TestCliAndKubernetesInfrastructure(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
 
-    db = Database(os.path.join(temp_dir, "cli_test.db"))
-    rep = ReputationManager(db)
-    fw = FirewallFilter(db)
-    cfg = NodeConfig()
-    cfg.node_id = "fednode-cli-test"
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
 
-    # Seed 1 blocked domain
-    db.save_commit_record(
-        sequence_number=1,
-        epoch=1,
-        target_domain="evil-phishing.org",
-        reason=pb2.REASON_PHISHING,
-        quorum_proof={"proposal_id": "p-1", "signatures": []}
-    )
-    fw.block_domain("evil-phishing.org")
+    def test_operator_cli(self):
+        db = Database(os.path.join(self.temp_dir, "cli_test.db"))
+        rep = ReputationManager(db)
+        fw = FirewallFilter(db)
+        with patch.dict(os.environ, {"DATA_DIR": self.temp_dir}):
+            cfg = NodeConfig()
+        cfg.node_id = "fednode-cli-test"
 
-    # Seed 1 quarantined peer (score = 10 < 30)
-    rep.penalize_forgery("fednode-bad-actor")
-    rep.penalize_equivocation("fednode-bad-actor")
+        db.save_commit_record(
+            sequence_number=1,
+            epoch=1,
+            target_domain="evil-phishing.org",
+            reason=pb2.REASON_PHISHING,
+            quorum_proof={"proposal_id": "p-1", "signatures": []},
+        )
+        fw.block_domain("evil-phishing.org")
 
-    consensus = ConsensusEngine(cfg, db, fw, rep)
-    leader = LeaderManager(cfg, rep)
-    catchup = CatchupEngine(cfg, db, fw)
+        rep.penalize_forgery("fednode-bad-actor")
+        rep.penalize_equivocation("fednode-bad-actor")
 
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
-    service = FedConsensusService(cfg, db, rep, fw, consensus, leader, catchup)
-    pb2_grpc.add_FedConsensusServiceServicer_to_server(service, server)
-    server.add_insecure_port(f"127.0.0.1:{test_port}")
-    server.start()
-    time.sleep(0.5)
+        consensus = ConsensusEngine(cfg, db, fw, rep)
+        leader = LeaderManager(cfg, rep)
+        catchup = CatchupEngine(cfg, db, fw)
 
-    try:
-        # 1. fedctl status
-        args_status = MagicMock()
-        args_status.target = target_addr
-        args_status.timeout = 2.0
-        assert cmd_status(args_status) == 0
-        print("  [PASS] 1. fedctl status: Telemetry cleanly retrieved over gRPC")
+        server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
+        service = FedConsensusService(cfg, db, rep, fw, consensus, leader, catchup)
+        pb2_grpc.add_FedConsensusServiceServicer_to_server(service, server)
+        port = server.add_insecure_port("127.0.0.1:0")
+        target_addr = f"127.0.0.1:{port}"
+        server.start()
+        time.sleep(0.2)
 
-        # 2. fedctl peers
-        args_peers = MagicMock()
-        args_peers.target = target_addr
-        args_peers.timeout = 2.0
-        assert cmd_peers(args_peers) == 0
-        print("  [PASS] 2. fedctl peers: Reputation table parsed & QUARANTINED status flagged")
+        try:
+            self.assertEqual(cmd_status(MagicMock(target=target_addr, timeout=2.0)), 0)
+            self.assertEqual(cmd_peers(MagicMock(target=target_addr, timeout=2.0)), 0)
+            args_prop = MagicMock(
+                target=target_addr,
+                domain="malicious-crypto-bot.net",
+                reason="BOTNET",
+                timeout=2.0,
+            )
+            self.assertEqual(cmd_propose(args_prop), 1)
+        finally:
+            server.stop(grace=None)
 
-        # 3. fedctl propose (Cryptographic enforcement)
-        args_prop = MagicMock()
-        args_prop.target = target_addr
-        args_prop.domain = "malicious-crypto-bot.net"
-        args_prop.reason = "BOTNET"
-        args_prop.timeout = 2.0
-        # Unknown proposer key is rejected by BFT consensus audit (exit code 1)
-        assert cmd_propose(args_prop) == 1
-        print("  [PASS] 3. fedctl propose: BFT signature audit & proposal dispatch verified")
+    def test_kubernetes_manifests(self):
+        k8s_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "k8s"))
+        files = glob.glob(os.path.join(k8s_dir, "*.yaml"))
+        self.assertEqual(len(files), 4)
 
-    finally:
-        server.stop(grace=None)
+        manifests = {}
+        for path in files:
+            with open(path, "r", encoding="utf-8") as stream:
+                data = yaml.safe_load(stream)
+                self.assertIsNotNone(data)
+                manifests[os.path.basename(path)] = data
 
+        cm = manifests["configmap.yaml"]
+        self.assertEqual(cm["kind"], "ConfigMap")
+        self.assertEqual(cm["data"]["GRPC_PORT"], "50051")
+        self.assertIn("fednode-0.fedconsensus-mesh:50051", cm["data"]["PEER_ADDRESSES"])
 
-def verify_kubernetes_manifests():
-    """Verify Kubernetes manifest syntax and configuration."""
-    k8s_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "k8s"))
-    files = glob.glob(os.path.join(k8s_dir, "*.yaml"))
-    assert len(files) == 4, f"Expected 4 manifests, found {len(files)}"
+        svc = manifests["service-headless.yaml"]
+        self.assertEqual(svc["kind"], "Service")
+        self.assertEqual(svc["spec"]["clusterIP"], "None")
 
-    manifests = {}
-    for f in files:
-        basename = os.path.basename(f)
-        with open(f, "r", encoding="utf-8") as stream:
-            data = yaml.safe_load(stream)
-            assert data is not None, f"{basename} is empty!"
-            manifests[basename] = data
+        ss = manifests["statefulset.yaml"]
+        self.assertEqual(ss["kind"], "StatefulSet")
+        self.assertEqual(ss["spec"]["replicas"], 5)
+        self.assertEqual(ss["spec"]["serviceName"], "fedconsensus-mesh")
 
-    # 1. ConfigMap
-    cm = manifests["configmap.yaml"]
-    assert cm["kind"] == "ConfigMap"
-    assert cm["data"]["GRPC_PORT"] == "50051"
-    assert "fednode-0.fedconsensus-mesh:50051" in cm["data"]["PEER_ADDRESSES"]
-    print("  [PASS] 4. k8s ConfigMap: Headless DNS peer mesh & port topology verified")
+        container = ss["spec"]["template"]["spec"]["containers"][0]
+        node_id_env = next(e for e in container["env"] if e["name"] == "NODE_ID")
+        self.assertEqual(node_id_env["valueFrom"]["fieldRef"]["fieldPath"], "metadata.name")
 
-    # 2. Headless Service
-    svc = manifests["service-headless.yaml"]
-    assert svc["kind"] == "Service"
-    assert svc["spec"]["clusterIP"] == "None"
-    print("  [PASS] 5. k8s Headless Service: clusterIP=None verified for direct peer gRPC")
-
-    # 3. StatefulSet & Downward API & PVC
-    ss = manifests["statefulset.yaml"]
-    assert ss["kind"] == "StatefulSet"
-    assert ss["spec"]["replicas"] == 5
-    assert ss["spec"]["serviceName"] == "fedconsensus-mesh"
-
-    container = ss["spec"]["template"]["spec"]["containers"][0]
-    node_id_env = next(e for e in container["env"] if e["name"] == "NODE_ID")
-    assert node_id_env["valueFrom"]["fieldRef"]["fieldPath"] == "metadata.name"
-    print("  [PASS] 6. k8s StatefulSet: Downward API pod identity & 5 replicas verified")
-
-    vct = ss["spec"]["volumeClaimTemplates"][0]
-    assert vct["metadata"]["name"] == "data"
-    print("  [PASS] 7. k8s PVC Storage: volumeClaimTemplates configured for SQLite WAL durability")
-
-
-def run_phase4_verification():
-    temp_dir = tempfile.mkdtemp()
-    try:
-        verify_operator_cli(temp_dir)
-        verify_kubernetes_manifests()
-        print("CLI and Kubernetes infrastructure tests passed.")
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
+        vct = ss["spec"]["volumeClaimTemplates"][0]
+        self.assertEqual(vct["metadata"]["name"], "data")
 
 
 if __name__ == "__main__":
-    run_phase4_verification()
+    unittest.main()

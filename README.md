@@ -112,24 +112,10 @@ kubectl apply -f k8s/statefulset.yaml
 
 See [benchmarks/README.md](benchmarks/README.md) for running standalone performance benchmarks and generating charts.
 
-Run the verification suites from the repo root:
+Run the full test suite from the repo root with `unittest`:
 
 ```powershell
-# Component suites
-python tests/phase1/test_phase1_verification.py
-python tests/phase2/test_phase2_verification.py
-python tests/phase3/test_phase3_verification.py
-python tests/phase4/test_phase4_verification.py
-
-# Dashboard tests
-python tests/phase4/test_dashboard_verify.py
-python tests/phase4/test_dashboard_controls.py
-python tests/phase4/test_dashboard_node_verify.py
-node tests/phase4/test_dashboard_routes.cjs
-
-# End-to-end BFT and chaos scenarios
-python tests/end_to_end_testing/test_consensus.py
-python tests/end_to_end_testing/test_byzantine.py
-python tests/end_to_end_testing/test_scenarios.py
-python tests/end_to_end_testing/test_follower_threat_escalation.py
+python -m unittest discover -s tests -v
 ```
+
+`tests/end_to_end_testing/test_dashboard_interactions.py` runs against a live cluster on `http://127.0.0.1:8090` and skips automatically if the dashboard is not running. Individual test modules can also be run directly (for example, `python tests/end_to_end_testing/test_byzantine.py`), and the JS route check runs with `node tests/phase4/test_dashboard_routes.cjs`.

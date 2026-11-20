@@ -49,7 +49,7 @@ class ActivityPubInbox:
         # 1. Extract Sender Domain
         domain = self.extract_origin_domain(payload)
 
-        # 2. Perimeter Firewall Lookup (Sub-microsecond O(1))
+        # 2. Perimeter firewall lookup
         if self.firewall.is_blocked(domain):
             return 403, {
                 "error": "Forbidden: Domain has been defederated by cluster consensus",

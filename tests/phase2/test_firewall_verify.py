@@ -1,59 +1,47 @@
 import os
-import sys
 import shutil
+import sys
 import tempfile
+import unittest
 
-# Ensure project root is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from node.storage.database import Database
 from node.ingress.firewall import FirewallFilter
+from node.storage.database import Database
 from proto import fedconsensus_pb2 as pb2
 
 
-def test_firewall_filter_operations():
-    """Verify sub-microsecond in-memory set lookups, blocking, and reload sync."""
-    temp_dir = tempfile.mkdtemp()
-    db_path = os.path.join(temp_dir, "firewall_test.db")
-    try:
-        db = Database(db_path)
-        fw = FirewallFilter(db)
+class TestFirewallFilter(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.db = Database(os.path.join(self.temp_dir, "firewall_test.db"))
+        self.fw = FirewallFilter(self.db)
 
-        # 1. Initially empty
-        assert fw.count() == 0
-        assert fw.is_blocked("malware.com") is False
-        print("  [PASS] 1. Firewall initialized with empty in-memory filter")
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
 
-        # 2. Block domain in-memory
-        fw.block_domain("bad-actor.org")
-        assert fw.is_blocked("bad-actor.org") is True
-        # Case-insensitivity & whitespace normalization check
-        assert fw.is_blocked("  BAD-ACTOR.ORG  ") is True
-        assert fw.is_blocked("good-actor.org") is False
-        assert fw.count() == 1
-        print("  [PASS] 2. O(1) in-memory domain blocking and case-insensitive check verified")
+    def test_blocking_normalization_and_reload(self):
+        self.assertEqual(self.fw.count(), 0)
+        self.assertFalse(self.fw.is_blocked("malware.com"))
 
-        # 3. Dynamic reload from database
-        # Persist a ban to the database directly
-        db.save_commit_record(
+        self.fw.block_domain("bad-actor.org")
+        self.assertTrue(self.fw.is_blocked("bad-actor.org"))
+        self.assertTrue(self.fw.is_blocked("  BAD-ACTOR.ORG  "))
+        self.assertFalse(self.fw.is_blocked("good-actor.org"))
+        self.assertEqual(self.fw.count(), 1)
+
+        self.db.save_commit_record(
             sequence_number=1,
             epoch=1,
             target_domain="db-persisted-threat.net",
             reason=pb2.REASON_BOTNET,
-            quorum_proof={"signatures": []}
+            quorum_proof={"signatures": []},
         )
-        # Before reload, the new domain is not yet in RAM filter
-        assert fw.is_blocked("db-persisted-threat.net") is False
+        self.assertFalse(self.fw.is_blocked("db-persisted-threat.net"))
 
-        # Reload rules from SQLite WAL into RAM
-        fw.reload_rules()
-        assert fw.is_blocked("db-persisted-threat.net") is True
-        print("  [PASS] 3. Dynamic reload synchronization from SQLite WAL to RAM verified")
-
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
+        self.fw.reload_rules()
+        self.assertTrue(self.fw.is_blocked("db-persisted-threat.net"))
 
 
 if __name__ == "__main__":
-    test_firewall_filter_operations()
-    print("Firewall tests passed.")
+    unittest.main()
